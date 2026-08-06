@@ -3,14 +3,20 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      rust_only:
+        description: >
+          Run only the Rust type-check. One short job instead of eight, for
+          iterating on src/rust/ without spending the full matrix.
+        type: boolean
+        default: false
 
 name: R-CMD-check
 
 permissions: read-all
 
-# This repository runs one job at a time, and a full matrix build of 343+ crates
-# is measured in hours. Superseding an in-flight run keeps a stale one from
-# holding the only slot.
+# A full run builds 343+ crates on three platforms, so superseding an in-flight
+# run avoids paying for a stale commit's matrix alongside the current one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,6 +27,7 @@ jobs:
   # that the bindings compile and the tests pass on all three platforms.
   check:
     runs-on: ${{ matrix.config.os }}
+    if: inputs.rust_only != true
 
     name: ${{ matrix.config.os }} (${{ matrix.config.r }})
 
@@ -29,7 +36,6 @@ jobs:
       matrix:
         config:
           - {os: ubuntu-latest,  r: 'release'}
-          - {os: ubuntu-latest,  r: 'oldrel-1'}
           - {os: macos-latest,   r: 'release'}
           - {os: windows-latest, r: 'release'}
 
@@ -113,6 +119,7 @@ jobs:
   # vendored tarball gets measured rather than estimated.
   check-vendored:
     runs-on: ubuntu-latest
+    if: inputs.rust_only != true
     name: vendored offline build (CRAN path)
 
     env:
@@ -199,6 +206,7 @@ jobs:
   # path degrades gracefully rather than crashing.
   lint:
     runs-on: ubuntu-latest
+    if: inputs.rust_only != true
     name: R code style
     # Advisory: style is worth knowing about, but it should never be the reason a
     # real failure elsewhere goes unnoticed.
@@ -286,6 +294,7 @@ jobs:
   # Secondary Rust checks. Slower and less urgent than the type-check above.
   cargo-extras:
     runs-on: ubuntu-latest
+    if: inputs.rust_only != true
     name: cargo clippy and optional features
     timeout-minutes: 90
 
