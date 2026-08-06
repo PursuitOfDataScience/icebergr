@@ -43,20 +43,57 @@ if (status != 0L) {
   stop("`cargo vendor` failed with status ", status)
 }
 
-# Windows-only and other non-target crates still get vendored, and some ship
-# large test corpora that inflate the archive without ever being compiled.
-# Dropping test fixtures is safe and is what other Rust CRAN packages do.
-junk <- list.files(
+# Crates for other platforms still get vendored, and many ship test corpora far
+# larger than the code that is actually compiled. Dropping them is what keeps the
+# archive within reach of CRAN's size guidance; none of it is used by a build.
+#
+# Licence, notice and authorship files are never touched: they are required both
+# by Apache-2.0 and by CRAN, and LICENSE.note below is generated from them.
+prunable <- c(
+  "tests", "test", "examples", "example", "benches", "benchmarks", "fuzz",
+  ".github", ".circleci", "ci", "testdata", "test_data", "test-data",
+  "fixtures", "tests_data"
+)
+
+candidates <- list.files(
   vendor_dir,
-  pattern = "^(tests?|examples|benches|fuzz|\\.github)$",
+  pattern = paste0("^(", paste(gsub("\\.", "\\\\.", prunable), collapse = "|"), ")$"),
   recursive = TRUE,
   include.dirs = TRUE,
   full.names = TRUE
 )
-junk <- junk[dir.exists(junk)]
+candidates <- candidates[dir.exists(candidates)]
+
+# Belt and braces: never remove a directory that contains a licence-like file.
+keep_pattern <- "^(LICEN[CS]E|COPYING|COPYRIGHT|NOTICE|AUTHORS|PATENTS)"
+has_licence <- vapply(
+  candidates,
+  function(d) {
+    any(grepl(
+      keep_pattern,
+      list.files(d, recursive = TRUE),
+      ignore.case = TRUE
+    ))
+  },
+  logical(1)
+)
+
+junk <- candidates[!has_licence]
 if (length(junk)) {
-  message("Pruning ", length(junk), " test/example directories from vendor tree.")
+  before <- sum(file.size(list.files(vendor_dir, recursive = TRUE, full.names = TRUE)), na.rm = TRUE)
+  message("Pruning ", length(junk), " test/example/CI directories from vendor tree.")
   unlink(junk, recursive = TRUE)
+  after <- sum(file.size(list.files(vendor_dir, recursive = TRUE, full.names = TRUE)), na.rm = TRUE)
+  message(sprintf(
+    "Vendor tree: %.1f MB -> %.1f MB (%.1f MB pruned).",
+    before / 1024^2, after / 1024^2, (before - after) / 1024^2
+  ))
+}
+if (any(has_licence)) {
+  message(
+    "Kept ", sum(has_licence),
+    " otherwise-prunable directories because they contain licence files."
+  )
 }
 
 # `cargo vendor` writes checksums that include the files we just pruned, so they
@@ -92,6 +129,21 @@ n_crates <- length(list.dirs(vendor_dir, recursive = FALSE))
 message(sprintf(
   "Vendored %d crates into %s (%s MB).", n_crates, archive, format(size_mb)
 ))
+
+# Where the weight actually is. A size exemption request is far easier to make
+# with this list in hand than with a single total.
+crate_dirs <- list.dirs(vendor_dir, recursive = FALSE, full.names = TRUE)
+crate_size <- vapply(
+  crate_dirs,
+  function(d) sum(file.size(list.files(d, recursive = TRUE, full.names = TRUE)), na.rm = TRUE),
+  numeric(1)
+)
+top <- head(order(crate_size, decreasing = TRUE), 15L)
+message("\nLargest vendored crates (uncompressed):")
+for (i in top) {
+  message(sprintf("  %8.1f MB  %s", crate_size[[i]] / 1024^2, basename(crate_dirs[[i]])))
+}
+message("")
 if (size_mb > 10) {
   message(
     "NOTE: CRAN prefers source tarballs under 10 MB. At ", size_mb,
