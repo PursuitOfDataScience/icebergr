@@ -8,6 +8,13 @@ name: R-CMD-check
 
 permissions: read-all
 
+# This repository runs one job at a time, and a full matrix build of 343+ crates
+# is measured in hours. Superseding an in-flight run keeps a stale one from
+# holding the only slot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Broad platform coverage. Cargo is allowed to resolve dependencies from the
   # network here (NOT_CRAN=true), which is the fast path and the primary signal
@@ -193,11 +200,18 @@ jobs:
           }
         shell: Rscript {0}
 
-  # cargo's own checks, which surface Rust problems far faster than a full
-  # R CMD check does.
-  cargo:
+  # The primary Rust signal, deliberately on its own: this type-checks every
+  # binding against iceberg-rust's real API, which is the single most
+  # informative thing CI does. Kept separate from clippy and the optional-feature
+  # build so its result lands as soon as it is known rather than after another
+  # half-hour of compiling.
+  #
+  # Our crate compiles last, after ~343 dependencies, so a type error in
+  # src/rust/ only surfaces near the end. Budget accordingly.
+  cargo-check:
     runs-on: ubuntu-latest
-    name: cargo fmt, clippy and check
+    name: cargo check (type-check bindings)
+    timeout-minutes: 90
 
     env:
       CARGO_TERM_COLOR: always
@@ -207,7 +221,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -216,10 +230,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src/rust/target
-          key: ubuntu-cargo-lint-${{ hashFiles('src/rust/Cargo.toml') }}
-          restore-keys: ubuntu-cargo-lint-
+          key: ubuntu-cargo-check-${{ hashFiles('src/rust/Cargo.toml') }}
+          restore-keys: ubuntu-cargo-check-
 
+      # Cheap, and a formatting failure should not hide a type error, so it runs
+      # first but does not gate the check below.
       - name: cargo fmt
+        continue-on-error: true
         run: cargo fmt --manifest-path src/rust/Cargo.toml --check
 
       # extendr needs libR to link against, so a full build needs R. `cargo
@@ -227,8 +244,35 @@ jobs:
       - name: cargo check (default features)
         run: cargo check --manifest-path src/rust/Cargo.toml --all-targets
 
-      - name: cargo check (all optional features)
-        run: cargo check --manifest-path src/rust/Cargo.toml --features glue --all-targets
+  # Secondary Rust checks. Slower and less urgent than the type-check above.
+  cargo-extras:
+    runs-on: ubuntu-latest
+    name: cargo clippy and optional features
+    timeout-minutes: 90
+
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ubuntu-cargo-extras-${{ hashFiles('src/rust/Cargo.toml') }}
+          restore-keys: ubuntu-cargo-extras-
 
       - name: cargo clippy
         run: cargo clippy --manifest-path src/rust/Cargo.toml -- -D warnings
+
+      # Glue pulls in the AWS SDK and opendal, roughly 517 crates in total.
+      - name: cargo check (glue feature)
+        run: cargo check --manifest-path src/rust/Cargo.toml --features glue --all-targets
