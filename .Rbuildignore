@@ -11,6 +11,7 @@
 ^pkgdown$
 ^data-raw$
 ^FEASIBILITY\.md$
+^DEVELOPMENT\.md$
 ^\.git$
 ^\.gitignore$
 ^icebergr\.Rcheck$
