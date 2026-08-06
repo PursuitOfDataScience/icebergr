@@ -1,0 +1,263 @@
+# `iceberg` for R — pre-implementation feasibility report
+
+**Date:** 2026-08-06
+**Author:** Youzhi Yu
+**Status:** Blocking findings. Recommend a change of distribution target before writing bindings.
+
+This report is the output of the "BEFORE WRITING ANY CODE" step: verify the
+premise, read the current CRAN policy on Rust, and establish what
+`iceberg-rust` actually supports today. Two of those checks came back negative
+in ways that change the plan, so no binding code has been written yet.
+
+---
+
+## 1. The premise checks out
+
+| Claim | Verdict | Evidence |
+| --- | --- | --- |
+| No Apache-governed Iceberg client for R | **Confirmed** | Apache maintains Java, Python (PyIceberg), Rust and Go implementations. No R implementation exists in the ASF. |
+| `iceberg` is free as a CRAN package name | **Confirmed available** | Never published to CRAN. `riceberg` and `icebergr` are also free. See caveat in §6 on how this was checked. |
+| Iceberg is the industry standard table format | Confirmed | Snowflake, Databricks, BigQuery, AWS and Dremio have all standardised on it. |
+| Parquet is well served in R; Delta Lake has a community Rust binding | Confirmed | `arrow` and `nanoarrow` are both on CRAN. |
+
+The README hook — *"R is the only major data language without an Apache Iceberg
+client"* — is accurate and worth keeping.
+
+## 2. Licensing: compatible, with conditions
+
+`iceberg-rust` is **Apache-2.0** (`license = "Apache-2.0"` in the workspace
+manifest; `LICENSE` is the Apache 2.0 text; the repo carries a `NOTICE` file).
+
+Apache-2.0 is **one-way compatible with GPL-3.0**: Apache-2.0 code may be
+incorporated into a GPL-3.0 work, and the combined work is distributed under
+GPL-3. It is *not* compatible with GPL-2.0, which is why `GPL (>= 3)` — the
+house style — is the correct choice and `GPL (>= 2)` would not be.
+
+Conditions that come with it, all of which are routine:
+
+- Preserve the upstream `NOTICE` content and the Apache-2.0 licence text.
+- Enumerate the authorship and licence of **every vendored crate**. The
+  established CRAN pattern is a top-level `LICENSE.note` file; `polars` shipped
+  a 52 KB one. For our dependency tree this file will be large (see §4).
+- Apache-2.0's patent grant and attribution clauses survive into the combined
+  work.
+
+No blocker here.
+
+## 3. `iceberg-rust` feature audit (pinned at v0.10.0, released 2026-07-07)
+
+Read directly from the upstream source tree at commit `f28ae7d`.
+
+**Supported, and a good fit for the intended v0.1.0 surface:**
+
+| v0.1.0 need | Upstream API | Status |
+| --- | --- | --- |
+| Predicate pushdown | `TableScanBuilder::with_filter(Predicate)` | Available |
+| Projection pushdown | `TableScanBuilder::select(cols)` / `select_all` | Available |
+| Time travel by snapshot | `TableScanBuilder::snapshot_id(i64)` | Available |
+| Arrow interchange | `TableScan::to_arrow() -> ArrowRecordBatchStream` | Available |
+| Append-only writes | `transaction/append.rs` | Available |
+| Catalog listing | `list_namespaces`, `list_tables`, `load_table` | Available |
+| Row-group / row-level scan pruning | `with_row_group_filtering_enabled`, `with_row_selection_enabled` | Available — this is the real pushdown win |
+| Snapshot history | `table.metadata().snapshots()` | Available |
+
+Also present upstream, beyond our scope: `expire_snapshots`, `update_schema`,
+`update_properties`, `sort_order`, `update_location`,
+`upgrade_format_version`, Puffin, encryption, delete-vector *reads*.
+
+**Not supported upstream — must be documented as unsupported, not left to fail obscurely:**
+
+- **MERGE / UPDATE / row-level DELETE writes.** No path through the transaction
+  API. Copy-on-Write and Merge-on-Read are an open upstream epic. (Already on
+  the "do not build" list — but the reason is upstream absence, not just scope.)
+- **Compaction and maintenance operations.**
+- **Partition evolution.**
+- **No row `limit` in the scan builder.** `iceberg_scan(limit=)` cannot be
+  pushed down; it has to be applied R-side after the Arrow stream. This must be
+  documented, because a `limit` that looks like pushdown but isn't is a
+  performance trap.
+- **No `as_of` timestamp on the scan builder.** Timestamp-based time travel has
+  to be implemented in R by resolving the timestamp against snapshot history to
+  a `snapshot_id`. Straightforward, but it is our code, not upstream's.
+
+### 3a. There is no Hadoop catalog — this breaks the planned test strategy
+
+The v0.1.0 API in the plan specifies `iceberg_catalog(type = c("rest", "glue",
+"hadoop"))`, and the testing requirement is a bundled fixture using a *"hadoop
+catalog on local filesystem"*.
+
+**`iceberg-rust` has no `HadoopCatalog` and no filesystem catalog.** The
+catalogs that exist are:
+
+`MemoryCatalog` (in the core crate), `rest`, `glue`, `hms`, `sql`, `s3tables`.
+
+The offline-fixture requirement is still satisfiable, and cleanly:
+`Catalog::register_table(&ident, metadata_location)` exists, so a tiny Iceberg
+table can be committed to `inst/` and registered into a `MemoryCatalog` whose
+warehouse points at the bundled directory. That gives fully offline tests with
+no network and no credentials. The `sql` catalog (SQLite-backed) would persist
+the catalog mapping too, but it drags in `sqlx` and materially increases an
+already-fatal dependency count (§4).
+
+**Consequence for the public API:** `type=` should be
+`c("rest", "glue", "memory")` — advertising `"hadoop"` would promise something
+the backend cannot do.
+
+## 4. CRAN + Rust: the blocking finding
+
+CRAN's current policy (`Using Rust in CRAN packages`, plus the Repository
+Policy) requires, as of today:
+
+- All Rust dependencies **vendored into the package**, conventionally as
+  `src/rust/vendor.tar.xz`.
+- **No network access during the build.** Cargo must not download or check out
+  any source at build time.
+- **Authorship and copyright for all Rust code, including dependencies**,
+  recorded in the package.
+- `CARGO_HOME` confined to the build directory, and cargo's job count pinned
+  (`-j2`) because cargo otherwise defaults to all logical CPUs, exceeding
+  policy.
+- Source tarballs **should not exceed 10 MB**; a "modestly increased limit" can
+  be requested at submission.
+
+The policy permits Rust. The problem is arithmetic.
+
+### 4a. Dependency weight
+
+Transitive closure computed from the upstream `Cargo.lock`, excluding
+dev-dependencies:
+
+| Configuration | Vendorable crates |
+| --- | --- |
+| `iceberg` core alone | **343** |
+| `iceberg` + REST catalog | **347** |
+| `iceberg` + REST + Glue + opendal storage | **517** |
+
+343 is the **floor**, not a starting point to optimise from: `iceberg`'s
+`[features] default = []` is already empty, and `tokio`, `reqwest`, `parquet`,
+the eight `arrow-*` crates and `apache-avro` are all unconditional
+dependencies of the core crate. There is no feature-flag configuration that
+gets this materially smaller.
+
+Now compare against what CRAN has actually accepted. Measured from the released
+sources of every vendoring Rust package I could find on CRAN:
+
+| CRAN package | Version | Vendored crates | `vendor.tar.xz` | Published |
+| --- | --- | --- | --- | --- |
+| `b64` | 0.1.7 | 14 | 0.76 MB | 2025-07-14 |
+| `awdb` | 0.1.3 | 23 | 1.15 MB | 2025-08-23 |
+| `rsgeo` | 0.1.7 | 107 | 8.31 MB | 2024-07-10 |
+| `prqlr` | 0.10.1 | 117 | 9.37 MB | 2025-03-28 |
+| `arcgisgeocode` | 0.4.0 | 108 | **13.64 MB** | 2025-10-07 |
+
+The observed ceiling is ~110 crates and ~13.6 MB — and 13.6 MB is already an
+approved over-limit exception. Our floor is **343 crates, 3× that count**, and
+the tree is composed of much heavier crates than any in the table above:
+`arrow-*` and `parquet`, `apache-avro`, `tokio`, `rustls` with either `ring` or
+`aws-lc-sys` (which alone carries tens of MB of vendored C and assembly), and
+`zstd-sys` (bundled zstd C source).
+
+A defensible estimate for `vendor.tar.xz` is **35–60 MB**, i.e. three to five
+times the largest exception CRAN has ever granted. I could not measure this
+exactly — see §6 — but the crate count is exact and the direction is not in
+doubt.
+
+### 4b. Rolling MSRV
+
+`iceberg-rust` v0.10.0 requires **rustc 1.94** and **edition 2024**, and the
+project states an explicit *rolling* MSRV policy: "at least three months from
+latest rust release is supported. MSRV is updated when we release
+iceberg-rust." The 0.10.0 release notes include "chore: Bump MSRV to 1.94".
+
+Edition 2024 alone needs rustc ≥ 1.85. rustc 1.94 dates from March 2026.
+CRAN's build machines run distribution-packaged toolchains that lag well
+behind, and a dependency whose floor moves every release is structurally
+hostile to a repository that rebuilds old packages against fixed toolchains
+for years. Pinning an older `iceberg-rust` reduces the MSRV but forfeits the
+features and bug fixes this package exists to expose.
+
+### 4c. The closest precedent points away from CRAN
+
+`polars` — the nearest comparable, being a heavy Rust + Arrow binding — *was*
+on CRAN, at version 0.7.0, published 2023-07-17. Its `src/Makevars` runs a
+bare `cargo build` with **no vendored dependencies at all**, i.e. it downloaded
+from crates.io at build time. That is squarely disallowed under current policy,
+the package is no longer on CRAN, and r-polars is distributed via r-universe
+today. It is a precedent for *how this fails*, not for how it succeeds.
+
+### 4d. Verdict
+
+**Shipping `iceberg-rust` bindings to CRAN is not achievable today.** Not
+because the Rust policy forbids Rust — it explicitly accommodates it — but
+because the intersection of the 10 MB tarball guidance with a 343-crate
+Arrow/Parquet/Tokio dependency floor, and of CRAN's fixed old toolchains with
+a rolling 1.94 MSRV, leaves no viable configuration.
+
+This is a real finding and it is better to have it now than after the bindings
+are written.
+
+## 5. Recommendation
+
+Build the package, but retarget distribution:
+
+1. **Primary target: r-universe + GitHub install.** This is where r-polars
+   landed for exactly these reasons. Vendoring is unnecessary, the toolchain is
+   current, and the whole v0.1.0 API is achievable.
+2. **Keep the CRAN-facing build system anyway** — `configure`/`configure.win`,
+   `src/Makevars{,.win}`, `-j2`, confined `CARGO_HOME`, `--offline` — so that
+   the package is submission-ready if and when the dependency situation
+   improves. This costs little and preserves the option.
+3. **Do the vendoring and the three-platform `R CMD check` in CI**, where the
+   network exists. CI becomes the verification harness, and it will produce the
+   real `vendor.tar.xz` size, replacing my estimate with a measurement.
+4. **Correct the API surface**: `type = c("rest", "glue", "memory")`, no
+   `"hadoop"`. Document `limit` as post-scan and `as_of` as R-resolved.
+5. Pin `iceberg-rust = "0.10.0"` and state the supported Iceberg spec version
+   in both `DESCRIPTION` and README, per the plan.
+
+## 6. What I could not verify, and why
+
+This session's container has a restrictive network egress policy. It permits
+GitHub, and denies everything else relevant here. Verified by direct probe:
+
+| Host | Result | Consequence |
+| --- | --- | --- |
+| `index.crates.io`, `static.crates.io`, `crates.io` | 403 *"Host not in allowlist"* | **`cargo vendor` is impossible. No Rust code can be compiled or tested.** |
+| `cran.r-project.org`, `cloud.r-project.org`, `cran.rstudio.com` | blocked | Policy pages unreadable directly; `available.packages()` unavailable |
+| `archive.ubuntu.com` | 403 | `apt-get install r-base-dev` fails |
+| `conda.anaconda.org`, `prefix.dev`, `r-universe.dev` | blocked | No alternative route to an R installation |
+| `github.com`, `codeload.github.com` | OK | Upstream source audit in §3 was done this way |
+
+So, concretely:
+
+- **R is not installed and cannot be installed here.** The name-availability
+  check in §1 was therefore *not* done with `available.packages()`. It was done
+  with `git ls-remote` against the `cran/<pkg>` GitHub mirror org, which
+  mirrors every CRAN package including archived ones. `cran/iceberg`,
+  `cran/riceberg` and `cran/icebergr` do not exist, while control probes
+  (`cran/tidyEmoji`, `cran/arrow`, `cran/nanoarrow`) do. A package that never
+  existed cannot have a stale mirror entry, so "available" is a safe
+  conclusion; **it should still be reconfirmed with `available.packages()`
+  before submission.**
+- **The CRAN policy requirements in §4 were assembled from search-result
+  extracts of `using_rust.html` and the Repository Policy, not from fetching
+  the pages.** They match the policy as I understand it, but the exact current
+  wording should be re-read directly before submission.
+- **The 35–60 MB vendor estimate is an estimate.** The 343/347/517 crate counts
+  are exact, computed from upstream's `Cargo.lock`; the comparison table in §4a
+  is exact, measured from the packages' own released sources. Only the
+  extrapolation to our tarball size is inferred.
+- **No Rust or R code in this repository has been compiled, run, or checked**,
+  because neither toolchain can reach its package registry from here. The
+  "Definition of done" — `R CMD check` clean on Windows, macOS and Linux, with
+  round-trip and time-travel tests passing — **cannot be met in this
+  environment** and must be met in CI.
+
+## 7. Open decision
+
+The plan's own instruction was to stop and report if the policy makes this
+infeasible. It is infeasible for CRAN today, though for reasons of dependency
+weight and MSRV rather than policy text. The engineering is sound and the
+feature audit is favourable; only the distribution target needs to change.
+
+Awaiting a decision on §5 before writing bindings.
