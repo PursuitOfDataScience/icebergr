@@ -93,6 +93,21 @@ jobs:
           build_args: 'c("--no-manual", "--no-build-vignettes")'
           args: 'c("--no-manual", "--as-cran")'
 
+      # When the install step fails, R CMD check only says "see 00install.out"
+      # — and that file is inside the uploaded artefact, not the log. For a
+      # package whose install compiles Rust, the compiler errors are the whole
+      # point, so print them.
+      - name: Show install log on failure
+        if: failure()
+        shell: bash
+        run: |
+          for f in check/*.Rcheck/00install.out check/*.Rcheck/00check.log; do
+            if [ -f "$f" ]; then
+              echo "===================== $f ====================="
+              cat "$f"
+            fi
+          done
+
   # The CRAN-shaped path: vendor every crate, then build with no network access
   # at all. This is what would actually be submitted, and it is also where the
   # vendored tarball gets measured rather than estimated.
@@ -160,6 +175,17 @@ jobs:
           )
         shell: Rscript {0}
 
+      - name: Show install log on failure
+        if: failure()
+        shell: bash
+        run: |
+          for f in check/*.Rcheck/00install.out check/*.Rcheck/00check.log; do
+            if [ -f "$f" ]; then
+              echo "===================== $f ====================="
+              cat "$f"
+            fi
+          done
+
       - name: Upload check results
         if: failure()
         uses: actions/upload-artifact@v4
@@ -185,19 +211,24 @@ jobs:
         with:
           use-public-rspm: true
 
+      # roxygen2 is needed even though nothing is documented here: styler styles
+      # the code inside roxygen @examples blocks and errors without it, leaving
+      # `changed` full of NAs.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::styler
+          extra-packages: any::styler, any::roxygen2
           needs: styler
 
       - name: Check R code style
         run: |
           changed <- styler::style_pkg(dry = "on")
-          if (any(changed$changed)) {
+          unstyled <- which(!is.na(changed$changed) & changed$changed)
+          if (length(unstyled)) {
             cat("These files are not styled:\n")
-            cat(paste0("  ", changed$file[changed$changed], collapse = "\n"), "\n")
+            cat(paste0("  ", changed$file[unstyled], collapse = "\n"), "\n")
             quit(status = 1)
           }
+          cat("All files are styled.\n")
         shell: Rscript {0}
 
   # The primary Rust signal, deliberately on its own: this type-checks every
@@ -219,6 +250,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # R is required even for `cargo check`: extendr-api's build script reads
+      # R_HOME to generate its bindings, and panics with a bare
+      # `VarError::NotPresent` if R is absent. Not a linking requirement -- a
+      # build-script one.
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -239,8 +278,8 @@ jobs:
         continue-on-error: true
         run: cargo fmt --manifest-path src/rust/Cargo.toml --check
 
-      # extendr needs libR to link against, so a full build needs R. `cargo
-      # check` type-checks without linking, which is the useful part here.
+      # `cargo check` type-checks without linking, which is the fast way to find
+      # mistakes in our own bindings.
       - name: cargo check (default features)
         run: cargo check --manifest-path src/rust/Cargo.toml --all-targets
 
@@ -255,6 +294,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # As above: extendr-api's build script needs R_HOME even for cargo check.
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
 
       - uses: dtolnay/rust-toolchain@stable
         with:

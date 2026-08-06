@@ -38,10 +38,15 @@ imply that this is an ASF-governed client, which it is not. See the NOTICE file.
 
 ## Distribution
 
-Not on CRAN. The vendored Rust dependency tree for `iceberg-rust` is 343 crates
-before any optional catalog is added, against an observed CRAN ceiling of
-roughly 110 crates, and `iceberg-rust` requires a rustc newer than CRAN's build
-machines provide under a deliberately rolling MSRV policy. The package
-nonetheless ships a CRAN-shaped build system (vendored, offline, `-j2`) so that
-submission stays possible if that changes. See `FEASIBILITY.md` for the full
-analysis.
+CRAN is the intended destination, and the build system is built for it:
+vendored dependencies, offline builds, `-j2`, a confined `CARGO_HOME`, and a
+per-crate `LICENSE.note`. CI exercises that exact submission path on every
+commit.
+
+Two open items before submitting. The vendored tree is 343 crates before any
+optional catalog, against a largest-accepted precedent of 108 crates and 13.6 MB
+— so a size exemption request will be needed, and `tools/vendor.R` reports the
+measured figure it would rest on. And `iceberg-rust` 0.10.0 requires rustc 1.94
+under a rolling MSRV; if CRAN's machines are older, pinning 0.9.1 drops the
+requirement to 1.92 at the cost of one API. See `FEASIBILITY.md` and the README's
+CRAN status section.

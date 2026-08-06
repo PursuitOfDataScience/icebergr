@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-06
 **Author:** Youzhi Yu
-**Status:** Blocking findings on distribution and naming. Approach retained; CRAN target dropped.
+**Status:** CRAN remains the target. Two quantitative obstacles identified (vendored size, MSRV) with routes through both; naming changed for trademark reasons. Approach retained.
 
 This report is the output of the "BEFORE WRITING ANY CODE" step: verify the
 premise, read the current CRAN policy on Rust, and establish what
@@ -132,13 +132,13 @@ table can be committed to `inst/` and registered into a `MemoryCatalog` whose
 warehouse points at the bundled directory. That gives fully offline tests with
 no network and no credentials. The `sql` catalog (SQLite-backed) would persist
 the catalog mapping too, but it drags in `sqlx` and materially increases an
-already-fatal dependency count (§4).
+already-large dependency count (§4).
 
 **Consequence for the public API:** `type=` should be
 `c("rest", "glue", "memory")` — advertising `"hadoop"` would promise something
 the backend cannot do.
 
-## 4. CRAN + Rust: the blocking finding
+## 4. CRAN + Rust: the two quantitative obstacles
 
 CRAN's current policy (`Using Rust in CRAN packages`, plus the Repository
 Policy) requires, as of today:
@@ -222,33 +222,54 @@ today. It is a precedent for *how this fails*, not for how it succeeds.
 
 ### 4d. Verdict
 
-**Shipping `iceberg-rust` bindings to CRAN is not achievable today.** Not
-because the Rust policy forbids Rust — it explicitly accommodates it — but
-because the intersection of the 10 MB tarball guidance with a 343-crate
-Arrow/Parquet/Tokio dependency floor, and of CRAN's fixed old toolchains with
-a rolling 1.94 MSRV, leaves no viable configuration.
+Neither obstacle is a policy prohibition — CRAN explicitly accommodates Rust.
+Both are quantities, and quantities can be negotiated or reduced.
 
-This is a real finding and it is better to have it now than after the bindings
-are written.
+**As currently pinned, a submission would face two objections.** A vendored tree
+around 3× the largest ever accepted, and a `rustc` requirement that may exceed
+what CRAN's machines carry. Neither has been *tested* against CRAN; both are
+inferred, one of them (§6) from an assumption I could not check.
 
-## 5. Recommendation
+Restated as work rather than as a verdict:
 
-Build the package, but retarget distribution:
+| Obstacle | Status | What resolves it |
+| --- | --- | --- |
+| Vendored size | 343 crates; tarball size being measured in CI | Aggressive pruning of the vendor tree, then a size exemption request built on the measured figure rather than an estimate |
+| MSRV 1.94 | Unconfirmed whether CRAN has it | Confirm CRAN's `rustc`; if short, pin `iceberg-rust` 0.9.1 for MSRV 1.92 (see §5) |
 
-1. **Primary target: r-universe + GitHub install.** This is where r-polars
-   landed for exactly these reasons. Vendoring is unnecessary, the toolchain is
-   current, and the whole v0.1.0 API is achievable.
-2. **Keep the CRAN-facing build system anyway** — `configure`/`configure.win`,
-   `src/Makevars{,.win}`, `-j2`, confined `CARGO_HOME`, `--offline` — so that
-   the package is submission-ready if and when the dependency situation
-   improves. This costs little and preserves the option.
-3. **Do the vendoring and the three-platform `R CMD check` in CI**, where the
-   network exists. CI becomes the verification harness, and it will produce the
-   real `vendor.tar.xz` size, replacing my estimate with a measurement.
-4. **Correct the API surface**: `type = c("rest", "glue", "memory")`, no
+## 5. Route to CRAN
+
+CRAN is the destination. The sequence:
+
+1. **Keep the build system CRAN-shaped and continuously exercised.**
+   `configure`/`configure.win`, `src/Makevars{,.win}.in`, `-j2`, confined
+   `CARGO_HOME`, `--offline`, `LICENSE.note`. The `check-vendored` CI job runs
+   precisely the submission path on every commit, so it cannot rot between
+   attempts.
+2. **Measure, then minimise, the vendored tarball.** `tools/vendor.R` prunes
+   tests, examples, benchmarks and fixtures while preserving every licence file,
+   and reports the resulting size. Replace the 35–60 MB estimate in §4a with the
+   measured number before deciding anything.
+3. **Confirm CRAN's Rust toolchain version.** This is the single unverified input
+   to the whole MSRV argument. If 1.94 is available, obstacle 2 evaporates.
+4. **If it is not, pin down the MSRV ladder** — measured from upstream tags:
+
+   | `iceberg-rust` | MSRV | Cost |
+   | --- | --- | --- |
+   | 0.10.0 (current pin) | 1.94 | — |
+   | 0.9.1 | 1.92 | Loses `CatalogBuilder::with_runtime`; the runtime is inherited from the calling context, which is where `block_on` already puts us. Cheap. |
+   | 0.8.0 | 1.88 | Predates the storage-factory refactor; needs real binding changes |
+
+   Edition 2024 needs only 1.85, so the edition is not the binding constraint.
+5. **Submit with the size justification prepared.** `cran-comments.md` carries a
+   draft of it: why the tree cannot be trimmed by feature flags, what pruning
+   already removes, and the precedent that an over-limit tarball has been
+   accepted before.
+6. **Correct the API surface**: `type = c("rest", "glue", "memory")`, no
    `"hadoop"`. Document `limit` as post-scan and `as_of` as R-resolved.
-5. Pin `iceberg-rust = "0.10.0"` and state the supported Iceberg spec version
-   in both `DESCRIPTION` and README, per the plan.
+7. **Distribute via r-universe or GitHub in the meantime**, so users are not
+   blocked on the submission timeline. That is a staging area, not the
+   destination.
 
 ## 6. What I could not verify, and why
 
@@ -278,6 +299,11 @@ So, concretely:
   extracts of `using_rust.html` and the Repository Policy, not from fetching
   the pages.** They match the policy as I understand it, but the exact current
   wording should be re-read directly before submission.
+- **I could not check what `rustc` version CRAN's build machines actually run.**
+  §4b asserts they lag behind 1.94; that is an inference from how distributions
+  package Rust, not a measurement, and it is the single unverified input to the
+  entire MSRV objection. If CRAN has 1.94, that obstacle does not exist. Confirm
+  it before acting on the MSRV ladder in §5.
 - **The 35–60 MB vendor estimate is an estimate.** The 343/347/517 crate counts
   are exact, computed from upstream's `Cargo.lock`; the comparison table in §4a
   is exact, measured from the packages' own released sources. Only the
