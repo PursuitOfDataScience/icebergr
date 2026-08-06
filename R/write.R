@@ -1,0 +1,185 @@
+# Append-only writes, plus the minimum needed to bring a table into existence.
+
+#' Create a namespace
+#'
+#' @param catalog An `icebergr_catalog` from [icebergr_catalog()].
+#' @param namespace The namespace to create. Accepts `"db"` or `c("a", "b")`.
+#'
+#' @return `catalog`, invisibly.
+#'
+#' @examples
+#' warehouse <- tempfile("warehouse")
+#' dir.create(warehouse)
+#' catalog <- icebergr_catalog("memory", warehouse = warehouse)
+#' icebergr_create_namespace(catalog, "db")
+#' icebergr_list_namespaces(catalog)
+#' @export
+icebergr_create_namespace <- function(catalog, namespace) {
+  check_catalog(catalog)
+  rs_create_namespace(catalog$ptr, as_namespace(namespace))
+  invisible(catalog)
+}
+
+#' Create an Iceberg table
+#'
+#' The table's schema is taken from `data`, so an existing data frame is enough
+#' to define one. Iceberg field ids are assigned automatically, since a data
+#' frame has no concept of them.
+#'
+#' @param catalog An `icebergr_catalog` from [icebergr_catalog()].
+#' @param table A table identifier, `"namespace.table"`. The namespace must
+#'   already exist; see [icebergr_create_namespace()].
+#' @param data A data frame whose columns define the schema. No rows are written;
+#'   only the column names and types are used. An Arrow schema is also accepted.
+#' @param location Where to store the table. `NULL` lets the catalog decide,
+#'   which is almost always what you want.
+#'
+#' @return An `icebergr_table` handle for the new, empty table.
+#'
+#' @details
+#' The table is created unpartitioned. Partitioned table creation, like partition
+#' evolution, is out of scope for this version; see [icebergr_spec_support()].
+#'
+#' @examples
+#' warehouse <- tempfile("warehouse")
+#' dir.create(warehouse)
+#' catalog <- icebergr_catalog("memory", warehouse = warehouse)
+#' icebergr_create_namespace(catalog, "db")
+#'
+#' tbl <- icebergr_create_table(
+#'   catalog, "db.events",
+#'   data.frame(id = integer(), amount = double(), label = character())
+#' )
+#' icebergr_schema(tbl)
+#' @export
+icebergr_create_table <- function(catalog, table, data, location = NULL) {
+  check_catalog(catalog)
+  check_string(location, "location")
+  ident <- parse_identifier(table)
+
+  if (!is.data.frame(data) && !inherits(data, "nanoarrow_schema")) {
+    abort("`data` must be a data frame, or an Arrow schema.")
+  }
+
+  # The schema object has to outlive the call: Rust only borrows it.
+  holder <- export_schema(data)
+  ptr <- rs_create_table(
+    catalog$ptr, ident$namespace, ident$name, holder$addr, location
+  )
+  new_icebergr_table(ptr, catalog)
+}
+
+#' Register an existing table with a catalog
+#'
+#' Points a catalog at a table that already exists on disk, by giving it the
+#' table's metadata file. This is how a warehouse directory becomes visible to an
+#' in-process `memory` catalog, which keeps no persistent registry of its own.
+#'
+#' @param catalog An `icebergr_catalog` from [icebergr_catalog()].
+#' @param table A table identifier, `"namespace.table"`, to register it under.
+#' @param metadata_location Path to the table's `metadata.json`.
+#'
+#' @return An `icebergr_table` handle.
+#'
+#' @examples
+#' \dontrun{
+#' catalog <- icebergr_catalog("memory", warehouse = "/data/warehouse")
+#' icebergr_create_namespace(catalog, "db")
+#' tbl <- icebergr_register_table(
+#'   catalog, "db.events",
+#'   "/data/warehouse/db/events/metadata/v3.metadata.json"
+#' )
+#' }
+#' @export
+icebergr_register_table <- function(catalog, table, metadata_location) {
+  check_catalog(catalog)
+  check_string(metadata_location, "metadata_location", allow_null = FALSE)
+  ident <- parse_identifier(table)
+
+  if (!file.exists(metadata_location)) {
+    abort(paste0(
+      "No metadata file at ", encodeString(metadata_location, quote = "\""), "."
+    ))
+  }
+
+  ptr <- rs_register_table(
+    catalog$ptr, ident$namespace, ident$name,
+    normalizePath(metadata_location, mustWork = TRUE)
+  )
+  new_icebergr_table(ptr, catalog)
+}
+
+#' Append rows to an Iceberg table
+#'
+#' Writes `data` as one or more new Parquet data files and commits a new
+#' snapshot. Nothing already in the table is rewritten or removed.
+#'
+#' @param tbl An `icebergr_table` from [icebergr_table()].
+#' @param data A data frame, or anything [nanoarrow::as_nanoarrow_array_stream()]
+#'   accepts, such as an Arrow Table.
+#' @param compression Parquet compression: `"zstd"` (the default), `"snappy"`,
+#'   `"gzip"`, `"lz4"` or `"uncompressed"`.
+#' @param properties Optional named character vector recorded in the new
+#'   snapshot's summary, for provenance. Do not put credentials here: snapshot
+#'   summaries are stored in table metadata and are readable by anyone who can
+#'   read the table.
+#'
+#' @return An updated `icebergr_table` handle that sees the new snapshot. The
+#'   handle passed in is unchanged, so reassign it: `tbl <- icebergr_append(tbl, x)`.
+#'
+#' @details
+#' Columns are matched to the table by *name*, not position, so column order in
+#' `data` does not matter. Types are cast where they differ from the table's, and
+#' a column the table does not have is an error rather than being dropped
+#' silently.
+#'
+#' Appending zero rows is a no-op: it returns the table unchanged rather than
+#' committing an empty snapshot.
+#'
+#' This is an append. Row-level deletes, overwrites and MERGE are not supported;
+#' see [icebergr_spec_support()].
+#'
+#' @examples
+#' warehouse <- tempfile("warehouse")
+#' dir.create(warehouse)
+#' catalog <- icebergr_catalog("memory", warehouse = warehouse)
+#' icebergr_create_namespace(catalog, "db")
+#'
+#' events <- data.frame(id = 1:3, amount = c(1.5, 2.5, 3.5))
+#' tbl <- icebergr_create_table(catalog, "db.events", events)
+#' tbl <- icebergr_append(tbl, events)
+#' icebergr_collect(tbl)
+#' @export
+icebergr_append <- function(tbl,
+                            data,
+                            compression = c("zstd", "snappy", "gzip", "lz4", "uncompressed"),
+                            properties = NULL) {
+  check_table(tbl)
+  compression <- match.arg(compression)
+
+  keys <- character()
+  values <- character()
+  if (!is.null(properties)) {
+    if (!is.character(properties) || is.null(names(properties)) ||
+      any(!nzchar(names(properties))) || anyNA(properties)) {
+      abort("`properties` must be a fully named character vector without NAs.")
+    }
+    keys <- names(properties)
+    values <- unname(properties)
+  }
+
+  if (is.data.frame(data) && nrow(data) == 0L) {
+    warn("`data` has no rows; the table is unchanged and no snapshot was committed.")
+  }
+
+  # The stream must outlive the call: Rust drains it during the append.
+  holder <- export_stream(data)
+  ptr <- rs_table_append(
+    tbl = tbl$ptr,
+    stream_addr = holder$addr,
+    compression = compression,
+    property_keys = keys,
+    property_values = values
+  )
+  new_icebergr_table(ptr, tbl$catalog)
+}

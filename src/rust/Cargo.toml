@@ -1,0 +1,70 @@
+[package]
+name = "icebergr"
+publish = false
+version = "0.1.0"
+edition = "2024"
+# Tracks iceberg-rust's MSRV, which is a rolling target. Keep this in sync with
+# SystemRequirements in ../../DESCRIPTION; tools/msrv.R reads that field.
+rust-version = "1.94"
+
+[lib]
+crate-type = ["staticlib"]
+name = "icebergr"
+
+[features]
+default = []
+# Object storage support. Pulls in opendal, which is a substantial subtree, so
+# it is opt-in: a local-filesystem warehouse and a REST catalog serving local
+# paths work without it.
+s3 = ["dep:iceberg-storage-opendal"]
+# AWS Glue support. Adds the AWS SDK on top of opendal, roughly doubling the
+# dependency count, so it is opt-in too. Without it,
+# icebergr_catalog(type = "glue") returns an informative error rather than
+# failing at link time.
+glue = ["dep:iceberg-catalog-glue", "s3"]
+
+[dependencies]
+extendr-api = "0.9"
+
+# Pinned deliberately. iceberg-rust is under active development with breaking
+# changes between minor versions; see ../../FEASIBILITY.md.
+iceberg = "=0.10.0"
+iceberg-catalog-rest = "=0.10.0"
+iceberg-catalog-glue = { version = "=0.10.0", optional = true }
+iceberg-storage-opendal = { version = "=0.10.0", optional = true }
+
+# Must match the arrow version iceberg-rust builds against, or the Arrow types
+# are distinct at the type level and nothing lines up. The "ffi" feature is what
+# provides the C stream interface used to hand batches to R.
+arrow = { version = "58.4", default-features = false, features = ["ffi"] }
+arrow-array = "58.4"
+arrow-schema = "58.4"
+# Appending a data frame means casting R's Arrow types onto the table's, so the
+# cast kernels are a direct dependency rather than relying on arrow's features.
+arrow-cast = "58.4"
+parquet = "58.4"
+
+futures = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+chrono = "0.4"
+uuid = "1"
+
+# Filters arrive from R as a small JSON predicate tree, because iceberg-rust has
+# no expression parser: predicates must be constructed programmatically.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# iceberg-rust depends on reqwest with default-features = false and no TLS
+# backend at all, so HTTPS to a REST catalog needs one selected here. rustls
+# with the platform trust store avoids an OpenSSL build dependency while still
+# honouring corporate CAs that data platform endpoints often sit behind.
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls-native-roots",
+] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+# Note: panic must stay "unwind". extendr converts Rust panics into R errors
+# with catch_unwind, and "abort" would take the R session down instead.

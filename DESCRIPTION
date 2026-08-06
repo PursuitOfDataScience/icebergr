@@ -1,0 +1,50 @@
+Package: icebergr
+Type: Package
+Title: Read and Write Apache Iceberg Tables
+Version: 0.1.0
+Authors@R:
+    c(person(given = "Youzhi",
+             family = "Yu",
+             role = c("aut", "cre"),
+             email = "yuyouzhi666@icloud.com"),
+      person(given = "The Apache Software Foundation",
+             role = c("cph"),
+             comment = "iceberg-rust, bundled under Apache License 2.0"))
+Description: A native client for 'Apache Iceberg', the open table format used by
+    'Snowflake', 'Databricks', 'BigQuery', 'AWS' and 'Dremio'. R has otherwise
+    been able to read 'Iceberg' tables only by routing through 'DuckDB' as an
+    intermediary, which rules out writes, snapshot management and catalog
+    integration. This package talks to 'Iceberg' directly: it connects to REST
+    and 'AWS Glue' catalogs, lists namespaces and tables, reads table schemas
+    and partition specifications, scans data with predicate and projection
+    pushdown, travels back through snapshot history, and appends new data.
+    'Apache Arrow' is the interchange layer throughout, so scan results arrive
+    in R without a serialisation round trip. Built on 'iceberg-rust', the
+    Apache-governed 'Rust' implementation, via 'extendr'. Supports table spec
+    versions 1 and 2; see the README for the full matrix of supported and
+    unsupported features. This is a community package, not affiliated with or
+    endorsed by The Apache Software Foundation; 'Apache', 'Apache Iceberg' and
+    'Iceberg' are trademarks of The Apache Software Foundation.
+License: GPL (>= 3)
+URL: https://github.com/PursuitOfDataScience/iceberg
+BugReports: https://github.com/PursuitOfDataScience/iceberg/issues
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends:
+    R (>= 4.2)
+Imports:
+    nanoarrow (>= 0.4.0),
+    rlang (>= 1.1.0),
+    tibble
+Suggests:
+    arrow,
+    dplyr,
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    withr
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+SystemRequirements: Cargo (Rust's package manager), rustc >= 1.94, xz
+NeedsCompilation: yes

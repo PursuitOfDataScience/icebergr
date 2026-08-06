@@ -1,0 +1,5 @@
+# Rtools42 and later do not place the linker where cargo's windows-gnu target
+# expects it, so it is named explicitly here.
+CARGO_LINKER = x86_64-w64-mingw32.static.posix-gcc.exe
+
+include Makevars.win
