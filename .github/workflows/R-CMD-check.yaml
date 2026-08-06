@@ -1,0 +1,234 @@
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+name: R-CMD-check
+
+permissions: read-all
+
+jobs:
+  # Broad platform coverage. Cargo is allowed to resolve dependencies from the
+  # network here (NOT_CRAN=true), which is the fast path and the primary signal
+  # that the bindings compile and the tests pass on all three platforms.
+  check:
+    runs-on: ${{ matrix.config.os }}
+
+    name: ${{ matrix.config.os }} (${{ matrix.config.r }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: ubuntu-latest,  r: 'release'}
+          - {os: ubuntu-latest,  r: 'oldrel-1'}
+          - {os: macos-latest,   r: 'release'}
+          - {os: windows-latest, r: 'release'}
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+      NOT_CRAN: true
+      # Cargo defaults to every logical CPU, which is more than a CI runner
+      # should use and more than CRAN permits.
+      CARGO_BUILD_JOBS: 2
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ matrix.config.r }}
+          http-user-agent: ${{ matrix.config.http-user-agent }}
+          use-public-rspm: true
+
+      # R on Windows links against the mingw-w64 toolchain, so the Rust side has
+      # to be built for the gnu target rather than the default msvc one.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'Windows' && 'x86_64-pc-windows-gnu' || '' }}
+
+      - name: Report toolchain versions
+        run: |
+          rustc --version
+          cargo --version
+        shell: bash
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src/rust/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck, any::roxygen2
+          needs: check
+
+      # man/ is generated, not committed: the .Rd files are derived from the
+      # roxygen comments and regenerating them here keeps the two from drifting.
+      - name: Generate documentation
+        run: roxygen2::roxygenise(load_code = "source")
+        shell: Rscript {0}
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          upload-snapshots: true
+          build_args: 'c("--no-manual", "--no-build-vignettes")'
+          args: 'c("--no-manual", "--as-cran")'
+
+  # The CRAN-shaped path: vendor every crate, then build with no network access
+  # at all. This is what would actually be submitted, and it is also where the
+  # vendored tarball gets measured rather than estimated.
+  check-vendored:
+    runs-on: ubuntu-latest
+    name: vendored offline build (CRAN path)
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      CARGO_BUILD_JOBS: 2
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck, any::roxygen2
+          needs: check
+
+      - name: Generate documentation
+        run: roxygen2::roxygenise(load_code = "source")
+        shell: Rscript {0}
+
+      # Needs the network; everything after this point must not.
+      - name: Vendor Rust dependencies
+        run: Rscript tools/vendor.R
+
+      - name: Report vendored size
+        run: |
+          set -e
+          ls -la src/rust/vendor.tar.xz
+          size_mb=$(du -m src/rust/vendor.tar.xz | cut -f1)
+          crates=$(grep -c '^Name:' LICENSE.note || echo "unknown")
+          echo "### Vendored dependencies" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`vendor.tar.xz\`: ${size_mb} MB" >> "$GITHUB_STEP_SUMMARY"
+          echo "- crates: ${crates}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- CRAN guidance is 10 MB; the largest exception granted to date is 13.6 MB." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$size_mb" -gt 10 ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "This exceeds CRAN's preferred limit. See FEASIBILITY.md." >> "$GITHUB_STEP_SUMMARY"
+          fi
+        shell: bash
+
+      # NOT_CRAN is deliberately unset, so configure passes --offline to cargo
+      # and the build fails if anything tries to reach the network.
+      - name: Check with vendored, offline build
+        run: |
+          options(crayon.enabled = TRUE)
+          rcmdcheck::rcmdcheck(
+            args = c("--no-manual", "--as-cran"),
+            build_args = c("--no-manual"),
+            error_on = "warning",
+            check_dir = "check"
+          )
+        shell: Rscript {0}
+
+      - name: Upload check results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendored-check-results
+          path: check
+          retention-days: 7
+
+  # The filter translator and argument checking are pure R. Running them without
+  # a Rust build gives a fast signal, and proves the "Rust artefacts missing"
+  # path degrades gracefully rather than crashing.
+  lint:
+    runs-on: ubuntu-latest
+    name: R code style
+    # Advisory: style is worth knowing about, but it should never be the reason a
+    # real failure elsewhere goes unnoticed.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::styler
+          needs: styler
+
+      - name: Check R code style
+        run: |
+          changed <- styler::style_pkg(dry = "on")
+          if (any(changed$changed)) {
+            cat("These files are not styled:\n")
+            cat(paste0("  ", changed$file[changed$changed], collapse = "\n"), "\n")
+            quit(status = 1)
+          }
+        shell: Rscript {0}
+
+  # cargo's own checks, which surface Rust problems far faster than a full
+  # R CMD check does.
+  cargo:
+    runs-on: ubuntu-latest
+    name: cargo fmt, clippy and check
+
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ubuntu-cargo-lint-${{ hashFiles('src/rust/Cargo.toml') }}
+          restore-keys: ubuntu-cargo-lint-
+
+      - name: cargo fmt
+        run: cargo fmt --manifest-path src/rust/Cargo.toml --check
+
+      # extendr needs libR to link against, so a full build needs R. `cargo
+      # check` type-checks without linking, which is the useful part here.
+      - name: cargo check (default features)
+        run: cargo check --manifest-path src/rust/Cargo.toml --all-targets
+
+      - name: cargo check (all optional features)
+        run: cargo check --manifest-path src/rust/Cargo.toml --features glue --all-targets
+
+      - name: cargo clippy
+        run: cargo clippy --manifest-path src/rust/Cargo.toml -- -D warnings

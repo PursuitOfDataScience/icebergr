@@ -44,12 +44,6 @@ pub fn not_compiled_in(what: &str, feature: &str) -> RError {
     ))
 }
 
-/// An error for a feature that iceberg-rust itself does not implement.
-pub fn unsupported_upstream(what: &str) -> RError {
-    RError::Other(format!(
-        "{what} is not supported.\n\
-         iceberg-rust 0.10.0, which icebergr is built on, does not implement \
-         it. See icebergr_spec_support() for the full matrix of what is and is \
-         not available."
-    ))
-}
+// Gaps in iceberg-rust itself are reported from R rather than from here: see
+// icebergr_spec_support(), which can describe them without a round trip into
+// Rust and without the caller having to trigger the failure first.

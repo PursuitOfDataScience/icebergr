@@ -100,11 +100,14 @@ fn rs_create_table(
 
     let ns = NamespaceIdent::from_vec(namespace).map_err(|e| ctx("invalid namespace", e))?;
 
-    let mut creation = TableCreation::builder().name(name.to_string()).schema(schema);
-    if let NotNull(loc) = location {
-        creation = creation.location(loc);
-    }
-    let creation = creation.build();
+    // location_opt rather than a conditional .location(): TypedBuilder encodes
+    // which fields are set in the builder's type, so a chain cannot be built up
+    // conditionally.
+    let creation = TableCreation::builder()
+        .name(name.to_string())
+        .schema(schema)
+        .location_opt(location.into_option())
+        .build();
 
     let table = block_on(cat.inner.create_table(&ns, creation))
         .map_err(|e| ctx(&format!("could not create table {name:?}"), e))?;

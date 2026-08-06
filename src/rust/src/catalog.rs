@@ -2,7 +2,7 @@
 //!
 //! Three catalog kinds are reachable from R: `rest`, `memory` and `glue`.
 //! `memory` is an in-process catalog over a warehouse directory, which is what
-//! makes fully offline use -- and the bundled test fixture -- possible.
+//! makes fully offline use -- and the entire test suite -- possible.
 //!
 //! Note that iceberg-rust has no Hadoop or filesystem catalog, so there is
 //! deliberately no `hadoop` option here; `memory` is the local-warehouse
@@ -21,7 +21,10 @@ use iceberg::memory::MemoryCatalogBuilder;
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent};
 use iceberg_catalog_rest::RestCatalogBuilder;
 
-use crate::errors::{RResult, config_err, ctx, not_compiled_in};
+// not_compiled_in is referenced by full path below: whether it is used at all
+// depends on which optional features are enabled, and an import that is unused
+// under some feature combinations is a warning we would rather not have.
+use crate::errors::{RResult, config_err, ctx};
 use crate::runtime::{block_on, iceberg_runtime};
 
 /// A live catalog connection, handed to R as an external pointer.
@@ -49,7 +52,7 @@ fn s3_factory() -> RResult<Arc<dyn StorageFactory>> {
 
 #[cfg(not(feature = "s3"))]
 fn s3_factory() -> RResult<Arc<dyn StorageFactory>> {
-    Err(not_compiled_in("Object storage (S3) access", "s3"))
+    Err(crate::errors::not_compiled_in("Object storage (S3) access", "s3"))
 }
 
 /// Choose the storage backend.
@@ -109,7 +112,7 @@ fn connect_glue(
     _factory: Option<Arc<dyn StorageFactory>>,
     _keys: &[String],
 ) -> RResult<Arc<dyn Catalog>> {
-    Err(not_compiled_in("The AWS Glue catalog", "glue"))
+    Err(crate::errors::not_compiled_in("The AWS Glue catalog", "glue"))
 }
 
 #[extendr]

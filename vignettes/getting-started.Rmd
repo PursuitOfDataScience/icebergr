@@ -1,0 +1,258 @@
+---
+title: "Getting started with icebergr"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with icebergr}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+Every example here runs offline against a table built on your own machine. No
+catalog server, no network, no credentials.
+
+```{r setup}
+library(icebergr)
+```
+
+## What this package is for
+
+Iceberg is the open table format that Snowflake, Databricks, BigQuery, AWS and
+Dremio have all standardised on. Apache maintains clients for Java, Python, Rust
+and Go — but not R, which has been able to read Iceberg tables only by routing
+through DuckDB. That rules out writes, snapshot management, schema access and
+catalog integration.
+
+`icebergr` binds `iceberg-rust` directly. Arrow is the interchange layer, so
+scan results arrive in R without a serialisation round trip.
+
+## A table to work with
+
+`icebergr_example_table()` builds a real Iceberg table in a temporary warehouse
+directory: two appends, so there is history to travel through and more than one
+data file for a filter to prune.
+
+```{r}
+tbl <- icebergr_example_table(rows = 200)
+tbl
+```
+
+It is generated rather than shipped because Iceberg records absolute paths in its
+metadata and its Avro manifests — a table built on one machine does not resolve
+on another.
+
+## Inspecting a table
+
+```{r}
+icebergr_schema(tbl)
+```
+
+`type` is the Iceberg type, not the R type. The mapping to R happens on read.
+
+An unpartitioned table returns zero partition fields:
+
+```{r}
+icebergr_partitions(tbl)
+```
+
+## Reading
+
+`icebergr_scan()` describes a read; `icebergr_collect()` performs it.
+
+```{r}
+icebergr_collect(icebergr_scan(tbl, limit = 5))
+```
+
+Scanning the whole table is common enough to have a shorthand:
+
+```{r}
+nrow(icebergr_collect(tbl))
+```
+
+### Pushdown
+
+`filter` and `select` are pushed into scan planning. This is the entire
+performance argument for Iceberg over reading raw Parquet: manifests carry
+per-file statistics, so whole files and row groups are eliminated before any
+bytes are read.
+
+```{r}
+icebergr_collect(
+  icebergr_scan(
+    tbl,
+    filter = id > 1000 & amount > 900,
+    select = c("id", "event", "amount")
+  )
+)
+```
+
+Filters may use `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `|`, `!`, `%in%`,
+`is.na()`, `is.nan()` and `startsWith()`. A bare name is read as a column when
+the table has one of that name, and otherwise evaluated in the calling
+environment:
+
+```{r}
+threshold <- 1400
+icebergr_collect(icebergr_scan(tbl, filter = id > threshold, select = "id"))
+```
+
+Anything more elaborate is refused rather than quietly ignored, so you always
+know whether a filter was pushed down:
+
+```{r, error = TRUE}
+icebergr_collect(icebergr_scan(tbl, filter = sqrt(amount) > 10))
+```
+
+### Verifying that pushdown happened
+
+Comparing results proves nothing: a filter applied in R afterwards gives the same
+rows. What distinguishes pushdown is how much was planned to be read.
+
+```{r}
+icebergr_scan_plan(icebergr_scan(tbl))[, c("record_count", "file_size_in_bytes")]
+```
+
+```{r}
+icebergr_scan_plan(icebergr_scan(tbl, filter = id > 1000))[, c("record_count")]
+```
+
+Fewer files, and fewer records, than the table holds.
+
+### One caveat about `limit`
+
+`limit` is **not** pushdown. `iceberg-rust` has no row limit in its scan API, so
+the same files are planned and rows are counted as batches arrive. It bounds how
+much is decoded, not how much is planned. `print()` says so:
+
+```{r}
+icebergr_scan(tbl, filter = id > 1000, limit = 10)
+```
+
+## Time travel
+
+Every write creates a snapshot.
+
+```{r}
+history <- icebergr_snapshots(tbl)
+history[, c("snapshot_id", "operation", "added_records", "total_records")]
+```
+
+Snapshot ids are **character**, not numeric. Iceberg assigns them as random
+64-bit integers, and an R numeric carries only 53 bits, so passing one through a
+double would silently select the wrong snapshot.
+
+Read an earlier state by id:
+
+```{r}
+nrow(icebergr_collect(icebergr_scan(tbl, snapshot_id = history$snapshot_id[[1]])))
+```
+
+Or by time, which is resolved against the history to the snapshot that was
+current at that moment:
+
+```{r}
+nrow(icebergr_collect(icebergr_scan(tbl, as_of = history$timestamp[[1]])))
+```
+
+## Writing
+
+Writes are append-only. Nothing already in the table is rewritten or removed.
+
+```{r}
+new_rows <- data.frame(
+  id = c(9001L, 9002L),
+  event = c("purchase", "refund"),
+  amount = c(42.5, -12.25),
+  day = as.Date(c("2024-07-01", "2024-07-02")),
+  recorded_at = as.POSIXct(c("2024-07-01 09:00:00", "2024-07-02 10:30:00"), tz = "UTC")
+)
+
+tbl <- icebergr_append(tbl, new_rows)
+nrow(icebergr_collect(tbl))
+```
+
+`icebergr_append()` returns an *updated* handle rather than mutating the old one,
+so reassign it. The old handle still reads the older snapshot, which is
+occasionally useful and never surprising.
+
+Columns are matched by name, not position, so order does not matter. A column the
+table does not have is an error rather than a silent drop:
+
+```{r, error = TRUE}
+icebergr_append(tbl, transform(new_rows, unexpected = 1))
+```
+
+### Creating a table
+
+A data frame is enough to define a schema. Only the column names and types are
+used; no rows are written.
+
+```{r}
+warehouse <- tempfile("warehouse")
+dir.create(warehouse)
+
+catalog <- icebergr_catalog("memory", warehouse = warehouse)
+icebergr_create_namespace(catalog, "analytics")
+
+measurements <- data.frame(
+  sensor = character(),
+  reading = double(),
+  taken_at = as.POSIXct(character(), tz = "UTC")
+)
+
+sensors <- icebergr_create_table(catalog, "analytics.measurements", measurements)
+icebergr_schema(sensors)
+```
+
+## Type fidelity
+
+Most R types survive unchanged. The exception worth knowing is `factor`: Iceberg
+has no dictionary type, so levels cannot be carried and values come back as
+`character`.
+
+```{r}
+types <- data.frame(
+  i = 1L,
+  d = 1.5,
+  s = "text",
+  b = TRUE,
+  day = as.Date("2024-01-01"),
+  ts = as.POSIXct("2024-01-01 12:00:00", tz = "UTC"),
+  f = factor("a", levels = c("a", "b"))
+)
+
+type_tbl <- icebergr_create_table(catalog, "analytics.types", types)
+type_tbl <- icebergr_append(type_tbl, types)
+
+vapply(icebergr_collect(type_tbl), function(x) class(x)[[1]], character(1))
+```
+
+## Knowing what is not supported
+
+`icebergr` 0.1.0 is deliberately narrow. Rather than discovering a gap at
+runtime, ask:
+
+```{r}
+support <- icebergr_spec_support()
+support$spec_versions
+```
+
+```{r}
+features <- support$features
+unsupported <- !is.na(features$supported) & !features$supported
+features[unsupported, c("feature", "reason")]
+```
+
+Some of those are absent from `iceberg-rust` itself, not just from this package;
+the `reason` column says which.
+
+## Where next
+
+`vignette("catalog-configuration")` covers connecting to REST catalogs, AWS Glue
+and object storage, and how credentials are handled.

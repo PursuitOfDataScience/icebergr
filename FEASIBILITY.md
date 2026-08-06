@@ -1,13 +1,17 @@
-# `iceberg` for R — pre-implementation feasibility report
+# `icebergr` for R — pre-implementation feasibility report
 
 **Date:** 2026-08-06
 **Author:** Youzhi Yu
-**Status:** Blocking findings. Recommend a change of distribution target before writing bindings.
+**Status:** Blocking findings on distribution and naming. Approach retained; CRAN target dropped.
 
 This report is the output of the "BEFORE WRITING ANY CODE" step: verify the
 premise, read the current CRAN policy on Rust, and establish what
-`iceberg-rust` actually supports today. Two of those checks came back negative
-in ways that change the plan, so no binding code has been written yet.
+`iceberg-rust` actually supports today. Several of those checks came back
+negative in ways that changed the plan.
+
+Sections 1–7 are the report as written before implementation. **Section 8 is an
+addendum recording what turned out to be wrong once the package was built** —
+kept separate rather than edited in, so the original reasoning stays auditable.
 
 ---
 
@@ -22,6 +26,37 @@ in ways that change the plan, so no binding code has been written yet.
 
 The README hook — *"R is the only major data language without an Apache Iceberg
 client"* — is accurate and worth keeping.
+
+## 1a. The name has to change: `iceberg` is a trademark problem
+
+Separate from licensing, and more restrictive. ASF trademark policy states that
+*"third parties may not use Apache trademarks in the primary or secondary
+branding of any third party product or service names"*, and that a third party
+*"may not apply trademarks to your derivative works ... that are confusingly
+similar to 'ProjectName' or 'Apache ProjectName'."* Nominative use — describing
+what the software works with — **is** permitted.
+
+A CRAN package named exactly `iceberg` is the mark itself as primary branding.
+It is also actively misleading here: the ASF governs the Java, Python, Rust and
+Go clients, so a bare `iceberg` on CRAN reads as the official R one. `arrow` and
+`duckdb` are bare on CRAN because they *are* the official packages, maintained by
+their respective projects. We do not have that standing.
+
+`icebergr` was chosen. It still incorporates the mark, which is not risk-free —
+note that `pyiceberg` is an *official* ASF project, so the `<lang> + mark` pattern
+can read as ASF ownership rather than distance from it. Mitigations applied:
+
+- `NOTICE` carries an explicit trademark attribution and a disclaimer of
+  affiliation, and states that this is not one of the official clients.
+- The same disclaimer appears in `DESCRIPTION`, the README and the package
+  documentation.
+- The Title uses the mark only nominatively: "Read and Write Apache Iceberg
+  Tables".
+
+**Recommended before any public release:** email `trademarks@apache.org`
+describing the package and the name, and keep the reply. A distinct name not
+containing the mark at all (`icefloe` and similar) would carry no trademark risk,
+at the cost of discoverability that the Title largely recovers anyway.
 
 ## 2. Licensing: compatible, with conditions
 
@@ -261,3 +296,72 @@ weight and MSRV rather than policy text. The engineering is sound and the
 feature audit is favourable; only the distribution target needs to change.
 
 Awaiting a decision on §5 before writing bindings.
+
+---
+
+## 8. Addendum: corrections found during implementation
+
+Three claims in the sections above turned out to be wrong. They are recorded here
+rather than silently edited above.
+
+### 8a. A bundled Iceberg table is not relocatable (corrects §3a)
+
+Section 3a proposed committing a tiny Iceberg table to `inst/` and registering it
+into a `MemoryCatalog` with `register_table()`. That does not work.
+
+An Iceberg table records **absolute** paths — in its metadata JSON, and again
+inside its Avro manifests. A table committed to the package would carry the build
+machine's paths and stop resolving the moment it was installed anywhere else.
+Rewriting them is not practical: the metadata is JSON, but the manifests are Avro,
+and patching path strings inside Avro from R is not something to build a test
+suite on.
+
+The fixture is therefore **generated on demand** by `icebergr_example_table()`,
+which builds a real two-snapshot table into a warehouse directory under
+`tempdir()`. This keeps every requirement that mattered — a real Iceberg table,
+fully offline, no catalog server, no credentials, usable from any install
+location — and drops only the idea that the bytes could be committed.
+`register_table()` is still exported, because it is exactly what a user needs to
+re-attach an on-disk table to a `memory` catalog between sessions.
+
+### 8b. Delete files *are* applied on read (corrects §3)
+
+Section 3 listed reads of merge-on-read tables as unsupported. That was wrong, and
+wrong in the dangerous direction: it would have told users their reads might be
+silently incomplete when in fact they are correct.
+
+`iceberg-rust` applies both positional and equality deletes during scanning —
+`crates/iceberg/src/arrow/reader/pipeline.rs` calls `load_deletes()` and builds a
+row selection from the delete vector, and `delete_filter.rs` carries a full
+equality-delete predicate path. Reading a table that another engine performs
+deletes on returns the correct rows.
+
+What remains genuinely absent upstream is **writing** row-level deletes: no
+MERGE, UPDATE or DELETE. The read/write asymmetry is the accurate statement, and
+is what the README and `icebergr_spec_support()` now say.
+
+### 8c. The name, not just the licence (adds to §2)
+
+The licence question (§2) was the one originally asked, and Apache-2.0 into
+GPL-3 is fine. The **trademark** question is separate and more restrictive; see
+§1a. The package is `icebergr`, not `iceberg`.
+
+### Status of the build
+
+`iceberg-rust`'s API was read directly from the pinned upstream source, and every
+call used in `src/rust/` was checked against it: `MemoryCatalogBuilder`,
+`RestCatalogBuilder`, `TableScanBuilder`, `Transaction::fast_append`, the
+`DataFileWriter` stack, `Reference`/`Datum` predicate construction,
+`register_table`, `plan_files`, and `LocalFsStorageFactory`.
+
+That is not the same as compiling it. Nothing in this repository has been built or
+run: the container this was written in cannot reach crates.io — so `cargo vendor`
+and `cargo build` are both impossible — and R cannot be installed, because the
+Ubuntu archive and every CRAN mirror are blocked by the egress policy. See §6.
+
+CI is therefore the first real verification, and `.github/workflows/R-CMD-check.yaml`
+is built for that job: `cargo fmt`/`clippy`/`check` for fast Rust feedback,
+`R CMD check` on Linux, macOS and Windows, and a separate vendored offline build
+that reproduces the CRAN path and reports the real `vendor.tar.xz` size —
+replacing the 35–60 MB estimate in §4a with a measurement. Expect the first runs
+to be red.

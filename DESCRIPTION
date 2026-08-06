@@ -39,6 +39,7 @@ Imports:
     tibble
 Suggests:
     arrow,
+    bit64,
     dplyr,
     knitr,
     rmarkdown,
