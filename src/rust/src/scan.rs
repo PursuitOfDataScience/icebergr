@@ -121,7 +121,9 @@ fn configure(
         .with_row_group_filtering_enabled(row_group_filtering)
         .with_row_selection_enabled(row_selection);
 
-    builder.build().map_err(|e| ctx("could not plan the scan", e))
+    builder
+        .build()
+        .map_err(|e| ctx("could not plan the scan", e))
 }
 
 /// The schema to report when a scan yields no batches at all.

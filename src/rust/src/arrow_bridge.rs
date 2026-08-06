@@ -99,7 +99,8 @@ impl Iterator for BlockingBatchReader {
         let stream = self.stream.as_mut()?;
         match block_on(stream.next()) {
             Some(Ok(batch)) => {
-                self.rows.fetch_add(batch.num_rows() as u64, Ordering::Relaxed);
+                self.rows
+                    .fetch_add(batch.num_rows() as u64, Ordering::Relaxed);
                 Some(Ok(batch))
             }
             Some(Err(e)) => {

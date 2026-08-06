@@ -49,7 +49,11 @@ fn rs_table_open(
     let ident = table_ident(namespace, name)?;
     let table = block_on(cat.inner.load_table(&ident)).map_err(|e| {
         ctx(
-            &format!("could not open table {}.{}", ident.namespace().as_ref().join("."), name),
+            &format!(
+                "could not open table {}.{}",
+                ident.namespace().as_ref().join("."),
+                name
+            ),
             e,
         )
     })?;
@@ -130,8 +134,11 @@ fn rs_register_table(
     metadata_location: &str,
 ) -> RResult<ExternalPtr<RTable>> {
     let ident = table_ident(namespace, name)?;
-    let table = block_on(cat.inner.register_table(&ident, metadata_location.to_string()))
-        .map_err(|e| ctx(&format!("could not register table {name:?}"), e))?;
+    let table = block_on(
+        cat.inner
+            .register_table(&ident, metadata_location.to_string()),
+    )
+    .map_err(|e| ctx(&format!("could not register table {name:?}"), e))?;
     Ok(ExternalPtr::new(RTable {
         catalog: cat.inner.clone(),
         table,
@@ -226,7 +233,10 @@ fn rs_table_snapshots(tbl: ExternalPtr<RTable>) -> List {
     let mut snapshots: Vec<_> = metadata.snapshots().collect();
     snapshots.sort_by_key(|s| s.timestamp_ms());
 
-    let ids: Vec<String> = snapshots.iter().map(|s| s.snapshot_id().to_string()).collect();
+    let ids: Vec<String> = snapshots
+        .iter()
+        .map(|s| s.snapshot_id().to_string())
+        .collect();
     let parents: Vec<Rstr> = snapshots
         .iter()
         .map(|s| match s.parent_snapshot_id() {
@@ -234,13 +244,19 @@ fn rs_table_snapshots(tbl: ExternalPtr<RTable>) -> List {
             None => Rstr::na(),
         })
         .collect();
-    let seqs: Vec<f64> = snapshots.iter().map(|s| s.sequence_number() as f64).collect();
+    let seqs: Vec<f64> = snapshots
+        .iter()
+        .map(|s| s.sequence_number() as f64)
+        .collect();
     let ts: Vec<f64> = snapshots.iter().map(|s| s.timestamp_ms() as f64).collect();
     let ops: Vec<String> = snapshots
         .iter()
         .map(|s| s.summary().operation.as_str().to_string())
         .collect();
-    let manifests: Vec<String> = snapshots.iter().map(|s| s.manifest_list().to_string()).collect();
+    let manifests: Vec<String> = snapshots
+        .iter()
+        .map(|s| s.manifest_list().to_string())
+        .collect();
     let schema_ids: Vec<Rint> = snapshots
         .iter()
         .map(|s| match s.schema_id() {

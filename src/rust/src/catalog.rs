@@ -52,7 +52,10 @@ fn s3_factory() -> RResult<Arc<dyn StorageFactory>> {
 
 #[cfg(not(feature = "s3"))]
 fn s3_factory() -> RResult<Arc<dyn StorageFactory>> {
-    Err(crate::errors::not_compiled_in("Object storage (S3) access", "s3"))
+    Err(crate::errors::not_compiled_in(
+        "Object storage (S3) access",
+        "s3",
+    ))
 }
 
 /// Choose the storage backend.
@@ -74,7 +77,9 @@ fn storage_factory(
     };
 
     match resolved {
-        "local" => Ok(Some(Arc::new(LocalFsStorageFactory) as Arc<dyn StorageFactory>)),
+        "local" => Ok(Some(
+            Arc::new(LocalFsStorageFactory) as Arc<dyn StorageFactory>
+        )),
         "s3" => s3_factory().map(Some),
         "default" => Ok(None),
         other => Err(extendr_api::Error::Other(format!(
@@ -112,7 +117,10 @@ fn connect_glue(
     _factory: Option<Arc<dyn StorageFactory>>,
     _keys: &[String],
 ) -> RResult<Arc<dyn Catalog>> {
-    Err(crate::errors::not_compiled_in("The AWS Glue catalog", "glue"))
+    Err(crate::errors::not_compiled_in(
+        "The AWS Glue catalog",
+        "glue",
+    ))
 }
 
 #[extendr]
@@ -127,8 +135,7 @@ fn rs_catalog_connect(
         return Err("internal error: property keys and values differ in length".into());
     }
 
-    let props: HashMap<String, String> =
-        keys.iter().cloned().zip(values.into_iter()).collect();
+    let props: HashMap<String, String> = keys.iter().cloned().zip(values.into_iter()).collect();
     let warehouse = props.get("warehouse").cloned();
     let factory = storage_factory(storage, warehouse.as_deref())?;
 
@@ -200,8 +207,8 @@ fn rs_list_namespaces(cat: ExternalPtr<RCatalog>, parent: Vec<String>) -> RResul
 #[extendr]
 fn rs_list_tables(cat: ExternalPtr<RCatalog>, namespace: Vec<String>) -> RResult<Vec<String>> {
     let ns = NamespaceIdent::from_vec(namespace).map_err(|e| ctx("invalid namespace", e))?;
-    let found = block_on(cat.inner.list_tables(&ns))
-        .map_err(|e| ctx("could not list tables", e))?;
+    let found =
+        block_on(cat.inner.list_tables(&ns)).map_err(|e| ctx("could not list tables", e))?;
     Ok(found.iter().map(|t| t.name().to_string()).collect())
 }
 

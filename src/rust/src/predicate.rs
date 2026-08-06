@@ -21,27 +21,71 @@ use crate::errors::{RResult, ctx};
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Node {
-    And { args: Vec<Node> },
-    Or { args: Vec<Node> },
-    Not { arg: Box<Node> },
+    And {
+        args: Vec<Node>,
+    },
+    Or {
+        args: Vec<Node>,
+    },
+    Not {
+        arg: Box<Node>,
+    },
     #[serde(rename = "always_true")]
     AlwaysTrue,
     #[serde(rename = "always_false")]
     AlwaysFalse,
-    Eq { col: String, value: Json },
-    Ne { col: String, value: Json },
-    Lt { col: String, value: Json },
-    Lte { col: String, value: Json },
-    Gt { col: String, value: Json },
-    Gte { col: String, value: Json },
-    StartsWith { col: String, value: Json },
-    NotStartsWith { col: String, value: Json },
-    IsNull { col: String },
-    IsNotNull { col: String },
-    IsNan { col: String },
-    IsNotNan { col: String },
-    In { col: String, values: Vec<Json> },
-    NotIn { col: String, values: Vec<Json> },
+    Eq {
+        col: String,
+        value: Json,
+    },
+    Ne {
+        col: String,
+        value: Json,
+    },
+    Lt {
+        col: String,
+        value: Json,
+    },
+    Lte {
+        col: String,
+        value: Json,
+    },
+    Gt {
+        col: String,
+        value: Json,
+    },
+    Gte {
+        col: String,
+        value: Json,
+    },
+    StartsWith {
+        col: String,
+        value: Json,
+    },
+    NotStartsWith {
+        col: String,
+        value: Json,
+    },
+    IsNull {
+        col: String,
+    },
+    IsNotNull {
+        col: String,
+    },
+    IsNan {
+        col: String,
+    },
+    IsNotNan {
+        col: String,
+    },
+    In {
+        col: String,
+        values: Vec<Json>,
+    },
+    NotIn {
+        col: String,
+        values: Vec<Json>,
+    },
 }
 
 /// Build a predicate from the JSON tree produced by the R translator.
@@ -72,9 +116,7 @@ fn build(node: &Node, schema: &Schema, ci: bool) -> RResult<Predicate> {
     }
 
     Ok(match node {
-        Node::And { args } => {
-            fold(args, schema, ci, Predicate::AlwaysTrue, Predicate::and)?
-        }
+        Node::And { args } => fold(args, schema, ci, Predicate::AlwaysTrue, Predicate::and)?,
         Node::Or { args } => fold(args, schema, ci, Predicate::AlwaysFalse, Predicate::or)?,
         Node::Not { arg } => build(arg, schema, ci)?.negate(),
         Node::AlwaysTrue => Predicate::AlwaysTrue,
@@ -95,9 +137,7 @@ fn build(node: &Node, schema: &Schema, ci: bool) -> RResult<Predicate> {
         Node::Gte { col, value } => {
             binary(col, value, schema, ci, Reference::greater_than_or_equal_to)?
         }
-        Node::StartsWith { col, value } => {
-            binary(col, value, schema, ci, Reference::starts_with)?
-        }
+        Node::StartsWith { col, value } => binary(col, value, schema, ci, Reference::starts_with)?,
         Node::NotStartsWith { col, value } => {
             binary(col, value, schema, ci, Reference::not_starts_with)?
         }
@@ -202,20 +242,28 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
             // bit64::integer64 arrives as a digit string, because an int64 past
             // 2^53 cannot survive as a JSON number.
             .or_else(|| value.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
-            .or_else(|| value.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))
+            .or_else(|| {
+                value
+                    .as_f64()
+                    .filter(|f| f.fract() == 0.0)
+                    .map(|f| f as i64)
+            })
             .ok_or_else(|| mismatch("a whole number"))
     };
     let as_f64 = || -> RResult<f64> { value.as_f64().ok_or_else(|| mismatch("a number")) };
     let as_str = || -> RResult<&str> { value.as_str().ok_or_else(|| mismatch("a string")) };
 
     Ok(match ty {
-        PrimitiveType::Boolean => Datum::bool(value.as_bool().ok_or_else(|| mismatch("TRUE or FALSE"))?),
+        PrimitiveType::Boolean => {
+            Datum::bool(value.as_bool().ok_or_else(|| mismatch("TRUE or FALSE"))?)
+        }
         PrimitiveType::Int => {
             let v = as_i64()?;
-            let v = i32::try_from(v)
-                .map_err(|_| RError::Other(format!(
+            let v = i32::try_from(v).map_err(|_| {
+                RError::Other(format!(
                     "value {v} is out of range for the 32-bit integer column {col:?}."
-                )))?;
+                ))
+            })?;
             Datum::int(v)
         }
         PrimitiveType::Long => Datum::long(as_i64()?),
