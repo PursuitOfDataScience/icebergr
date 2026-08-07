@@ -102,8 +102,12 @@ test_that("passing a credential as an argument warns about leaking it", {
 
 test_that("unnamed catalog properties are rejected", {
   warehouse <- withr::local_tempdir("warehouse")
+  # `uri` has to be supplied by name here. It sits before `...` in the
+  # signature, so a bare third argument matches it positionally and never
+  # reaches the dots -- which is why this has to be written out rather than
+  # passed as icebergr_catalog("memory", warehouse = warehouse, "positional").
   expect_error(
-    icebergr_catalog("memory", warehouse = warehouse, "positional"),
+    icebergr_catalog("memory", uri = NULL, warehouse = warehouse, "positional"),
     "must be named"
   )
 })

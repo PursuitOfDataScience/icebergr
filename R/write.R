@@ -16,7 +16,21 @@
 #' @export
 icebergr_create_namespace <- function(catalog, namespace) {
   check_catalog(catalog)
-  rs_create_namespace(catalog$ptr, as_namespace(namespace))
+  levels <- as_namespace(namespace)
+
+  # An Iceberg catalog will not create "a.b" until "a" exists, so creating a
+  # nested namespace in one call fails with "No such namespace". Walk the
+  # parents and fill in the missing ones. The leaf is still created
+  # unconditionally, so asking for a namespace that already exists is an error
+  # rather than a silent no-op.
+  for (i in seq_len(length(levels) - 1L)) {
+    parent <- levels[seq_len(i)]
+    if (!rs_namespace_exists(catalog$ptr, parent)) {
+      rs_create_namespace(catalog$ptr, parent)
+    }
+  }
+
+  rs_create_namespace(catalog$ptr, levels)
   invisible(catalog)
 }
 
