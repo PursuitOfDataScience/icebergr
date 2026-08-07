@@ -95,6 +95,23 @@ icebergr_scan <- function(tbl,
     as_snapshot_id(snapshot_id)
   }
 
+  # Checked here rather than left to scan planning, for the same reason `select`
+  # is: a scan is cheap to build and the mistake is in the call, so reporting it
+  # at the call beats reporting it from inside a later collect().
+  if (!is.null(snapshot) && is.null(as_of)) {
+    known <- icebergr_snapshots(tbl)$snapshot_id
+    if (!snapshot %in% known) {
+      abort(c(
+        paste0("Snapshot ", snapshot, " is not in this table's history."),
+        i = if (length(known)) {
+          paste0("Available: ", paste(known, collapse = ", "), ".")
+        } else {
+          "This table has no snapshots yet."
+        }
+      ))
+    }
+  }
+
   filter_expr <- substitute(filter)
   filter_json <- NULL
   if (!is.null(filter_expr)) {

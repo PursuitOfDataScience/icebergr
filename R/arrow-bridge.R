@@ -20,6 +20,28 @@ ptr_addr <- function(x) {
   format(nanoarrow::nanoarrow_pointer_addr_chr(x))
 }
 
+#' Normalise POSIXct columns to UTC
+#'
+#' Iceberg's `timestamptz` is UTC by definition, and `iceberg-rust` refuses an
+#' Arrow schema carrying any other zone: a column typed
+#' `Timestamp(us, "America/New_York")` fails conversion outright. A `POSIXct` is
+#' an absolute instant and `tzone` only says how to display it, so relabelling
+#' the attribute changes the representation without moving the moment in time --
+#' which is exactly the "instant preserved; normalised to UTC" behaviour the
+#' type-fidelity table documents.
+#' @noRd
+normalise_timestamps <- function(x) {
+  if (!is.data.frame(x)) {
+    return(x)
+  }
+  for (nm in names(x)) {
+    if (inherits(x[[nm]], "POSIXct")) {
+      attr(x[[nm]], "tzone") <- "UTC"
+    }
+  }
+  x
+}
+
 #' Export an R object's schema so Rust can read it
 #'
 #' Returns the nanoarrow schema alongside its address. The schema object must
@@ -30,7 +52,7 @@ export_schema <- function(x) {
   schema <- if (inherits(x, "nanoarrow_schema")) {
     x
   } else {
-    nanoarrow::infer_nanoarrow_schema(x)
+    nanoarrow::infer_nanoarrow_schema(normalise_timestamps(x))
   }
   list(schema = schema, addr = ptr_addr(schema))
 }
@@ -38,7 +60,7 @@ export_schema <- function(x) {
 #' Export an R data frame as an Arrow stream Rust can consume
 #' @noRd
 export_stream <- function(x) {
-  stream <- nanoarrow::as_nanoarrow_array_stream(x)
+  stream <- nanoarrow::as_nanoarrow_array_stream(normalise_timestamps(x))
   list(stream = stream, addr = ptr_addr(stream))
 }
 
