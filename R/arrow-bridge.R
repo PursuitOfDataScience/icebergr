@@ -64,6 +64,48 @@ export_stream <- function(x) {
   list(stream = stream, addr = ptr_addr(stream))
 }
 
+#' A conversion prototype that keeps 64-bit integers exact
+#'
+#' nanoarrow converts an Arrow `int64` to an R `double` unless told otherwise,
+#' and a double is only lossless to 2^53. Iceberg's `long` is a full 64-bit
+#' integer, so an id or a count past that point comes back silently rounded --
+#' 9007199254740993 reads as 9007199254740992. `bit64::integer64` is the only R
+#' type that holds one exactly, so `int64` columns are asked for as that.
+#'
+#' `NULL` means "use nanoarrow's own defaults", which is what happens when bit64
+#' is not installed (it is only suggested) and what we fall back to if the
+#' schema cannot be inspected. The fallback is exactly the previous behaviour,
+#' so this can only ever be an improvement or a no-op.
+#' @noRd
+int64_ptype <- function(schema) {
+  if (!requireNamespace("bit64", quietly = TRUE)) {
+    return(NULL)
+  }
+  tryCatch(
+    {
+      ptype <- nanoarrow::infer_nanoarrow_ptype(schema)
+      children <- schema$children
+      if (!is.data.frame(ptype) || length(children) != length(ptype)) {
+        return(NULL)
+      }
+      # "l" is the Arrow C data interface format string for int64.
+      is_int64 <- vapply(
+        children,
+        function(child) identical(child$format, "l"),
+        logical(1)
+      )
+      if (!any(is_int64)) {
+        return(NULL)
+      }
+      for (i in which(is_int64)) {
+        ptype[[i]] <- bit64::integer64()
+      }
+      ptype
+    },
+    error = function(e) NULL
+  )
+}
+
 #' Materialise an Arrow stream into a tibble
 #'
 #' `limit` stops pulling batches once enough rows have been seen. That is not
@@ -71,17 +113,28 @@ export_stream <- function(x) {
 #' does avoid decoding batches nobody asked for.
 #' @noRd
 collect_stream <- function(stream, limit = NULL) {
+  schema <- stream$get_schema()
+  ptype <- int64_ptype(schema)
+
+  convert_stream <- function(x) {
+    if (is.null(ptype)) {
+      nanoarrow::convert_array_stream(x)
+    } else {
+      nanoarrow::convert_array_stream(x, to = ptype)
+    }
+  }
+  # Still needs the right columns and types, so take the schema and zero rows.
+  no_rows <- function() {
+    convert_stream(nanoarrow::basic_array_stream(list(), schema = schema))
+  }
+
   if (is.null(limit)) {
-    return(tibble::as_tibble(nanoarrow::convert_array_stream(stream)))
+    return(tibble::as_tibble(convert_stream(stream)))
   }
 
   limit <- as.integer(limit)
   if (limit == 0L) {
-    # Still needs the right columns and types, so take the schema and zero rows.
-    empty <- nanoarrow::convert_array_stream(
-      nanoarrow::basic_array_stream(list(), schema = stream$get_schema())
-    )
-    return(tibble::as_tibble(empty))
+    return(tibble::as_tibble(no_rows()))
   }
 
   chunks <- list()
@@ -89,17 +142,18 @@ collect_stream <- function(stream, limit = NULL) {
   repeat {
     array <- stream$get_next()
     if (is.null(array)) break
-    piece <- nanoarrow::convert_array(array)
+    piece <- if (is.null(ptype)) {
+      nanoarrow::convert_array(array)
+    } else {
+      nanoarrow::convert_array(array, to = ptype)
+    }
     chunks[[length(chunks) + 1L]] <- piece
     seen <- seen + nrow(piece)
     if (seen >= limit) break
   }
 
   if (length(chunks) == 0L) {
-    out <- nanoarrow::convert_array_stream(
-      nanoarrow::basic_array_stream(list(), schema = stream$get_schema())
-    )
-    return(tibble::as_tibble(out))
+    return(tibble::as_tibble(no_rows()))
   }
 
   out <- if (length(chunks) == 1L) chunks[[1L]] else do.call(rbind, chunks)
