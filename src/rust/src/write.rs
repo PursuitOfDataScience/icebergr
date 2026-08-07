@@ -185,10 +185,8 @@ fn rs_table_append(
     })
     .map_err(|e| ctx("could not write the data files", e))?;
 
-    let snapshot_properties: HashMap<String, String> = property_keys
-        .into_iter()
-        .zip(property_values.into_iter())
-        .collect();
+    let snapshot_properties: HashMap<String, String> =
+        property_keys.into_iter().zip(property_values).collect();
 
     let new_table = block_on(async {
         let tx = Transaction::new(table);
