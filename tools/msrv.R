@@ -35,7 +35,7 @@ no_cargo_msg <- c(
   "--------------------------- [CARGO NOT FOUND] ---------------------------",
   "The 'cargo' command was not found on the PATH.",
   "",
-  "'iceberg' compiles Apache Iceberg's Rust implementation, so a Rust",
+  "'icebergr' compiles Apache Iceberg's Rust implementation, so a Rust",
   "toolchain is required to install it from source. Install one from:",
   "",
   "  https://www.rust-lang.org/tools/install",
@@ -52,7 +52,7 @@ no_rustc_msg <- c(
   "---------------------------- [RUST NOT FOUND] ---------------------------",
   "The 'rustc' compiler was not found on the PATH.",
   "",
-  paste("'iceberg' requires", rustc_req, "or newer. Install it from:"),
+  paste("'icebergr' requires", rustc_req, "or newer. Install it from:"),
   "",
   "  https://www.rust-lang.org/tools/install",
   "-------------------------------------------------------------------------"
@@ -60,9 +60,12 @@ no_rustc_msg <- c(
 
 # rustup installs into ~/.cargo/bin, which is not always on the PATH that R
 # sees, particularly under RStudio or a system R launched from a desktop
-# session.
-Sys.setenv(PATH = paste0(
-  Sys.getenv("PATH"), ":", file.path(Sys.getenv("HOME"), ".cargo", "bin")
+# session. The separator is ";" on Windows, where configure.win runs this too;
+# hard-coding ":" would corrupt the PATH rather than extend it.
+Sys.setenv(PATH = paste(
+  Sys.getenv("PATH"),
+  file.path(Sys.getenv("HOME"), ".cargo", "bin"),
+  sep = .Platform$path.sep
 ))
 
 rustc_version <- tryCatch(
@@ -97,7 +100,7 @@ if (!is.na(msrv) && !is.na(current)) {
         "- Minimum supported Rust version is %s.",
         "- Installed Rust version is %s.",
         "",
-        "'iceberg' bundles Apache Iceberg's Rust implementation, which uses",
+        "'icebergr' bundles Apache Iceberg's Rust implementation, which uses",
         "Rust edition 2024 and tracks a rolling minimum version. Please run",
         "`rustup update stable`, or install a newer toolchain from",
         "https://www.rust-lang.org/tools/install.",

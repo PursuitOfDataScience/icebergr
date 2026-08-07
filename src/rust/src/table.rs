@@ -231,7 +231,12 @@ fn rs_table_partitions(tbl: ExternalPtr<RTable>) -> List {
 fn rs_table_snapshots(tbl: ExternalPtr<RTable>) -> List {
     let metadata = tbl.metadata();
     let mut snapshots: Vec<_> = metadata.snapshots().collect();
-    snapshots.sort_by_key(|s| s.timestamp_ms());
+    // metadata.snapshots() iterates a hash map, so the input order is arbitrary.
+    // Timestamps are only millisecond-resolution and two commits can land in the
+    // same millisecond, so the sequence number breaks the tie: without it the
+    // reported history -- and the snapshot that `as_of` resolves to -- would vary
+    // between calls.
+    snapshots.sort_by_key(|s| (s.timestamp_ms(), s.sequence_number()));
 
     let ids: Vec<String> = snapshots
         .iter()
