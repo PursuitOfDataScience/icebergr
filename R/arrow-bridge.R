@@ -35,9 +35,20 @@ normalise_timestamps <- function(x) {
     return(x)
   }
   for (nm in names(x)) {
-    if (inherits(x[[nm]], "POSIXct")) {
-      attr(x[[nm]], "tzone") <- "UTC"
+    if (!inherits(x[[nm]], "POSIXct")) {
+      next
     }
+    # Only a column that actually carries a zone. A POSIXct with no `tzone`, or
+    # with "", is R's "local time is implied" form: nanoarrow infers a zone-less
+    # Arrow timestamp for it and Iceberg calls that `timestamp`. Stamping UTC on
+    # that would quietly promote it to `timestamptz`, which then fails to append
+    # to an existing `timestamp` column and changes the type of a table created
+    # from such a data frame. Only a named zone needs converting.
+    tz <- attr(x[[nm]], "tzone")
+    if (length(tz) == 0L || is.na(tz[[1L]]) || !nzchar(tz[[1L]])) {
+      next
+    }
+    attr(x[[nm]], "tzone") <- "UTC"
   }
   x
 }
@@ -138,7 +149,11 @@ collect_stream <- function(stream, limit = NULL) {
   }
 
   chunks <- list()
-  seen <- 0L
+  # Double, not integer: `seen + nrow(piece)` on two integers overflows to NA
+  # past 2^31 rows, and the `seen >= limit` below would then error rather than
+  # stop. Counting in a double costs nothing and is exact well past any row
+  # count that would fit in memory.
+  seen <- 0
   repeat {
     array <- stream$get_next()
     if (is.null(array)) break

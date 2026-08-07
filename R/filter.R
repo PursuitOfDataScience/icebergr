@@ -226,7 +226,11 @@ json_string <- function(x) {
   # requires escaping.
   for (cp in setdiff(1:31, c(8L, 9L, 10L, 12L, 13L))) {
     ch <- intToUtf8(cp)
-    if (any(grepl(ch, x, fixed = TRUE))) {
+    # na.rm: grepl() is NA for an NA element, and `if (NA)` is an error. NA
+    # never reaches here today -- json_scalar() rejects it first, and op and col
+    # are never NA -- but this helper should not be the thing that breaks if it
+    # ever does.
+    if (any(grepl(ch, x, fixed = TRUE), na.rm = TRUE)) {
       x <- gsub(ch, sprintf("\\u%04x", cp), x, fixed = TRUE)
     }
   }
