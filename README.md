@@ -200,12 +200,12 @@ R types survive the Arrow round trip as follows:
 | R type | Iceberg type | Round trip |
 | --- | --- | --- |
 | `integer` | `int` | Unchanged |
-| `double` | `double` | Unchanged, including `Inf`, `-Inf` and `NaN` |
+| `double` | `double` | Unchanged, including `Inf` and `-Inf`. **`NaN` returns as `NA`**: R's `is.na(NaN)` is `TRUE`, so it is written as a null. |
 | `character` | `string` | Unchanged, UTF-8 preserved |
 | `logical` | `boolean` | Unchanged |
 | `Date` | `date` | Unchanged |
 | `POSIXct` | `timestamptz` | Instant preserved; normalised to UTC |
-| `bit64::integer64` | `long` | Unchanged, full 64-bit precision |
+| `bit64::integer64` | `long` | Unchanged, full 64-bit precision. Reading a `long` back needs `bit64` installed; without it Arrow's `int64` narrows to a `double`. |
 | `factor` | `string` | **Returns `character`.** Iceberg has no dictionary type, so levels cannot be carried. |
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as random
