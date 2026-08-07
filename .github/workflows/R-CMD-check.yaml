@@ -96,8 +96,12 @@ jobs:
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true
+          # Vignettes are deliberately not built here; the vendored job below
+          # builds and checks them on the CRAN path. --no-build-vignettes has to
+          # be paired with --ignore-vignettes, though: otherwise check reports
+          # the missing inst/doc as a WARNING, and this action stops on warnings.
           build_args: 'c("--no-manual", "--no-build-vignettes")'
-          args: 'c("--no-manual", "--as-cran")'
+          args: 'c("--no-manual", "--as-cran", "--ignore-vignettes")'
 
       # When the install step fails, R CMD check only says "see 00install.out"
       # — and that file is inside the uploaded artefact, not the log. For a
