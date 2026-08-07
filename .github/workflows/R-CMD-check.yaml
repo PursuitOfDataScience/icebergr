@@ -103,11 +103,14 @@ jobs:
       # — and that file is inside the uploaded artefact, not the log. For a
       # package whose install compiles Rust, the compiler errors are the whole
       # point, so print them.
-      - name: Show install log on failure
+      - name: Show install and test logs on failure
         if: failure()
         shell: bash
         run: |
-          for f in check/*.Rcheck/00install.out check/*.Rcheck/00check.log; do
+          # 00check.log truncates test output to the last 13 lines, which is
+          # rarely the failure you need. *.Rout.fail holds the whole run.
+          for f in check/*.Rcheck/00install.out check/*.Rcheck/00check.log \
+                   check/*.Rcheck/tests/*.Rout.fail; do
             if [ -f "$f" ]; then
               echo "===================== $f ====================="
               cat "$f"
@@ -182,11 +185,14 @@ jobs:
           )
         shell: Rscript {0}
 
-      - name: Show install log on failure
+      - name: Show install and test logs on failure
         if: failure()
         shell: bash
         run: |
-          for f in check/*.Rcheck/00install.out check/*.Rcheck/00check.log; do
+          # 00check.log truncates test output to the last 13 lines, which is
+          # rarely the failure you need. *.Rout.fail holds the whole run.
+          for f in check/*.Rcheck/00install.out check/*.Rcheck/00check.log \
+                   check/*.Rcheck/tests/*.Rout.fail; do
             if [ -f "$f" ]; then
               echo "===================== $f ====================="
               cat "$f"
