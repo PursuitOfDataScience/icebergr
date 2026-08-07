@@ -111,14 +111,34 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          shopt -s nullglob
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # An install WARNING here is usually the SDK/deployment-target
+            # mismatch between cargo's C dependencies and R's own link step.
+            echo "================== macOS toolchain =================="
+            sw_vers || true
+            echo "SDK: $(xcrun --show-sdk-version 2>/dev/null || echo unknown)"
+            echo "MACOSX_DEPLOYMENT_TARGET=[${MACOSX_DEPLOYMENT_TARGET}]"
+            echo "R CC:     $(R CMD config CC 2>/dev/null || true)"
+            echo "R CFLAGS: $(R CMD config CFLAGS 2>/dev/null || true)"
+            grep -nE 'mmacosx-version-min|DEPLOYMENT_TARGET' \
+              "$(R RHOME)/etc/Makeconf" || echo "(no version-min in Makeconf)"
+          fi
+          echo "===================== check tree ====================="
+          ls -R check 2>/dev/null | head -40 || echo "(no check/ directory)"
+          # The head of 00install.out carries configure's decisions, which is
+          # what you need when the install warns; the tail is usually thousands
+          # of compiler lines.
+          for f in check/*.Rcheck/00install.out; do
+            echo "===================== $f (head) ====================="
+            head -60 "$f"
+            echo "--- lines matching 'built for newer': $(grep -c 'built for newer' "$f" || true)"
+          done
           # 00check.log truncates test output to the last 13 lines, which is
           # rarely the failure you need. *.Rout.fail holds the whole run.
-          for f in check/*.Rcheck/00install.out check/*.Rcheck/00check.log \
-                   check/*.Rcheck/tests/*.Rout.fail; do
-            if [ -f "$f" ]; then
-              echo "===================== $f ====================="
-              cat "$f"
-            fi
+          for f in check/*.Rcheck/00check.log check/*.Rcheck/tests/*.Rout.fail; do
+            echo "===================== $f ====================="
+            cat "$f"
           done
 
   # The CRAN-shaped path: vendor every crate, then build with no network access
@@ -193,14 +213,34 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          shopt -s nullglob
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # An install WARNING here is usually the SDK/deployment-target
+            # mismatch between cargo's C dependencies and R's own link step.
+            echo "================== macOS toolchain =================="
+            sw_vers || true
+            echo "SDK: $(xcrun --show-sdk-version 2>/dev/null || echo unknown)"
+            echo "MACOSX_DEPLOYMENT_TARGET=[${MACOSX_DEPLOYMENT_TARGET}]"
+            echo "R CC:     $(R CMD config CC 2>/dev/null || true)"
+            echo "R CFLAGS: $(R CMD config CFLAGS 2>/dev/null || true)"
+            grep -nE 'mmacosx-version-min|DEPLOYMENT_TARGET' \
+              "$(R RHOME)/etc/Makeconf" || echo "(no version-min in Makeconf)"
+          fi
+          echo "===================== check tree ====================="
+          ls -R check 2>/dev/null | head -40 || echo "(no check/ directory)"
+          # The head of 00install.out carries configure's decisions, which is
+          # what you need when the install warns; the tail is usually thousands
+          # of compiler lines.
+          for f in check/*.Rcheck/00install.out; do
+            echo "===================== $f (head) ====================="
+            head -60 "$f"
+            echo "--- lines matching 'built for newer': $(grep -c 'built for newer' "$f" || true)"
+          done
           # 00check.log truncates test output to the last 13 lines, which is
           # rarely the failure you need. *.Rout.fail holds the whole run.
-          for f in check/*.Rcheck/00install.out check/*.Rcheck/00check.log \
-                   check/*.Rcheck/tests/*.Rout.fail; do
-            if [ -f "$f" ]; then
-              echo "===================== $f ====================="
-              cat "$f"
-            fi
+          for f in check/*.Rcheck/00check.log check/*.Rcheck/tests/*.Rout.fail; do
+            echo "===================== $f ====================="
+            cat "$f"
           done
 
       - name: Upload check results
