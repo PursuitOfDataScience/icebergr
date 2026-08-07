@@ -111,10 +111,10 @@ fn configure(
         builder = builder.with_filter(predicate);
     }
 
-    if let Some(n) = batch_size {
-        if n > 0 {
-            builder = builder.with_batch_size(Some(n as usize));
-        }
+    if let Some(n) = batch_size
+        && n > 0
+    {
+        builder = builder.with_batch_size(Some(n as usize));
     }
 
     builder = builder

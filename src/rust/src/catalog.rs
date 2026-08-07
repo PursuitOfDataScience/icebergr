@@ -141,7 +141,7 @@ fn rs_catalog_connect(
         return Err("internal error: property keys and values differ in length".into());
     }
 
-    let props: HashMap<String, String> = keys.iter().cloned().zip(values.into_iter()).collect();
+    let props: HashMap<String, String> = keys.iter().cloned().zip(values).collect();
     let warehouse = props.get("warehouse").cloned();
     let factory = storage_factory(storage, warehouse.as_deref())?;
 
