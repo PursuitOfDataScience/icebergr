@@ -24,6 +24,8 @@ export(icebergr_schema)
 export(icebergr_snapshots)
 export(icebergr_spec_support)
 export(icebergr_table)
-importFrom(rlang,abort)
-importFrom(rlang,warn)
+importFrom(rlang,
+  abort,
+  warn
+)
 useDynLib(icebergr, .registration = TRUE)
