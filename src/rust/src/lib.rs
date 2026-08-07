@@ -18,6 +18,9 @@ use extendr_api::prelude::*;
 
 /// Which optional Cargo features this binary was compiled with.
 fn enabled_features() -> Vec<String> {
+    // Every push below is cfg-gated, so in a default build none of them survive
+    // and the binding is never actually mutated.
+    #[allow(unused_mut)]
     let mut features: Vec<String> = Vec::new();
     #[cfg(feature = "s3")]
     features.push("s3".to_string());
@@ -37,6 +40,8 @@ fn rs_build_info() -> List {
         arrow_version = "58.4",
         features = enabled_features(),
         catalogs = {
+            // As above: the only push is cfg-gated behind the glue feature.
+            #[allow(unused_mut)]
             let mut c = vec!["rest".to_string(), "memory".to_string()];
             #[cfg(feature = "glue")]
             c.push("glue".to_string());

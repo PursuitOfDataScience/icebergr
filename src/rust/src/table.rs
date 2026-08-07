@@ -186,10 +186,13 @@ fn rs_table_schema(tbl: ExternalPtr<RTable>) -> List {
         })
         .collect();
 
+    // Named `field_type`, not `type`: `type` is a Rust keyword, so `list!` cannot
+    // take it as an argument name. icebergr_schema() renames it back to `type`,
+    // which is what the R-facing tibble has always been documented to have.
     list!(
         field_id = ids,
         name = names,
-        type = types,
+        field_type = types,
         required = required,
         doc = docs
     )
