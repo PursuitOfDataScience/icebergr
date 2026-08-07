@@ -170,12 +170,15 @@ icebergr_catalog <- function(type = c("rest", "memory", "glue"),
     props[[key]] <- as.character(value)
   }
 
+  # A catalog with no properties at all is legitimate (a REST catalog whose
+  # server is configured elsewhere). names() and unlist() both give NULL for an
+  # empty list, and Rust wants a character vector, so normalise here.
   ptr <- rs_catalog_connect(
     kind = type,
     name = name,
     storage = storage,
-    keys = names(props),
-    values = unlist(props, use.names = FALSE)
+    keys = as.character(names(props)),
+    values = as.character(unlist(props, use.names = FALSE))
   )
 
   structure(
@@ -204,8 +207,9 @@ as_namespace <- function(x, arg = "namespace", allow_null = FALSE,
   if (!is.character(x) || anyNA(x) || !all(nzchar(x))) {
     abort(paste0("`", arg, "` must be a character vector of namespace levels."), call = call)
   }
-  # "a.b" and c("a", "b") mean the same thing.
-  unlist(strsplit(x, ".", fixed = TRUE), use.names = FALSE)
+  # "a.b" and c("a", "b") mean the same thing. unlist() of an empty list is
+  # NULL rather than character(), which Rust would refuse.
+  as.character(unlist(strsplit(x, ".", fixed = TRUE), use.names = FALSE))
 }
 
 #' List namespaces in a catalog
@@ -239,7 +243,8 @@ icebergr_list_namespaces <- function(catalog, parent = NULL) {
 #' dir.create(warehouse)
 #' catalog <- icebergr_catalog("memory", warehouse = warehouse)
 #' # A namespace has to exist before it can hold tables.
-#' icebergr_list_namespaces(catalog)
+#' icebergr_create_namespace(catalog, "db")
+#' icebergr_list_tables(catalog, "db")
 #' @export
 icebergr_list_tables <- function(catalog, namespace) {
   check_catalog(catalog)

@@ -27,7 +27,7 @@ if (dir.exists(vendor_dir)) {
   unlink(vendor_dir, recursive = TRUE)
 }
 
-features <- Sys.getenv("ICEBERG_CARGO_FEATURES")
+features <- Sys.getenv("ICEBERGR_CARGO_FEATURES")
 feature_args <- if (nzchar(features)) {
   c("--features", features)
 } else {

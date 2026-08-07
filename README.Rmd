@@ -44,7 +44,7 @@ GitHub.
 
 ```{r}
 # install.packages("pak")
-pak::pak("PursuitOfDataScience/iceberg")
+pak::pak("PursuitOfDataScience/icebergr")
 ```
 
 Installing from source compiles Apache Iceberg's Rust implementation, so you need

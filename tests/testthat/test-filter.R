@@ -115,6 +115,23 @@ test_that("strings are escaped so a quote cannot break the JSON", {
   expect_equal(js(label == "a\nb"), '{"op":"eq","col":"label","value":"a\\nb"}')
 })
 
+test_that("control characters are escaped rather than emitted raw", {
+  # JSON forbids an unescaped C0 control character, so one in a string literal
+  # would otherwise produce a document the Rust side cannot parse. Written as an
+  # octal escape so this file stays ASCII.
+  expect_equal(js(label == "a\001b"), '{"op":"eq","col":"label","value":"a\\u0001b"}')
+  expect_equal(js(label == "a\bb"), '{"op":"eq","col":"label","value":"a\\bb"}')
+  expect_equal(js(label == "a\fb"), '{"op":"eq","col":"label","value":"a\\fb"}')
+})
+
+test_that("infinite and NaN bounds are refused, not turned into invalid JSON", {
+  # "Inf" and "NaN" are not JSON tokens; emitting them fails obscurely in Rust.
+  expect_error(js(amount < Inf), "infinite")
+  expect_error(js(amount > -Inf), "infinite")
+  expect_error(js(amount == NaN), "NaN")
+  expect_error(js(amount == NaN), "is.nan")
+})
+
 test_that("dates and timestamps are sent as unambiguous ISO-8601", {
   expect_equal(
     js(day == as.Date("2024-03-01")),

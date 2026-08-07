@@ -95,12 +95,12 @@ pub fn build_predicate(json: &str, schema: &Schema, case_sensitive: bool) -> RRe
     build(&node, schema, case_sensitive)
 }
 
-fn build(node: &Node, schema: &Schema, ci: bool) -> RResult<Predicate> {
+fn build(node: &Node, schema: &Schema, cs: bool) -> RResult<Predicate> {
     // Iceberg's And/Or are strictly binary, so an n-ary R expression is folded.
     fn fold(
         args: &[Node],
         schema: &Schema,
-        ci: bool,
+        cs: bool,
         empty: Predicate,
         join: fn(Predicate, Predicate) -> Predicate,
     ) -> RResult<Predicate> {
@@ -108,42 +108,42 @@ fn build(node: &Node, schema: &Schema, ci: bool) -> RResult<Predicate> {
         let Some(first) = it.next() else {
             return Ok(empty);
         };
-        let mut acc = build(first, schema, ci)?;
+        let mut acc = build(first, schema, cs)?;
         for n in it {
-            acc = join(acc, build(n, schema, ci)?);
+            acc = join(acc, build(n, schema, cs)?);
         }
         Ok(acc)
     }
 
     Ok(match node {
-        Node::And { args } => fold(args, schema, ci, Predicate::AlwaysTrue, Predicate::and)?,
-        Node::Or { args } => fold(args, schema, ci, Predicate::AlwaysFalse, Predicate::or)?,
-        Node::Not { arg } => build(arg, schema, ci)?.negate(),
+        Node::And { args } => fold(args, schema, cs, Predicate::AlwaysTrue, Predicate::and)?,
+        Node::Or { args } => fold(args, schema, cs, Predicate::AlwaysFalse, Predicate::or)?,
+        Node::Not { arg } => build(arg, schema, cs)?.negate(),
         Node::AlwaysTrue => Predicate::AlwaysTrue,
         Node::AlwaysFalse => Predicate::AlwaysFalse,
 
-        Node::IsNull { col } => reference(col, schema, ci)?.0.is_null(),
-        Node::IsNotNull { col } => reference(col, schema, ci)?.0.is_not_null(),
-        Node::IsNan { col } => reference(col, schema, ci)?.0.is_nan(),
-        Node::IsNotNan { col } => reference(col, schema, ci)?.0.is_not_nan(),
+        Node::IsNull { col } => reference(col, schema, cs)?.0.is_null(),
+        Node::IsNotNull { col } => reference(col, schema, cs)?.0.is_not_null(),
+        Node::IsNan { col } => reference(col, schema, cs)?.0.is_nan(),
+        Node::IsNotNan { col } => reference(col, schema, cs)?.0.is_not_nan(),
 
-        Node::Eq { col, value } => binary(col, value, schema, ci, Reference::equal_to)?,
-        Node::Ne { col, value } => binary(col, value, schema, ci, Reference::not_equal_to)?,
-        Node::Lt { col, value } => binary(col, value, schema, ci, Reference::less_than)?,
+        Node::Eq { col, value } => binary(col, value, schema, cs, Reference::equal_to)?,
+        Node::Ne { col, value } => binary(col, value, schema, cs, Reference::not_equal_to)?,
+        Node::Lt { col, value } => binary(col, value, schema, cs, Reference::less_than)?,
         Node::Lte { col, value } => {
-            binary(col, value, schema, ci, Reference::less_than_or_equal_to)?
+            binary(col, value, schema, cs, Reference::less_than_or_equal_to)?
         }
-        Node::Gt { col, value } => binary(col, value, schema, ci, Reference::greater_than)?,
+        Node::Gt { col, value } => binary(col, value, schema, cs, Reference::greater_than)?,
         Node::Gte { col, value } => {
-            binary(col, value, schema, ci, Reference::greater_than_or_equal_to)?
+            binary(col, value, schema, cs, Reference::greater_than_or_equal_to)?
         }
-        Node::StartsWith { col, value } => binary(col, value, schema, ci, Reference::starts_with)?,
+        Node::StartsWith { col, value } => binary(col, value, schema, cs, Reference::starts_with)?,
         Node::NotStartsWith { col, value } => {
-            binary(col, value, schema, ci, Reference::not_starts_with)?
+            binary(col, value, schema, cs, Reference::not_starts_with)?
         }
 
         Node::In { col, values } => {
-            let (r, ty) = reference(col, schema, ci)?;
+            let (r, ty) = reference(col, schema, cs)?;
             let datums = values
                 .iter()
                 .map(|v| datum(v, &ty, col))
@@ -157,7 +157,7 @@ fn build(node: &Node, schema: &Schema, ci: bool) -> RResult<Predicate> {
             }
         }
         Node::NotIn { col, values } => {
-            let (r, ty) = reference(col, schema, ci)?;
+            let (r, ty) = reference(col, schema, cs)?;
             let datums = values
                 .iter()
                 .map(|v| datum(v, &ty, col))
@@ -175,19 +175,22 @@ fn binary(
     col: &str,
     value: &Json,
     schema: &Schema,
-    ci: bool,
+    cs: bool,
     f: fn(Reference, Datum) -> Predicate,
 ) -> RResult<Predicate> {
-    let (r, ty) = reference(col, schema, ci)?;
+    let (r, ty) = reference(col, schema, cs)?;
     Ok(f(r, datum(value, &ty, col)?))
 }
 
 /// Resolve a column name to a reference plus the primitive type of its literals.
-fn reference(col: &str, schema: &Schema, ci: bool) -> RResult<(Reference, PrimitiveType)> {
-    let field = if ci {
-        schema.field_by_name_case_insensitive(col)
-    } else {
+fn reference(col: &str, schema: &Schema, cs: bool) -> RResult<(Reference, PrimitiveType)> {
+    // `cs` is case *sensitivity*, matching icebergr_scan(case_sensitive =).
+    // Getting this the wrong way round silently resolves "ID" to a column named
+    // "id" on a case-sensitive scan, and refuses it on a case-insensitive one.
+    let field = if cs {
         schema.field_by_name(col)
+    } else {
+        schema.field_by_name_case_insensitive(col)
     };
 
     let Some(field) = field else {

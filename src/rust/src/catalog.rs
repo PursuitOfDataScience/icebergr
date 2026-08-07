@@ -35,10 +35,16 @@ pub struct RCatalog {
 }
 
 fn looks_like_local_path(w: &str) -> bool {
+    let b = w.as_bytes();
     w.starts_with("file://")
         || w.starts_with('/')
-        // Windows drive letter, e.g. C:\warehouse
-        || (w.len() > 2 && w.as_bytes()[1] == b':')
+        // Windows drive letter, e.g. C:\warehouse. The leading byte has to be a
+        // letter: without that check any string with a colon in second position
+        // is read as a local path.
+        || (b.len() > 2
+            && b[0].is_ascii_alphabetic()
+            && b[1] == b':'
+            && (b[2] == b'\\' || b[2] == b'/'))
 }
 
 #[cfg(feature = "s3")]

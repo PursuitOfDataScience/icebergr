@@ -1,9 +1,10 @@
 # Generate src/Makevars{,.win} from the .in templates.
 #
-# The substitutions decide three things:
+# The substitutions decide four things:
 #   * whether cargo may reach the network (it may not, when building for CRAN),
 #   * whether we build release or debug,
-#   * whether the target directory is cleaned afterwards.
+#   * whether the target directory is cleaned afterwards,
+#   * which optional Cargo features are compiled in.
 
 source("tools/msrv.R")
 
@@ -44,6 +45,30 @@ if (!is_not_cran) {
 # number of logical CPUs.
 .cran_flags <- if (!is_not_cran && vendor_exists) "-j 2 --offline" else ""
 
+# Optional backends are off by default because each substantially enlarges the
+# dependency tree. ICEBERGR_CARGO_FEATURES is what ?icebergr_catalog, the README
+# and the "not compiled in" error all tell users to set, so it has to reach
+# cargo from here -- nothing else in the build reads it.
+env_features <- trimws(Sys.getenv("ICEBERGR_CARGO_FEATURES"))
+.features <- if (nzchar(env_features)) {
+  # Accept "s3,glue" and "s3 glue" alike; cargo wants one comma-separated list.
+  parts <- unique(trimws(unlist(strsplit(env_features, "[,[:space:]]+"))))
+  parts <- parts[nzchar(parts)]
+  known <- c("s3", "glue")
+  unknown <- setdiff(parts, known)
+  if (length(unknown)) {
+    stop(
+      "Unknown ICEBERGR_CARGO_FEATURES value(s): ",
+      paste(unknown, collapse = ", "),
+      ". Known features are: ", paste(known, collapse = ", "), "."
+    )
+  }
+  message("Building with Cargo features: ", paste(parts, collapse = ", "))
+  paste("--features", paste(parts, collapse = ","))
+} else {
+  ""
+}
+
 .profile <- if (is_debug) "" else "--release"
 .clean_targets <- if (is_debug) "" else "$(TARGET_DIR)"
 .libdir <- if (is_debug) "debug" else "release"
@@ -61,6 +86,7 @@ if (file.exists(mv_ofp)) {
 mv_txt <- readLines(mv_fp)
 
 new_txt <- gsub("@CRAN_FLAGS@", .cran_flags, mv_txt)
+new_txt <- gsub("@FEATURES@", .features, new_txt)
 new_txt <- gsub("@PROFILE@", .profile, new_txt)
 new_txt <- gsub("@CLEAN_TARGET@", .clean_targets, new_txt)
 new_txt <- gsub("@LIBDIR@", .libdir, new_txt)

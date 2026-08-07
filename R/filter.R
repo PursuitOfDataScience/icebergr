@@ -213,9 +213,23 @@ json_string <- function(x) {
   x <- enc2utf8(as.character(x))
   x <- gsub("\\", "\\\\", x, fixed = TRUE)
   x <- gsub('"', '\\"', x, fixed = TRUE)
+  x <- gsub("\b", "\\b", x, fixed = TRUE)
+  x <- gsub("\f", "\\f", x, fixed = TRUE)
   x <- gsub("\n", "\\n", x, fixed = TRUE)
   x <- gsub("\r", "\\r", x, fixed = TRUE)
   x <- gsub("\t", "\\t", x, fixed = TRUE)
+  # JSON forbids any unescaped C0 control character, not just the five that have
+  # a short form. A stray one would otherwise produce a document the Rust side
+  # cannot parse, surfacing as an unhelpful "could not read the filter
+  # expression". Matched literally rather than with [[:cntrl:]], which is
+  # locale-dependent and also covers DEL and the C1 range, neither of which JSON
+  # requires escaping.
+  for (cp in setdiff(1:31, c(8L, 9L, 10L, 12L, 13L))) {
+    ch <- intToUtf8(cp)
+    if (any(grepl(ch, x, fixed = TRUE))) {
+      x <- gsub(ch, sprintf("\\u%04x", cp), x, fixed = TRUE)
+    }
+  }
   paste0('"', x, '"')
 }
 
@@ -224,11 +238,36 @@ json_scalar <- function(v, call = rlang::caller_env()) {
   if (length(v) != 1L) {
     abort("Internal error: expected a scalar filter value.", call = call)
   }
+  # NaN and Inf are only meaningful for a plain double. bit64::integer64 is also
+  # a double underneath, and the int64 bit pattern of a large value can look like
+  # NaN, so classed values must not be tested this way.
+  bare_double <- is.double(v) && is.null(attr(v, "class"))
+  if (bare_double && is.nan(v)) {
+    abort(
+      c(
+        "A filter compared a column against NaN.",
+        i = "Use is.nan(column) or !is.nan(column) to test for NaN."
+      ),
+      call = call
+    )
+  }
   if (is.na(v)) {
     abort(
       c(
         "A filter compared a column against NA.",
         i = "Use is.na(column) or !is.na(column) to test for nulls."
+      ),
+      call = call
+    )
+  }
+  # JSON has no token for an infinity, so letting one through would emit a
+  # document the Rust side cannot parse.
+  if (bare_double && is.infinite(v)) {
+    abort(
+      c(
+        "A filter compared a column against an infinite value.",
+        i = "JSON has no representation for Inf, so it cannot be pushed down.",
+        i = "Drop the bound, or apply it in R after icebergr_collect()."
       ),
       call = call
     )

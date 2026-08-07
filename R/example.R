@@ -80,7 +80,7 @@ example_batches <- function(n = 500L) {
 icebergr_example_table <- function(warehouse = tempfile("icebergr-warehouse"),
                                    rows = 500L) {
   check_count(rows, "rows")
-  if (rows < 1) {
+  if (is.null(rows) || rows < 1) {
     abort("`rows` must be at least 1.")
   }
 
