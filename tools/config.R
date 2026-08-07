@@ -69,6 +69,16 @@ env_features <- trimws(Sys.getenv("ICEBERGR_CARGO_FEATURES"))
   ""
 }
 
+# rustls-native-certs reads the macOS system trust store through the Security
+# framework, and reqwest's proxy detection pulls in SystemConfiguration. Decided
+# here rather than with `ifeq` in the template, so that the generated Makevars
+# stays free of the GNU make extensions R CMD check warns about.
+.pkg_libs_extra <- if (identical(Sys.info()[["sysname"]], "Darwin")) {
+  "-framework Security -framework CoreFoundation -framework SystemConfiguration"
+} else {
+  ""
+}
+
 .profile <- if (is_debug) "" else "--release"
 .clean_targets <- if (is_debug) "" else "$(TARGET_DIR)"
 .libdir <- if (is_debug) "debug" else "release"
@@ -87,6 +97,7 @@ mv_txt <- readLines(mv_fp)
 
 new_txt <- gsub("@CRAN_FLAGS@", .cran_flags, mv_txt)
 new_txt <- gsub("@FEATURES@", .features, new_txt)
+new_txt <- gsub("@PKG_LIBS_EXTRA@", .pkg_libs_extra, new_txt)
 new_txt <- gsub("@PROFILE@", .profile, new_txt)
 new_txt <- gsub("@CLEAN_TARGET@", .clean_targets, new_txt)
 new_txt <- gsub("@LIBDIR@", .libdir, new_txt)

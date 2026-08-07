@@ -1,15 +1,13 @@
 TARGET_DIR = ./rust/target
 LIBDIR = $(TARGET_DIR)/@LIBDIR@
 STATLIB = $(LIBDIR)/libicebergr.a
-PKG_LIBS = -L$(LIBDIR) -licebergr
-
-# rustls-native-certs reads the system trust store, which on macOS means the
-# Security framework. SystemConfiguration is pulled in by reqwest's proxy
-# detection.
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Darwin)
-	PKG_LIBS += -framework Security -framework CoreFoundation -framework SystemConfiguration
-endif
+# @PKG_LIBS_EXTRA@ carries the macOS frameworks that rustls-native-certs (which
+# reads the system trust store through Security) and reqwest's proxy detection
+# (SystemConfiguration) need. Which platform we are on is decided by
+# tools/config.R rather than by a conditional here, because GNU make
+# conditionals, appending assignment and shell interpolation are all
+# non-portable and R CMD check reports a WARNING for them.
+PKG_LIBS = -L$(LIBDIR) -licebergr @PKG_LIBS_EXTRA@
 
 all: $(SHLIB) rust_clean
 
