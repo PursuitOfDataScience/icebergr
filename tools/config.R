@@ -85,9 +85,16 @@ env_features <- trimws(Sys.getenv("ICEBERGR_CARGO_FEATURES"))
 # binary -- the linker emits "was built for newer 'macOS' version" for every
 # object file, and R CMD check turns that into an install WARNING.
 #
-# R records its own target in etc/Makeconf, so read it from there and hand it to
-# cargo. Empty when the flag is absent or we are not on macOS, which leaves
-# cargo's default alone.
+# The warning is one-directional: it fires only when an object targets a
+# *newer* OS than the link does. Building for an older one is always accepted.
+# So the target does not have to be guessed exactly -- it only has to be no
+# newer than R's.
+#
+# R records its own in etc/Makeconf, so prefer that. When the flag is absent
+# there -- in which case R is taking clang's SDK-derived default and there is no
+# number to read -- fall back to the floor for the architecture, which is what
+# the CRAN builds of R use anyway: 11.0 for arm64 (macOS 11 is the first release
+# that ran on it at all) and 10.13 for x86_64.
 .macos_export <- ""
 if (identical(Sys.info()[["sysname"]], "Darwin")) {
   makeconf <- file.path(R.home("etc"), "Makeconf")
@@ -100,6 +107,17 @@ if (identical(Sys.info()[["sysname"]], "Darwin")) {
     if (length(found)) sub("^-mmacosx-version-min=", "", found[[1L]]) else ""
   } else {
     ""
+  }
+  if (!nzchar(target)) {
+    arch <- Sys.info()[["machine"]]
+    target <- if (identical(arch, "arm64") || identical(arch, "aarch64")) {
+      "11.0"
+    } else {
+      "10.13"
+    }
+    message(
+      "R states no macOS deployment target; using the ", arch, " floor instead."
+    )
   }
   if (nzchar(target)) {
     message("Building Rust against MACOSX_DEPLOYMENT_TARGET=", target, ".")
