@@ -98,7 +98,8 @@ the table has one of that name, and otherwise evaluated in the calling
 environment:
 
 ```{r}
-threshold <- 1400
+# The second append holds ids 1001 to 1200, so this keeps the last fifty.
+threshold <- 1150
 icebergr_collect(icebergr_scan(tbl, filter = id > threshold, select = "id"))
 ```
 
