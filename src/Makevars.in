@@ -35,6 +35,7 @@ $(STATLIB):
 	fi
 
 	export CARGO_HOME=$(CARGOTMP) && \
+	@MACOS_EXPORT@ \
 	export PATH="$(PATH):$(HOME)/.cargo/bin" && \
 	RUSTFLAGS="$(RUSTFLAGS) --print=native-static-libs" cargo build @CRAN_FLAGS@ @FEATURES@ --lib @PROFILE@ --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR)
 

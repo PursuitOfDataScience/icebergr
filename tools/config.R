@@ -79,6 +79,36 @@ env_features <- trimws(Sys.getenv("ICEBERGR_CARGO_FEATURES"))
   ""
 }
 
+# cargo compiles the C inside vendored crates (zstd, aws-lc's assembly) against
+# whatever SDK is installed. When that is newer than the deployment target R
+# itself was built for -- routine on macOS, where the SDK runs ahead of the R
+# binary -- the linker emits "was built for newer 'macOS' version" for every
+# object file, and R CMD check turns that into an install WARNING.
+#
+# R records its own target in etc/Makeconf, so read it from there and hand it to
+# cargo. Empty when the flag is absent or we are not on macOS, which leaves
+# cargo's default alone.
+.macos_export <- ""
+if (identical(Sys.info()[["sysname"]], "Darwin")) {
+  makeconf <- file.path(R.home("etc"), "Makeconf")
+  target <- if (file.exists(makeconf)) {
+    flags <- readLines(makeconf, warn = FALSE)
+    found <- unlist(regmatches(
+      flags,
+      regexpr("-mmacosx-version-min=[0-9][0-9.]*", flags)
+    ))
+    if (length(found)) sub("^-mmacosx-version-min=", "", found[[1L]]) else ""
+  } else {
+    ""
+  }
+  if (nzchar(target)) {
+    message("Building Rust against MACOSX_DEPLOYMENT_TARGET=", target, ".")
+    # No trailing backslash: the template supplies the line continuation, so an
+    # empty substitution still leaves the recipe as one shell invocation.
+    .macos_export <- paste0("export MACOSX_DEPLOYMENT_TARGET=", target, " &&")
+  }
+}
+
 .profile <- if (is_debug) "" else "--release"
 .clean_targets <- if (is_debug) "" else "$(TARGET_DIR)"
 .libdir <- if (is_debug) "debug" else "release"
@@ -98,6 +128,7 @@ mv_txt <- readLines(mv_fp)
 new_txt <- gsub("@CRAN_FLAGS@", .cran_flags, mv_txt)
 new_txt <- gsub("@FEATURES@", .features, new_txt)
 new_txt <- gsub("@PKG_LIBS_EXTRA@", .pkg_libs_extra, new_txt)
+new_txt <- gsub("@MACOS_EXPORT@", .macos_export, new_txt)
 new_txt <- gsub("@PROFILE@", .profile, new_txt)
 new_txt <- gsub("@CLEAN_TARGET@", .clean_targets, new_txt)
 new_txt <- gsub("@LIBDIR@", .libdir, new_txt)
