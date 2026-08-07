@@ -55,6 +55,8 @@ R CMD INSTALL
           ├─ tools/msrv.R            checks rustc exists and is new enough
           └─ writes src/Makevars     from src/Makevars.in, substituting:
                                        @CRAN_FLAGS@   -j 2 --offline, or empty
+                                       @FEATURES@     --features ..., from
+                                                      ICEBERGR_CARGO_FEATURES
                                        @PROFILE@      --release, or empty
                                        @LIBDIR@       release, or debug
                                        @CLEAN_TARGET@ what to delete afterwards
