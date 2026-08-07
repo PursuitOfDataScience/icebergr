@@ -60,7 +60,16 @@ icebergr_table <- function(catalog, table) {
 #' @export
 icebergr_schema <- function(tbl) {
   check_table(tbl)
-  as_result_tbl(rs_table_schema(tbl$ptr))
+  raw <- rs_table_schema(tbl$ptr)
+  # Rust hands the Iceberg type over as `field_type`, because `type` is a
+  # keyword there and cannot name a `list!` argument. The column is `type`.
+  tibble::tibble(
+    field_id = raw$field_id,
+    name = raw$name,
+    type = raw$field_type,
+    required = raw$required,
+    doc = raw$doc
+  )
 }
 
 #' The partition specification of an Iceberg table
@@ -94,7 +103,7 @@ table_columns <- function(tbl) {
 #' @export
 print.icebergr_table <- function(x, ...) {
   ident <- rs_table_identifier(x$ptr)
-  schema <- rs_table_schema(x$ptr)
+  schema <- icebergr_schema(x)
   snapshot <- rs_table_current_snapshot(x$ptr)
   partitions <- rs_table_partitions(x$ptr)
 
