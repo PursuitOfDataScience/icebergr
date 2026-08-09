@@ -53,27 +53,29 @@ jobs:
       - id: pick
         shell: bash
         run: |
-          # lto/cgu override [profile.release] for the run. Turning LTO off and
-          # raising codegen-units is where most of a release build's time goes,
-          # and it is still a release build -- same opt-level, same stripped
-          # symbols -- so the checks see what they are meant to see.
+          # Two ways of making these jobs compile faster were tried and both
+          # rejected on measurement. Recorded so they are not tried again:
           #
-          # A debug build was tried instead and is not usable here: it leaves
-          # src/rust/target inside the package (nothing cleans it without
-          # @CLEAN_TARGET@), so check then scans build-script C output and
-          # reports line-ending and pragma NOTEs, and the unoptimised staticlib
-          # still contains exit/abort/stderr, which trips "checking compiled
-          # code". Measured: 3 WARNINGs and 3 NOTEs, against 0 for this.
+          #   * A debug build (DEBUG=1) is not usable in a job that runs R CMD
+          #     check. Nothing removes src/rust/target without @CLEAN_TARGET@,
+          #     so check scans the C that build scripts generate and reports
+          #     line-ending and pragma NOTEs, and the unoptimised staticlib
+          #     still contains exit/abort/stderr, tripping "checking compiled
+          #     code". 3 WARNINGs and 3 NOTEs against 0.
+          #   * Turning LTO off (CARGO_PROFILE_RELEASE_LTO=false, codegen-units
+          #     16) made it *worse*: install went 735s to 905s CPU with elapsed
+          #     flat at ~480s, and the installed size went 27 Mb to 60 Mb. LTO
+          #     is not the bottleneck -- compiling 308 dependency crates is,
+          #     and the runner has two cores, so raising CARGO_BUILD_JOBS does
+          #     not help either.
           #
-          # The Linux legs run on every push, so they take the faster build.
-          # macOS and Windows run rarely and exist for build fidelity, so they
-          # keep the profile the package actually ships.
-          linux='{"os":"ubuntu-latest","r":"release","lto":"false","cgu":"16"}'
+          # What remains is to run the expensive platforms less often.
+          linux='{"os":"ubuntu-latest","r":"release"}'
           # DESCRIPTION declares R (>= 4.2), so an older R has to be exercised
           # or the floor is a guess.
-          oldrel='{"os":"ubuntu-latest","r":"oldrel-1","lto":"false","cgu":"16"}'
-          mac='{"os":"macos-latest","r":"release","lto":"true","cgu":"1"}'
-          win='{"os":"windows-latest","r":"release","lto":"true","cgu":"1"}'
+          oldrel='{"os":"ubuntu-latest","r":"oldrel-1"}'
+          mac='{"os":"macos-latest","r":"release"}'
+          win='{"os":"windows-latest","r":"release"}'
 
           if [ "${{ github.event_name }}" = "push" ]; then
             config="[$linux,$oldrel]"
@@ -102,10 +104,6 @@ jobs:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
       NOT_CRAN: true
-      # Set explicitly on every leg rather than left blank on some: cargo
-      # rejects an empty value for a profile override.
-      CARGO_PROFILE_RELEASE_LTO: ${{ matrix.config.lto }}
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.config.cgu }}
       # Cargo defaults to every logical CPU, which is more than a CI runner
       # should use and more than CRAN permits.
       CARGO_BUILD_JOBS: 2
