@@ -42,8 +42,11 @@ If the dplyr package is installed, \code{dplyr::collect()} also works on these
 objects.
 }
 \examples{
-\dontrun{
-icebergr_collect(icebergr_scan(tbl, filter = year == 2024))
+tbl <- icebergr_example_table(rows = 10)
+
+# A scan, materialised
+icebergr_collect(icebergr_scan(tbl, filter = id > 1000, select = c("id", "amount")))
+
+# A whole table, materialised
 icebergr_collect(tbl)
-}
 }

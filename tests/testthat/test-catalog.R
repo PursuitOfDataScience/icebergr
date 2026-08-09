@@ -76,20 +76,63 @@ test_that("printing a catalog never reveals its properties", {
   expect_match(printed, "icebergr_catalog")
 })
 
+test_that("the token really does reach the property map", {
+  # Without this the leak tests below would pass vacuously, which is exactly how
+  # a leak test stops being one.
+  withr::local_envvar(ICEBERGR_REST_TOKEN = "super-secret-token")
+  props <- properties_from_env()
+
+  expect_equal(props[["token"]], "super-secret-token")
+})
+
 test_that("catalog errors do not echo property values", {
   withr::local_envvar(ICEBERGR_REST_TOKEN = "super-secret-token")
 
+  # A REST catalog is built lazily, so constructing one against a dead port
+  # succeeds; it is the first request that fails. The error has to arrive one
+  # way or the other, so drive it out rather than letting the test quietly
+  # assert nothing.
   err <- tryCatch(
-    icebergr_catalog("rest", uri = "http://127.0.0.1:1/does-not-exist"),
+    {
+      catalog <- icebergr_catalog("rest", uri = "http://127.0.0.1:1/does-not-exist")
+      icebergr_list_namespaces(catalog)
+      NULL
+    },
     error = function(e) conditionMessage(e)
   )
 
-  # The connection is expected to fail; what matters is what the message says.
-  if (is.character(err)) {
-    expect_false(grepl("super-secret-token", err, fixed = TRUE))
-    # Keys are safe to report and are genuinely useful for debugging.
-    expect_match(err, "keys only", fixed = TRUE)
-  }
+  expect_type(err, "character")
+  expect_false(grepl("super-secret-token", err, fixed = TRUE))
+})
+
+test_that("a failure to connect reports property keys, and only keys", {
+  # Straight at the binding: every route to a connect-time failure through
+  # icebergr_catalog() is now caught by its own argument checks first, which is
+  # the right behaviour but leaves config_err() untested.
+  err <- tryCatch(
+    rs_catalog_connect(
+      kind = "rest",
+      name = "icebergr",
+      storage = "auto",
+      keys = c("uri", "token"),
+      values = c("", "super-secret-token")
+    ),
+    error = function(e) conditionMessage(e)
+  )
+
+  expect_type(err, "character")
+  expect_false(grepl("super-secret-token", err, fixed = TRUE))
+  # Keys are safe to report and are genuinely useful for debugging.
+  expect_match(err, "keys only", fixed = TRUE)
+  expect_match(err, "token")
+  expect_match(err, "uri")
+})
+
+test_that("a blank uri is treated as a missing one", {
+  # Sys.getenv() on an unset variable returns "", which is the usual way to end
+  # up here empty-handed.
+  expect_error(icebergr_catalog("rest", uri = ""), "`uri` is required")
+  expect_error(icebergr_catalog("rest", uri = "  "), "`uri` is required")
 })
 
 test_that("passing a credential as an argument warns about leaking it", {

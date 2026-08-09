@@ -36,11 +36,12 @@ ids are character throughout, and \code{\link[=icebergr_scan]{icebergr_scan()}} 
 }
 
 \examples{
-\dontrun{
-history <- icebergr_snapshots(tbl)
-history
+# Two appends, so there is history to travel through.
+tbl <- icebergr_example_table(rows = 10)
 
-# Read the table as it was two snapshots ago.
-icebergr_scan(tbl, snapshot_id = history$snapshot_id[[1]])
-}
+history <- icebergr_snapshots(tbl)
+history[, c("snapshot_id", "operation", "added_records", "total_records")]
+
+# Read the table as it was at its first snapshot.
+icebergr_collect(icebergr_scan(tbl, snapshot_id = history$snapshot_id[[1]]))
 }

@@ -17,7 +17,6 @@ A tibble with one row per top-level field: \code{field_id}, \code{name},
 The schema of an Iceberg table
 }
 \examples{
-\dontrun{
+tbl <- icebergr_example_table(rows = 10)
 icebergr_schema(tbl)
-}
 }

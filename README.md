@@ -40,7 +40,7 @@ a Rust toolchain (`rustc` >= 1.94):
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Expect the first build to take a while: the dependency tree is 343 crates.
+Expect the first build to take a while: a default install compiles 308 crates.
 
 Optional backends are off by default because each substantially enlarges that
 tree:
@@ -224,18 +224,29 @@ minute.
 
 Two things have to clear first. Both are tractable; neither is settled.
 
-**1. Vendored size.** `iceberg` pulls **343 crates** before any optional catalog,
-and `[features] default = []` is already empty — `tokio`, `reqwest`, `parquet`,
-eight `arrow-*` crates and `apache-avro` are unconditional, so feature flags
-cannot trim them. For scale, the largest vendored Rust package CRAN has accepted
-is `arcgisgeocode` at 108 crates and 13.6 MB, itself an approved exception to the
-10 MB guideline — and that guideline explicitly allows requesting more.
+**1. Vendored size — measured, not estimated.** A default install compiles **308
+crates**; `vendor.tar.xz` carries **442** and weighs **31.3 MB**. The extra 134
+are the optional Glue and S3 backends, which a default install never builds but
+which still have to be vendored: cargo resolves the whole lock graph before it
+selects features, so an offline build fails outright if any locked package is
+missing from the vendor directory.
 
-What is being done about it: `tools/vendor.R` prunes tests, examples, benchmarks
-and fixtures from the vendor tree while preserving every licence file, and the CI
-job reports the resulting size on each run. That measurement is what a size
-exemption request has to be built on, so the number matters more than any
-estimate.
+`[features] default = []` is already empty — `tokio`, `reqwest`, `parquet`, eight
+`arrow-*` crates and `apache-avro` are unconditional, so feature flags cannot
+trim the core. Dropping the optional backends entirely was measured too: it takes
+the archive from 31.3 MB to 28 MB, because the AWS and `windows-sys` trees are
+generated code that compresses extremely well. Trading documented functionality
+for 10% is not worth it.
+
+For scale, the largest vendored Rust package CRAN has accepted is `arcgisgeocode`
+at 108 crates and 13.6 MB, itself an approved exception to the 10 MB guideline —
+and that guideline explicitly allows requesting more. 31.3 MB is 2.3× that, so
+the exemption request in `cran-comments.md` is a real ask, made with the
+arithmetic shown rather than asserted.
+
+`tools/vendor.R` prunes tests, examples, benchmarks and fixtures from the vendor
+tree — 27 MB of it — while preserving every licence file, and the CI job reports
+the resulting size on each run.
 
 **2. Minimum Rust version.** `iceberg-rust` 0.10.0 needs `rustc` 1.94 and edition
 2024, and bumps its minimum most releases. Whether CRAN's build machines have

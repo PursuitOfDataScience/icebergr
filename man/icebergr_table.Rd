@@ -24,9 +24,19 @@ Appending with \code{\link[=icebergr_append]{icebergr_append()}} returns an upda
 mutating this one, so a handle always reads a consistent view.
 }
 \examples{
-\dontrun{
-catalog <- icebergr_catalog("rest", uri = "https://catalog.example.com")
+# A local warehouse, so this runs offline.
+warehouse <- tempfile("warehouse")
+dir.create(warehouse)
+catalog <- icebergr_catalog("memory", warehouse = warehouse)
+icebergr_create_namespace(catalog, "db")
+icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
+
 tbl <- icebergr_table(catalog, "db.events")
 icebergr_schema(tbl)
+
+\dontrun{
+# The same call against a REST catalog, which needs a server.
+catalog <- icebergr_catalog("rest", uri = "https://catalog.example.com")
+tbl <- icebergr_table(catalog, "db.events")
 }
 }

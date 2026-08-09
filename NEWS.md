@@ -34,7 +34,7 @@ the README for which is which.
 The package is named `icebergr`, not `iceberg`. Apache Software Foundation
 trademark policy does not permit third parties to use Apache marks as the
 primary branding of their own products, and a bare `iceberg` package would also
-imply that this is an ASF-governed client, which it is not. See the NOTICE file.
+imply that this is an ASF-governed client, which it is not. See `inst/NOTICE`.
 
 ## Distribution
 
@@ -43,10 +43,10 @@ vendored dependencies, offline builds, `-j2`, a confined `CARGO_HOME`, and a
 per-crate `LICENSE.note`. CI exercises that exact submission path on every
 commit.
 
-Two open items before submitting. The vendored tree is 343 crates before any
-optional catalog, against a largest-accepted precedent of 108 crates and 13.6 MB
-— so a size exemption request will be needed, and `tools/vendor.R` reports the
-measured figure it would rest on. And `iceberg-rust` 0.10.0 requires rustc 1.94
-under a rolling MSRV; if CRAN's machines are older, pinning 0.9.1 drops the
-requirement to 1.92 at the cost of one API. See `FEASIBILITY.md` and the README's
-CRAN status section.
+Two open items before submitting, both now measured rather than estimated. A
+default install compiles 308 crates and `vendor.tar.xz` weighs 31.3 MB, against a
+largest-accepted precedent of 108 crates and 13.6 MB — so a size exemption
+request is needed, and `cran-comments.md` makes it with the arithmetic shown. And
+`iceberg-rust` 0.10.0 requires rustc 1.94 under a rolling MSRV; if CRAN's
+machines are older, pinning 0.9.1 drops the requirement to 1.92 at the cost of
+one API. See `FEASIBILITY.md` and the README's CRAN status section.

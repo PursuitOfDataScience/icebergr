@@ -1,4 +1,4 @@
-#' icebergr: read and write Apache Iceberg tables
+#' icebergr: Read and Write Apache Iceberg Tables
 #'
 #' R has been able to read Apache Iceberg tables only by routing through DuckDB,
 #' which rules out writes, snapshot management and catalog integration. icebergr
@@ -28,8 +28,7 @@
 #' sponsored by or endorsed by the ASF.
 #'
 #' @keywords internal
-"_PACKAGE"
-
+#' @useDynLib icebergr, .registration = TRUE
 #' @importFrom rlang abort
 #' @importFrom rlang warn
-NULL
+"_PACKAGE"

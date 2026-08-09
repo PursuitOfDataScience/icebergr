@@ -123,7 +123,11 @@ icebergr_catalog <- function(type = c("rest", "memory", "glue"),
     abort("All catalog properties passed through `...` must be named.")
   }
 
-  if (type == "rest" && is.null(uri)) {
+  # Blank counts as absent. `uri = Sys.getenv("MY_CATALOG")` returns "" when the
+  # variable is unset, which is the common way to arrive here empty-handed, and
+  # it deserves the same answer as a missing argument rather than an error from
+  # inside iceberg-rust.
+  if (type == "rest" && (is.null(uri) || !nzchar(trimws(uri)))) {
     abort(c(
       "`uri` is required for a REST catalog.",
       i = "For example: icebergr_catalog(\"rest\", uri = \"https://catalog.example.com\")"

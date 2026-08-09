@@ -9,8 +9,7 @@
 //! only 53 bits exactly, and while user-space pointers happen to fit today,
 //! there is no reason to build that assumption in.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::panic::AssertUnwindSafe;
 
 use arrow::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use arrow_array::{RecordBatch, RecordBatchReader};
@@ -51,17 +50,12 @@ pub struct BlockingBatchReader {
     /// The batch consumed by `new` while establishing the schema.
     pending: Option<RecordBatch>,
     stream: Option<ArrowRecordBatchStream>,
-    rows: Arc<AtomicU64>,
 }
 
 impl BlockingBatchReader {
     /// `fallback_schema` is used only when the scan yields no batches at all,
     /// in which case there is nothing to read a schema from.
-    pub fn new(
-        stream: ArrowRecordBatchStream,
-        fallback_schema: SchemaRef,
-        rows: Arc<AtomicU64>,
-    ) -> RResult<Self> {
+    pub fn new(stream: ArrowRecordBatchStream, fallback_schema: SchemaRef) -> RResult<Self> {
         let mut stream = stream;
 
         // Pull one batch eagerly and take the schema from it. Reconstructing the
@@ -69,40 +63,28 @@ impl BlockingBatchReader {
         // batches over field order or metadata, and a C stream whose schema does
         // not match its arrays is undefined behaviour on the consumer side.
         match block_on(stream.next()) {
-            Some(Ok(batch)) => {
-                rows.fetch_add(batch.num_rows() as u64, Ordering::Relaxed);
-                Ok(Self {
-                    schema: batch.schema(),
-                    pending: Some(batch),
-                    stream: Some(stream),
-                    rows,
-                })
-            }
+            Some(Ok(batch)) => Ok(Self {
+                schema: batch.schema(),
+                pending: Some(batch),
+                stream: Some(stream),
+            }),
             Some(Err(e)) => Err(ctx("scan failed", e)),
             None => Ok(Self {
                 schema: fallback_schema,
                 pending: None,
                 stream: None,
-                rows,
             }),
         }
     }
-}
 
-impl Iterator for BlockingBatchReader {
-    type Item = std::result::Result<RecordBatch, ArrowError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// The body of `next`, minus the panic guard around it.
+    fn next_batch(&mut self) -> Option<std::result::Result<RecordBatch, ArrowError>> {
         if let Some(batch) = self.pending.take() {
             return Some(Ok(batch));
         }
         let stream = self.stream.as_mut()?;
         match block_on(stream.next()) {
-            Some(Ok(batch)) => {
-                self.rows
-                    .fetch_add(batch.num_rows() as u64, Ordering::Relaxed);
-                Some(Ok(batch))
-            }
+            Some(Ok(batch)) => Some(Ok(batch)),
             Some(Err(e)) => {
                 // Do not keep polling a stream that has already failed.
                 self.stream = None;
@@ -113,6 +95,45 @@ impl Iterator for BlockingBatchReader {
                 None
             }
         }
+    }
+}
+
+impl Iterator for BlockingBatchReader {
+    type Item = std::result::Result<RecordBatch, ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // This runs inside the C stream's `get_next` callback, which arrow-rs
+        // declares `extern "C"` and does not guard. An unwind out of an
+        // `extern "C"` frame aborts the process -- taking the whole R session
+        // down, unsaved work included -- so a panic anywhere below (in
+        // iceberg-rust, in a Parquet decoder, in tokio) has to be turned into an
+        // ordinary error here rather than allowed to escape.
+        match std::panic::catch_unwind(AssertUnwindSafe(|| self.next_batch())) {
+            Ok(item) => item,
+            Err(payload) => {
+                // A panicked stream is not safe to poll again.
+                self.stream = None;
+                self.pending = None;
+                let what = panic_message(&*payload);
+                // ComputeError rather than ExternalError: the latter wants a
+                // Send + Sync payload, which extendr's Error is not (it can hold
+                // a SEXP).
+                Some(Err(ArrowError::ComputeError(format!(
+                    "icebergr: the Iceberg scan panicked while reading: {what}"
+                ))))
+            }
+        }
+    }
+}
+
+/// Recover whatever text a panic payload carries, for the error message.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "panic with no message".to_string()
     }
 }
 

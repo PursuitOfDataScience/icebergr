@@ -18,9 +18,24 @@ comparison_ops <- c(
 # Reversing the operands of an inequality reverses the operator.
 flipped_ops <- c(lt = "gt", lte = "gte", gt = "lt", gte = "lte", eq = "eq", ne = "ne")
 
+#' The table column a symbol names, or NULL
+#'
+#' Returns the column's spelling *as the table has it*, which is what makes
+#' `case_sensitive = FALSE` work: `iceberg-rust` binds the snapshot-level
+#' predicate case-sensitively regardless of the scan's own setting, so a
+#' differently-cased name has to be resolved here rather than left to it.
 #' @noRd
-is_column_ref <- function(e, columns) {
-  is.symbol(e) && as.character(e) %in% columns
+column_ref <- function(e, columns, case_sensitive = TRUE) {
+  if (!is.symbol(e)) {
+    return(NULL)
+  }
+  name <- as.character(e)
+  hit <- if (case_sensitive) {
+    match(name, columns)
+  } else {
+    match(tolower(name), tolower(columns))
+  }
+  if (is.na(hit)) NULL else columns[[hit]]
 }
 
 #' @noRd
@@ -61,7 +76,11 @@ eval_literal <- function(e, env, call) {
 }
 
 #' @noRd
-translate_filter <- function(e, columns, env, call = rlang::caller_env()) {
+translate_filter <- function(e, columns, env, case_sensitive = TRUE,
+                             call = rlang::caller_env()) {
+  recurse <- function(x) translate_filter(x, columns, env, case_sensitive, call)
+  as_column <- function(x) column_ref(x, columns, case_sensitive)
+
   # A literal TRUE/FALSE is a legitimate, if unusual, filter.
   if (is.logical(e) && length(e) == 1L && !is.na(e)) {
     return(list(op = if (e) "always_true" else "always_false"))
@@ -84,73 +103,81 @@ translate_filter <- function(e, columns, env, call = rlang::caller_env()) {
 
   fn <- deparse1(e[[1L]])
 
+  # `is.na()` and `startsWith("a")` parse perfectly well, so the argument count
+  # has to be checked before indexing into the call. Without this the report is
+  # "subscript out of bounds", which says nothing about the filter.
+  arity <- c("(" = 2L, "!" = 2L, "is.na" = 2L, "is.nan" = 2L, "startsWith" = 3L)
+  if (fn %in% names(arity) && length(e) != arity[[fn]]) {
+    unsupported_filter(
+      paste0(
+        encodeString(deparse1(e), quote = "`"), " takes ", arity[[fn]] - 1L,
+        " argument(s), not ", length(e) - 1L
+      ),
+      call
+    )
+  }
+
   # Parentheses carry no meaning once we have the parse tree.
   if (fn == "(") {
-    return(translate_filter(e[[2L]], columns, env, call))
+    return(recurse(e[[2L]]))
   }
 
   if (fn %in% c("&", "&&")) {
-    return(list(
-      op = "and",
-      args = list(
-        translate_filter(e[[2L]], columns, env, call),
-        translate_filter(e[[3L]], columns, env, call)
-      )
-    ))
+    return(list(op = "and", args = list(recurse(e[[2L]]), recurse(e[[3L]]))))
   }
 
   if (fn %in% c("|", "||")) {
-    return(list(
-      op = "or",
-      args = list(
-        translate_filter(e[[2L]], columns, env, call),
-        translate_filter(e[[3L]], columns, env, call)
-      )
-    ))
+    return(list(op = "or", args = list(recurse(e[[2L]]), recurse(e[[3L]]))))
   }
 
   if (fn == "!") {
     inner <- e[[2L]]
     # !is.na(x) is common enough to deserve the direct is_not_null predicate
     # rather than a negated is_null.
-    if (is.call(inner) && deparse1(inner[[1L]]) == "is.na" &&
-      is_column_ref(inner[[2L]], columns)) {
-      return(list(op = "is_not_null", col = as.character(inner[[2L]])))
+    if (is.call(inner) && length(inner) == 2L) {
+      inner_fn <- deparse1(inner[[1L]])
+      column <- as_column(inner[[2L]])
+      if (!is.null(column) && inner_fn == "is.na") {
+        return(list(op = "is_not_null", col = column))
+      }
+      if (!is.null(column) && inner_fn == "is.nan") {
+        return(list(op = "is_not_nan", col = column))
+      }
     }
-    if (is.call(inner) && deparse1(inner[[1L]]) == "is.nan" &&
-      is_column_ref(inner[[2L]], columns)) {
-      return(list(op = "is_not_nan", col = as.character(inner[[2L]])))
-    }
-    return(list(op = "not", arg = translate_filter(inner, columns, env, call)))
+    return(list(op = "not", arg = recurse(inner)))
   }
 
   if (fn == "is.na") {
-    if (!is_column_ref(e[[2L]], columns)) {
+    column <- as_column(e[[2L]])
+    if (is.null(column)) {
       unsupported_filter("is.na() must be applied to a column of the table", call)
     }
-    return(list(op = "is_null", col = as.character(e[[2L]])))
+    return(list(op = "is_null", col = column))
   }
 
   if (fn == "is.nan") {
-    if (!is_column_ref(e[[2L]], columns)) {
+    column <- as_column(e[[2L]])
+    if (is.null(column)) {
       unsupported_filter("is.nan() must be applied to a column of the table", call)
     }
-    return(list(op = "is_nan", col = as.character(e[[2L]])))
+    return(list(op = "is_nan", col = column))
   }
 
   if (fn == "startsWith") {
-    if (!is_column_ref(e[[2L]], columns)) {
+    column <- as_column(e[[2L]])
+    if (is.null(column)) {
       unsupported_filter("startsWith() must be applied to a column of the table", call)
     }
     prefix <- eval_literal(e[[3L]], env, call)
     if (!is.character(prefix) || length(prefix) != 1L) {
       unsupported_filter("the prefix in startsWith() must be a single string", call)
     }
-    return(list(op = "starts_with", col = as.character(e[[2L]]), value = prefix))
+    return(list(op = "starts_with", col = column, value = prefix))
   }
 
   if (fn == "%in%") {
-    if (!is_column_ref(e[[2L]], columns)) {
+    column <- as_column(e[[2L]])
+    if (is.null(column)) {
       unsupported_filter("the left side of %in% must be a column of the table", call)
     }
     values <- eval_literal(e[[3L]], env, call)
@@ -163,7 +190,7 @@ translate_filter <- function(e, columns, env, call = rlang::caller_env()) {
         call = call
       )
     }
-    return(list(op = "in", col = as.character(e[[2L]]), values = as.list(values)))
+    return(list(op = "in", col = column, values = as.list(values)))
   }
 
   if (fn %in% names(comparison_ops)) {
@@ -171,11 +198,10 @@ translate_filter <- function(e, columns, env, call = rlang::caller_env()) {
     lhs <- e[[2L]]
     rhs <- e[[3L]]
 
-    if (is_column_ref(lhs, columns)) {
-      column <- as.character(lhs)
+    column <- as_column(lhs)
+    if (!is.null(column)) {
       value <- eval_literal(rhs, env, call)
-    } else if (is_column_ref(rhs, columns)) {
-      column <- as.character(rhs)
+    } else if (!is.null(column <- as_column(rhs))) {
       value <- eval_literal(lhs, env, call)
       op <- flipped_ops[[op]]
     } else {
@@ -226,7 +252,11 @@ json_string <- function(x) {
   # requires escaping.
   for (cp in setdiff(1:31, c(8L, 9L, 10L, 12L, 13L))) {
     ch <- intToUtf8(cp)
-    if (any(grepl(ch, x, fixed = TRUE))) {
+    # na.rm: grepl() is NA for an NA element, and `if (NA)` is an error. NA never
+    # reaches here today -- json_scalar() rejects it first, and op and col are
+    # never NA -- but this helper should not be the thing that breaks if it ever
+    # does.
+    if (any(grepl(ch, x, fixed = TRUE), na.rm = TRUE)) {
       x <- gsub(ch, sprintf("\\u%04x", cp), x, fixed = TRUE)
     }
   }

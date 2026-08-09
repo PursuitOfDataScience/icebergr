@@ -70,12 +70,12 @@ feature_matrix <- function() {
 icebergr_spec_support <- function() {
   info <- build_info()
 
-  matrix <- feature_matrix()
+  features <- feature_matrix()
 
   # Resolve the build-dependent rows against what is actually compiled in.
   compiled <- info$features
-  matrix$supported[matrix$feature == "AWS Glue catalog"] <- "glue" %in% compiled
-  matrix$supported[matrix$feature == "Object storage (S3)"] <- "s3" %in% compiled
+  features$supported[features$feature == "AWS Glue catalog"] <- "glue" %in% compiled
+  features$supported[features$feature == "Object storage (S3)"] <- "s3" %in% compiled
 
   structure(
     list(
@@ -84,7 +84,7 @@ icebergr_spec_support <- function() {
       spec_versions = c(1L, 2L),
       catalogs = info$catalogs,
       cargo_features = compiled,
-      features = matrix
+      features = features
     ),
     class = "icebergr_spec_support"
   )

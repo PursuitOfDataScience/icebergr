@@ -33,6 +33,11 @@ pub fn config_err<E: std::fmt::Display>(what: &str, keys: &[String], e: E) -> RE
 }
 
 /// An error for a feature that exists in Iceberg but is not compiled in.
+///
+/// Every caller is behind `#[cfg(not(feature = ...))]`, so a build with every
+/// optional feature turned on has no use for it. That is a complete build, not
+/// a mistake, and it should not warn.
+#[allow(dead_code)]
 pub fn not_compiled_in(what: &str, feature: &str) -> RError {
     RError::Other(format!(
         "{what} is not available in this build of icebergr.\n\

@@ -167,3 +167,12 @@ test_that("literal TRUE and FALSE are accepted", {
   expect_equal(tr(TRUE), list(op = "always_true"))
   expect_equal(tr(FALSE), list(op = "always_false"))
 })
+
+test_that("the JSON string writer survives an NA rather than erroring", {
+  # NA does not reach json_string() today -- json_scalar() rejects it first, and
+  # op and col are never NA -- but the control-character sweep tests each
+  # element with grepl(), and `if (NA)` is an error rather than FALSE. This
+  # helper should not be the thing that breaks if that ever changes.
+  expect_equal(json_string(NA_character_), "\"NA\"")
+  expect_equal(json_string(c("a", NA)), c("\"a\"", "\"NA\""))
+})

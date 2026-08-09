@@ -11,7 +11,6 @@
 //! fewer records, and that is a property worth testing directly.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 
 use arrow_schema::{Schema as ArrowSchema, SchemaRef};
 use extendr_api::prelude::*;
@@ -76,22 +75,27 @@ fn predicate_schema(tbl: &RTable, snapshot: Option<i64>) -> RResult<IcebergSchem
     }
 }
 
+/// Resolve the optional snapshot id R supplied, once, so that everything
+/// downstream -- scan planning, predicate binding and the empty-result schema --
+/// agrees on which snapshot is being read.
+fn resolve_snapshot_opt(tbl: &RTable, snapshot_id: &Option<String>) -> RResult<Option<i64>> {
+    match snapshot_id {
+        Some(id) => Ok(Some(resolve_snapshot(tbl, id)?)),
+        None => Ok(None),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn configure(
     tbl: &RTable,
     select: &Option<Vec<String>>,
     filter_json: &Option<String>,
-    snapshot_id: &Option<String>,
+    snapshot: Option<i64>,
     batch_size: Option<i32>,
     case_sensitive: bool,
     row_group_filtering: bool,
     row_selection: bool,
 ) -> RResult<TableScan> {
-    let snapshot = match snapshot_id {
-        Some(id) => Some(resolve_snapshot(tbl, id)?),
-        None => None,
-    };
-
     let mut builder = tbl.table.scan().with_case_sensitive(case_sensitive);
 
     // Projection pushdown: only the requested columns are read from Parquet.
@@ -127,23 +131,45 @@ fn configure(
 }
 
 /// The schema to report when a scan yields no batches at all.
-fn fallback_schema(tbl: &RTable, select: &Option<Vec<String>>) -> RResult<SchemaRef> {
-    let full = schema_to_arrow_schema(tbl.metadata().current_schema())
+///
+/// Derived from the schema of the snapshot being read, not from the current
+/// one: a time-travel read of a table whose columns have since changed must
+/// report the columns that snapshot had, whether or not it happens to be empty.
+fn fallback_schema(
+    tbl: &RTable,
+    select: &Option<Vec<String>>,
+    snapshot: Option<i64>,
+    case_sensitive: bool,
+) -> RResult<SchemaRef> {
+    let full = schema_to_arrow_schema(predicate_schema(tbl, snapshot)?.as_ref())
         .map_err(|e| ctx("could not convert the Iceberg schema to Arrow", e))?;
 
     match select {
         Some(cols) if !cols.is_empty() => {
             let mut fields = Vec::with_capacity(cols.len());
             for c in cols {
-                let f = full.field_with_name(c).map_err(|_| {
-                    let mut names: Vec<&str> =
-                        full.fields().iter().map(|f| f.name().as_str()).collect();
-                    names.sort_unstable();
-                    extendr_api::Error::Other(format!(
-                        "cannot select {c:?}: no such column.\nAvailable columns: {}",
-                        names.join(", ")
-                    ))
-                })?;
+                // Matched the same way the scan itself matches, so that an empty
+                // result does not fail where a non-empty one would have
+                // succeeded.
+                let f = full
+                    .fields()
+                    .iter()
+                    .find(|f| {
+                        if case_sensitive {
+                            f.name() == c
+                        } else {
+                            f.name().eq_ignore_ascii_case(c)
+                        }
+                    })
+                    .ok_or_else(|| {
+                        let mut names: Vec<&str> =
+                            full.fields().iter().map(|f| f.name().as_str()).collect();
+                        names.sort_unstable();
+                        extendr_api::Error::Other(format!(
+                            "cannot select {c:?}: no such column.\nAvailable columns: {}",
+                            names.join(", ")
+                        ))
+                    })?;
                 fields.push(f.clone());
             }
             Ok(Arc::new(ArrowSchema::new(fields)))
@@ -167,13 +193,13 @@ fn rs_scan_to_stream(
 ) -> RResult<()> {
     let select = select.into_option();
     let filter_json = filter_json.into_option();
-    let snapshot_id = snapshot_id.into_option();
+    let snapshot = resolve_snapshot_opt(&tbl, &snapshot_id.into_option())?;
 
     let scan = configure(
         &tbl,
         &select,
         &filter_json,
-        &snapshot_id,
+        snapshot,
         batch_size.into_option(),
         case_sensitive,
         row_group_filtering,
@@ -181,8 +207,8 @@ fn rs_scan_to_stream(
     )?;
 
     let stream = block_on(scan.to_arrow()).map_err(|e| ctx("could not start the scan", e))?;
-    let fallback = fallback_schema(&tbl, &select)?;
-    let reader = BlockingBatchReader::new(stream, fallback, Arc::new(AtomicU64::new(0)))?;
+    let fallback = fallback_schema(&tbl, &select, snapshot, case_sensitive)?;
+    let reader = BlockingBatchReader::new(stream, fallback)?;
 
     export_reader(stream_addr, Box::new(reader))
 }
@@ -192,7 +218,6 @@ fn rs_scan_to_stream(
 /// This is what makes pushdown observable: compare `sum(record_count)` between a
 /// filtered and an unfiltered plan.
 #[extendr]
-#[allow(clippy::too_many_arguments)]
 fn rs_scan_plan(
     tbl: ExternalPtr<RTable>,
     select: Nullable<Vec<String>>,
@@ -200,11 +225,12 @@ fn rs_scan_plan(
     snapshot_id: Nullable<String>,
     case_sensitive: bool,
 ) -> RResult<List> {
+    let snapshot = resolve_snapshot_opt(&tbl, &snapshot_id.into_option())?;
     let scan = configure(
         &tbl,
         &select.into_option(),
         &filter_json.into_option(),
-        &snapshot_id.into_option(),
+        snapshot,
         None,
         case_sensitive,
         true,

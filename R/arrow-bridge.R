@@ -22,13 +22,22 @@ ptr_addr <- function(x) {
 
 #' Normalise POSIXct columns to UTC
 #'
-#' Iceberg's `timestamptz` is UTC by definition, and `iceberg-rust` refuses an
-#' Arrow schema carrying any other zone: a column typed
-#' `Timestamp(us, "America/New_York")` fails conversion outright. A `POSIXct` is
-#' an absolute instant and `tzone` only says how to display it, so relabelling
-#' the attribute changes the representation without moving the moment in time --
+#' Iceberg's `timestamptz` is UTC by definition, and `iceberg-rust` accepts only
+#' `Timestamp(unit, None)` or `Timestamp(unit, "UTC" | "+00:00")` when it
+#' converts an Arrow schema; anything else, `Timestamp(us, "America/New_York")`
+#' included, falls through to "unsupported Arrow data type". A `POSIXct` is an
+#' absolute instant and `tzone` only says how to display it, so relabelling the
+#' attribute changes the representation without moving the moment in time --
 #' which is exactly the "instant preserved; normalised to UTC" behaviour the
 #' type-fidelity table documents.
+#'
+#' Every `POSIXct` is relabelled, not only those carrying a zone. A `POSIXct`
+#' with no `tzone`, or with `""`, is R's "local time is implied" form, and
+#' nanoarrow resolves that to the *session's* zone -- `Timestamp(us,
+#' "America/Chicago")` on a machine in Chicago -- rather than to a zone-less
+#' Arrow timestamp. Leaving it alone would therefore not produce Iceberg's
+#' zone-less `timestamp`; it would produce a schema Iceberg refuses, and one
+#' whose Iceberg type depended on where the machine happened to be.
 #' @noRd
 normalise_timestamps <- function(x) {
   if (!is.data.frame(x)) {
@@ -106,6 +115,33 @@ int64_ptype <- function(schema) {
   )
 }
 
+#' Give a UTC timestamp column R's own name for UTC
+#'
+#' `iceberg-rust` labels a `timestamptz` column `"+00:00"` rather than `"UTC"`.
+#' Both mean the same zone, but R does not treat them as the same *string*:
+#' comparing a column read back from Iceberg against an ordinary
+#' `as.POSIXct(..., tz = "UTC")` warns "'tzone' attributes are inconsistent", and
+#' `"+00:00"` is not a name the platform's zone database recognises, so
+#' formatting it is at the mercy of the C library. Relabelling touches the
+#' attribute only, never the instant.
+#' @noRd
+canonicalise_utc <- function(x) {
+  if (!is.data.frame(x)) {
+    return(x)
+  }
+  utc_synonyms <- c("+00:00", "+0000", "Z", "z", "GMT", "Etc/UTC", "UTC+0", "utc")
+  for (nm in names(x)) {
+    if (!inherits(x[[nm]], "POSIXct")) {
+      next
+    }
+    tz <- attr(x[[nm]], "tzone")
+    if (length(tz) == 1L && !is.na(tz) && tz %in% utc_synonyms) {
+      attr(x[[nm]], "tzone") <- "UTC"
+    }
+  }
+  x
+}
+
 #' Materialise an Arrow stream into a tibble
 #'
 #' `limit` stops pulling batches once enough rows have been seen. That is not
@@ -115,6 +151,8 @@ int64_ptype <- function(schema) {
 collect_stream <- function(stream, limit = NULL) {
   schema <- stream$get_schema()
   ptype <- int64_ptype(schema)
+
+  as_tbl <- function(x) tibble::as_tibble(canonicalise_utc(x))
 
   convert_stream <- function(x) {
     if (is.null(ptype)) {
@@ -129,16 +167,20 @@ collect_stream <- function(stream, limit = NULL) {
   }
 
   if (is.null(limit)) {
-    return(tibble::as_tibble(convert_stream(stream)))
+    return(as_tbl(convert_stream(stream)))
   }
 
   limit <- as.integer(limit)
   if (limit == 0L) {
-    return(tibble::as_tibble(no_rows()))
+    return(as_tbl(no_rows()))
   }
 
   chunks <- list()
-  seen <- 0L
+  # Double, not integer: `seen + nrow(piece)` on two integers overflows to NA
+  # past 2^31 rows, and the `seen >= limit` below would then error rather than
+  # stop. Counting in a double costs nothing and is exact well past any row
+  # count that would fit in memory.
+  seen <- 0
   repeat {
     array <- stream$get_next()
     if (is.null(array)) break
@@ -153,10 +195,10 @@ collect_stream <- function(stream, limit = NULL) {
   }
 
   if (length(chunks) == 0L) {
-    return(tibble::as_tibble(no_rows()))
+    return(as_tbl(no_rows()))
   }
 
   out <- if (length(chunks) == 1L) chunks[[1L]] else do.call(rbind, chunks)
   if (nrow(out) > limit) out <- out[seq_len(limit), , drop = FALSE]
-  tibble::as_tibble(out)
+  as_tbl(out)
 }

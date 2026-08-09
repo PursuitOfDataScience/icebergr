@@ -10,6 +10,10 @@ README.html
 icebergr.Rcheck/
 icebergr_*.tar.gz
 
+# Generated alongside src/rust/vendor.tar.xz by tools/vendor.R, and only
+# meaningful next to the vendor tree it inventories.
+LICENSE.note
+
 # Rust build artefacts
 src/rust/target/
 src/rust/vendor/

@@ -10,6 +10,7 @@
 //! turns a type error into a clear message here instead of an obscure failure
 //! during scan planning.
 
+use chrono::{DateTime, NaiveDateTime, Utc};
 use extendr_api::Error as RError;
 use iceberg::expr::{Predicate, Reference};
 use iceberg::spec::{Datum, PrimitiveType, Schema, Type};
@@ -295,16 +296,17 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
             }
             _ => Datum::timestamptz_micros(as_i64()?),
         },
+        // Nanosecond columns need a nanosecond literal. Datum::timestamp_from_str
+        // builds a *microsecond* one, and iceberg-rust's Datum::to() explicitly
+        // declines to convert between the two resolutions, so a micros literal
+        // compared against ns file statistics would prune the wrong files. Parse
+        // the ISO-8601 string here instead and scale it ourselves.
         PrimitiveType::TimestampNs => match value {
-            Json::String(s) => Datum::timestamp_from_str(s.trim_end_matches('Z'))
-                .or_else(|_| Datum::timestamp_from_str(s))
-                .map_err(|e| ctx("invalid timestamp", e))?,
+            Json::String(s) => Datum::timestamp_nanos(naive_nanos(s, col, ty)?),
             _ => Datum::timestamp_nanos(as_i64()?),
         },
         PrimitiveType::TimestamptzNs => match value {
-            Json::String(s) => {
-                Datum::timestamptz_from_str(s).map_err(|e| ctx("invalid timestamp", e))?
-            }
+            Json::String(s) => Datum::timestamptz_nanos(utc_nanos(s, col, ty)?),
             _ => Datum::timestamptz_nanos(as_i64()?),
         },
 
@@ -312,14 +314,26 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
         PrimitiveType::Uuid => {
             Datum::uuid_from_str(as_str()?).map_err(|e| ctx("invalid UUID", e))?
         }
-        PrimitiveType::Decimal { .. } => {
+        PrimitiveType::Decimal { scale, .. } => {
             // Going through the decimal string avoids a binary-float detour that
             // would silently perturb the value.
             let s = match value {
                 Json::String(s) => s.clone(),
                 other => other.to_string(),
             };
-            Datum::decimal_from_str(&s).map_err(|e| ctx("invalid decimal", e))?
+            // Datum::decimal_from_str types the literal by however many decimal
+            // places the string happens to carry, so "1.5" against a
+            // decimal(10,2) column yields decimal(38,1). Iceberg compares
+            // mantissas, so a scale that differs from the column's compares the
+            // wrong number outright -- 15 against 150. Pad or trim the string to
+            // the column's own scale first, then narrow the type to the column's
+            // exact precision and scale.
+            let rescaled = rescale_decimal(&s, *scale, col, ty)?;
+            let datum =
+                Datum::decimal_from_str(&rescaled).map_err(|e| ctx("invalid decimal", e))?;
+            datum
+                .to(&Type::Primitive(ty.clone()))
+                .map_err(|e| ctx("invalid decimal", e))?
         }
 
         PrimitiveType::Time | PrimitiveType::Binary | PrimitiveType::Fixed(_) => {
@@ -329,4 +343,94 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
             )));
         }
     })
+}
+
+fn out_of_ns_range(s: &str, col: &str, ty: &PrimitiveType) -> RError {
+    RError::Other(format!(
+        "cannot compare column {col:?} (Iceberg type {ty}) against {s:?}: a \
+         nanosecond timestamp only spans 1677-09-21 to 2262-04-11."
+    ))
+}
+
+/// Nanoseconds since the epoch, for a zone-less ISO-8601 timestamp.
+fn naive_nanos(s: &str, col: &str, ty: &PrimitiveType) -> RResult<i64> {
+    // R has no zone-less datetime, so a POSIXct compared against a
+    // timestamp-without-timezone column arrives normalised to UTC and marked
+    // with a trailing Z. Drop the marker rather than reject the comparison.
+    let dt = s
+        .trim_end_matches('Z')
+        .parse::<NaiveDateTime>()
+        .or_else(|_| s.parse::<NaiveDateTime>())
+        .map_err(|e| ctx("invalid timestamp", e))?;
+    dt.and_utc()
+        .timestamp_nanos_opt()
+        .ok_or_else(|| out_of_ns_range(s, col, ty))
+}
+
+/// Nanoseconds since the epoch, for an RFC-3339 timestamp with a zone.
+fn utc_nanos(s: &str, col: &str, ty: &PrimitiveType) -> RResult<i64> {
+    let dt = s
+        .parse::<DateTime<Utc>>()
+        .map_err(|e| ctx("invalid timestamp", e))?;
+    dt.timestamp_nanos_opt()
+        .ok_or_else(|| out_of_ns_range(s, col, ty))
+}
+
+/// Rewrite a decimal string so that it carries exactly `scale` decimal places.
+///
+/// Iceberg stores a decimal as an unscaled mantissa plus a scale, and compares
+/// mantissas. A literal whose scale differs from the column's is therefore not
+/// merely imprecise, it is a different number: 1.5 at scale 1 is the mantissa
+/// 15, while the column at scale 2 holds 150.
+fn rescale_decimal(s: &str, scale: u32, col: &str, ty: &PrimitiveType) -> RResult<String> {
+    let s = s.trim();
+    let reject = |why: &str| -> RError {
+        RError::Other(format!(
+            "cannot compare column {col:?} (Iceberg type {ty}) against {s:?}: {why}"
+        ))
+    };
+
+    if s.contains(['e', 'E']) {
+        return Err(reject(
+            "exponent notation cannot be read as a decimal. Write the value out in full.",
+        ));
+    }
+
+    let (sign, rest) = match s.strip_prefix('-') {
+        Some(rest) => ("-", rest),
+        None => ("", s.strip_prefix('+').unwrap_or(s)),
+    };
+    let (int_part, frac_part) = rest.split_once('.').unwrap_or((rest, ""));
+
+    let digits_only = |p: &str| p.bytes().all(|b| b.is_ascii_digit());
+    if (int_part.is_empty() && frac_part.is_empty())
+        || !digits_only(int_part)
+        || !digits_only(frac_part)
+    {
+        return Err(reject("it is not a decimal number."));
+    }
+
+    let int_part = if int_part.is_empty() { "0" } else { int_part };
+    let scale = scale as usize;
+
+    let frac = if frac_part.len() > scale {
+        let (keep, dropped) = frac_part.split_at(scale);
+        // Trailing zeros are not information, so trimming them is lossless.
+        if dropped.bytes().any(|b| b != b'0') {
+            return Err(reject(&format!(
+                "it has {} decimal places but the column has scale {scale}. Round \
+                 the value first, or filter in R after collecting.",
+                frac_part.len()
+            )));
+        }
+        keep.to_string()
+    } else {
+        format!("{frac_part}{}", "0".repeat(scale - frac_part.len()))
+    };
+
+    if frac.is_empty() {
+        Ok(format!("{sign}{int_part}"))
+    } else {
+        Ok(format!("{sign}{int_part}.{frac}"))
+    }
 }

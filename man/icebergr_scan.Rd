@@ -37,7 +37,9 @@ combined with \code{snapshot_id}.}
 memory use, not results.}
 
 \item{case_sensitive}{Whether column names in \code{filter} and \code{select} are
-matched case-sensitively.}
+matched case-sensitively. When \code{FALSE}, each name is resolved to the
+table's own spelling before the scan is planned, so \code{select = "ID"} reads
+the column the table calls \code{id}.}
 }
 \value{
 An \code{icebergr_scan} object.
@@ -65,11 +67,20 @@ Anything more elaborate should be applied in R after collecting.
 }
 
 \examples{
-\dontrun{
-# Projection and predicate pushdown
-icebergr_scan(tbl, filter = year == 2024 & amount > 100, select = c("id", "amount"))
+tbl <- icebergr_example_table(rows = 10)
 
-# Time travel
-icebergr_scan(tbl, as_of = as.POSIXct("2024-06-01", tz = "UTC"))
-}
+# Projection and predicate pushdown
+scan <- icebergr_scan(tbl, filter = id > 1000 & amount > 900, select = c("id", "amount"))
+scan
+icebergr_collect(scan)
+
+# A local variable is usable in a filter: a bare name is read as a column
+# only when the table has one of that name.
+cutoff <- 1005
+icebergr_collect(icebergr_scan(tbl, filter = id > cutoff, select = "id"))
+
+# Time travel, to the state before the second append
+history <- icebergr_snapshots(tbl)
+nrow(icebergr_collect(icebergr_scan(tbl, snapshot_id = history$snapshot_id[[1]])))
+nrow(icebergr_collect(icebergr_scan(tbl, as_of = history$timestamp[[1]])))
 }

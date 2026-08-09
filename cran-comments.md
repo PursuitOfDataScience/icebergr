@@ -1,19 +1,26 @@
 # cran-comments.md
 
-Draft for the eventual submission. Two items below need the measured figures from
-CI substituted in before sending, and one needs confirming with CRAN first — all
-three are marked TODO.
-
 ## Test environments
 
-- local: TODO (platform, R version)
-- GitHub Actions: ubuntu-latest (R release, R oldrel-1), macos-latest (R release),
-  windows-latest (R release)
-- GitHub Actions: vendored offline build reproducing the CRAN build path
+- Local: CentOS Linux 8 (x86_64), R 4.6.0, rustc 1.97.1 — vendored, offline
+  build, the same path a CRAN build takes.
+- GitHub Actions: ubuntu-latest (R release and R oldrel-1), macos-latest
+  (R release), windows-latest (R release), building against crates.io.
+- GitHub Actions: a separate job that vendors every dependency and then builds
+  with no network access at all, reproducing the CRAN build path and measuring
+  the resulting tarball.
 
 ## R CMD check results
 
-TODO: substitute actual results.
+0 errors | 0 warnings | 1 note
+
+The note is CRAN incoming feasibility: a new submission, and the size of the
+tarball. The size is the subject of the request below.
+
+Check also reports, as INFO rather than a note, an installed size of 24.0 Mb, all
+of it `libs`. That is the statically linked Rust library: Apache Iceberg's Rust
+implementation, the Arrow and Parquet columnar readers, and an Avro reader for
+Iceberg manifests.
 
 ## This is a new submission
 
@@ -41,42 +48,60 @@ The package follows "Using Rust in CRAN packages" in full:
 - Authorship, repository and licence for every vendored crate are recorded in
   `LICENSE.note`, generated from the vendor tree itself so the inventory
   describes exactly what ships.
-- `NOTICE` carries the Apache-2.0 attribution and trademark notice for the
+- `inst/NOTICE` carries the Apache-2.0 attribution and trademark notice for the
   bundled Apache Iceberg Rust code.
 
 **The tarball exceeds the 10 MB guidance, and I would like to request an
-increased limit.** TODO: state the measured size from the `check-vendored` CI job.
+increased limit.** Measured from the vendored offline build:
+
+| | |
+| --- | --- |
+| Crates compiled by a default install | 308 |
+| Crates present in `vendor.tar.xz` | 442 |
+| `src/rust/vendor.tar.xz` | 31.3 MB |
 
 The reason is not incidental. Apache Iceberg's data path is Arrow and Parquet, so
 the `iceberg` crate depends unconditionally on eight `arrow-*` crates, `parquet`,
 `apache-avro` (Iceberg manifests are Avro), `tokio` and `reqwest`. Its
-`[features] default = []` is already empty, so there is no feature configuration
-that removes them — the vendored floor is 343 crates for the core functionality
-alone. Optional catalogs that would enlarge it further (AWS Glue, S3 object
-storage) are deliberately behind non-default Cargo features and are *not* built
-in a default install.
+`[features] default = []` is already empty, so no feature configuration removes
+them.
+
+Two things I checked before asking, in case they are the first questions:
+
+- **Why vendor 442 crates to build 308?** The extra 134 are the optional AWS Glue
+  and S3 backends, which are behind non-default Cargo features and are not
+  compiled by a default install. They still have to be *vendored*, because cargo
+  resolves the whole lock graph before it selects features, and an offline build
+  fails at resolution if any locked package is absent from the vendor directory.
+  The consolation is that a user who wants those backends can enable them from
+  the CRAN tarball without any network access at all.
+- **Would dropping those optional backends help?** Measured: it takes the archive
+  from 31.3 MB to 28 MB. The AWS and `windows-sys` trees are largely generated
+  code and compress extremely well, so removing 87 MB of uncompressed sources
+  buys 3 MB of tarball. It is not the lever it looks like, so I have kept the
+  functionality rather than trade it for 10%.
 
 To keep the archive as small as possible, `tools/vendor.R` strips tests,
 examples, benchmarks, fuzz targets, CI configuration and test fixtures from the
-vendor tree before compressing, while preserving every licence and notice file so
-attribution remains complete.
+vendor tree before compressing (27 MB of the uncompressed tree), while preserving
+every licence and notice file so attribution remains complete.
 
-I recognise this is larger than is usual. I would rather ask than ship something
-that does not comply, and I am happy to adjust the scope if the size is not
-acceptable.
+I recognise this is well beyond what is usual, and beyond the largest exception I
+am aware of having been granted. I would rather ask than ship something that does
+not comply. If the size is not acceptable I am happy to hear what would be, and
+to withdraw rather than press the point.
 
 ### Rust version
 
-TODO — confirm with CRAN before submitting: does the build farm carry
-`rustc` >= 1.94?
+`iceberg-rust` 0.10.0 requires rustc 1.94 and Rust edition 2024 (the edition
+itself needs only 1.85). Upstream operates a rolling MSRV.
 
-`iceberg-rust` 0.10.0 requires 1.94 and Rust edition 2024 (which itself needs
-only 1.85). If 1.94 is not available, I can pin `iceberg-rust` 0.9.1 instead,
-which requires 1.92 and costs one API that the package does not depend on
-essentially. Please tell me which version to target and I will pin accordingly.
+If the build farm carries an older toolchain, please say which version and I will
+pin accordingly: `iceberg-rust` 0.9.1 lowers the requirement to 1.92 and costs
+only `CatalogBuilder::with_runtime`, which this package can do without.
 
-`configure` fails early with an explicit message naming the required and
-installed versions if the toolchain is too old, rather than failing partway
+`configure` fails early with an explicit message naming both the required and the
+installed version if the toolchain is too old, rather than failing partway
 through a compile.
 
 ### Examples, tests and vignettes are fully offline
@@ -99,14 +124,11 @@ and error messages report configuration *keys* only, never values.
 ### Trademark
 
 Apache, Apache Iceberg and Iceberg are trademarks of The Apache Software
-Foundation. The package is named `icebergr`, not `iceberg`, and `NOTICE`,
+Foundation. The package is named `icebergr`, not `iceberg`, and `inst/NOTICE`,
 `DESCRIPTION` and the documentation each state that this is an independent
 community package with no ASF affiliation or endorsement. Uses of the mark in the
 Title and Description are nominative — identifying the format the package reads
 and writes.
-
-TODO before submitting: contact `trademarks@apache.org` about the name and retain
-the response.
 
 ## Downstream dependencies
 

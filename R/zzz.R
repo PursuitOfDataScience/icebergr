@@ -1,4 +1,5 @@
-# Conditional registration of the dplyr::collect() method.
+# Load-time setup: the Rust panic hook, and conditional registration of the
+# dplyr::collect() method.
 #
 # dplyr is not a dependency: it would be a heavy import for the sake of one
 # generic. Instead the method is registered at load time if and when dplyr is
@@ -6,6 +7,13 @@
 # `icebergr_collect(tbl)` always works.
 
 .onLoad <- function(libname, pkgname) {
+  # Quietens the Rust panic banner that extendr's error conversion would
+  # otherwise print to stderr alongside every ordinary R error. Wrapped because
+  # loading must still succeed on a half-finished install where the compiled
+  # routines are missing -- ensure_rust() is what reports that, with a message
+  # that explains it.
+  try(rs_install_panic_hook(), silent = TRUE)
+
   s3_register("dplyr::collect", "icebergr_scan", function(x, ...) icebergr_collect(x, ...))
   s3_register("dplyr::collect", "icebergr_table", function(x, ...) icebergr_collect(x, ...))
   invisible()

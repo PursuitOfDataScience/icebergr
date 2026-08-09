@@ -33,10 +33,20 @@ check_table <- function(x, arg = "tbl", call = rlang::caller_env()) {
 #' mutating this one, so a handle always reads a consistent view.
 #'
 #' @examples
-#' \dontrun{
-#' catalog <- icebergr_catalog("rest", uri = "https://catalog.example.com")
+#' # A local warehouse, so this runs offline.
+#' warehouse <- tempfile("warehouse")
+#' dir.create(warehouse)
+#' catalog <- icebergr_catalog("memory", warehouse = warehouse)
+#' icebergr_create_namespace(catalog, "db")
+#' icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
+#'
 #' tbl <- icebergr_table(catalog, "db.events")
 #' icebergr_schema(tbl)
+#'
+#' \dontrun{
+#' # The same call against a REST catalog, which needs a server.
+#' catalog <- icebergr_catalog("rest", uri = "https://catalog.example.com")
+#' tbl <- icebergr_table(catalog, "db.events")
 #' }
 #' @export
 icebergr_table <- function(catalog, table) {
@@ -54,9 +64,8 @@ icebergr_table <- function(catalog, table) {
 #'   `type` (the Iceberg type), `required` and `doc`.
 #'
 #' @examples
-#' \dontrun{
+#' tbl <- icebergr_example_table(rows = 10)
 #' icebergr_schema(tbl)
-#' }
 #' @export
 icebergr_schema <- function(tbl) {
   check_table(tbl)
@@ -86,9 +95,9 @@ icebergr_schema <- function(tbl) {
 #' for this version.
 #'
 #' @examples
-#' \dontrun{
+#' # The example table is unpartitioned, so this has zero rows.
+#' tbl <- icebergr_example_table(rows = 10)
 #' icebergr_partitions(tbl)
-#' }
 #' @export
 icebergr_partitions <- function(tbl) {
   check_table(tbl)

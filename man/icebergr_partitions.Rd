@@ -23,7 +23,7 @@ historical specs would be part of partition evolution, which is out of scope
 for this version.
 }
 \examples{
-\dontrun{
+# The example table is unpartitioned, so this has zero rows.
+tbl <- icebergr_example_table(rows = 10)
 icebergr_partitions(tbl)
-}
 }

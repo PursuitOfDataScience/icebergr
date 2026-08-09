@@ -3,13 +3,15 @@
 # This file would normally be created by rextendr::document(). It declares one R
 # function per `#[extendr]` function, calling the `wrap__`-prefixed symbol that
 # extendr registers.
-
-#' @docType package
-#' @usage NULL
-#' @useDynLib icebergr, .registration = TRUE
-NULL
+#
+# `@useDynLib` lives on the package documentation in R/icebergr-package.R rather
+# than here: roxygen2 deprecated the `@docType package` block that extendr's
+# template puts in this file, and two blocks both claiming to document the
+# package collide.
 
 rs_build_info <- function() .Call(wrap__rs_build_info)
+
+rs_install_panic_hook <- function() .Call(wrap__rs_install_panic_hook)
 
 rs_catalog_connect <- function(kind, name, storage, keys, values) {
   .Call(wrap__rs_catalog_connect, kind, name, storage, keys, values)

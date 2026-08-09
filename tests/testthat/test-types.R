@@ -67,6 +67,62 @@ test_that("a timestamp with a timezone keeps its instant", {
   expect_equal(as.numeric(got$ts), as.numeric(events$ts))
 })
 
+test_that("a timestamp column comes back labelled UTC, not +00:00", {
+  # iceberg-rust names the zone "+00:00". R does not treat that as the same
+  # string as "UTC", so comparing against an ordinary UTC POSIXct warns
+  # "'tzone' attributes are inconsistent", and "+00:00" is not a name the
+  # platform zone database knows.
+  catalog <- local_namespace()
+  cutoff <- as.POSIXct("2024-06-15 12:00:00", tz = "UTC")
+  events <- data.frame(id = 1:2L, ts = cutoff + c(-3600, 3600))
+
+  tbl <- seed_table(catalog, "db.types", events)
+  got <- icebergr_collect(tbl)
+
+  expect_equal(attr(got$ts, "tzone"), "UTC")
+  expect_no_warning(got$ts >= cutoff)
+  expect_equal(sum(got$ts >= cutoff), 1L)
+})
+
+test_that("a POSIXct with no zone is normalised rather than left to the session", {
+  # nanoarrow resolves a zone-less POSIXct against the *session's* timezone, so
+  # an untouched naive column would arrive as Timestamp(us, "America/Chicago")
+  # -- which iceberg-rust refuses outright, and which would make the Iceberg
+  # type depend on where the machine happens to be. normalise_timestamps()
+  # relabels it UTC first; the instant is unchanged, only the display zone.
+  withr::local_timezone("America/Chicago")
+
+  catalog <- local_namespace()
+  naive <- as.POSIXct("2024-06-15 08:00:00")
+  events <- data.frame(id = 1L, ts = naive)
+
+  tbl <- seed_table(catalog, "db.types", events)
+  expect_equal(icebergr_schema(tbl)$type[[2L]], "timestamptz")
+
+  got <- icebergr_collect(tbl)
+  expect_s3_class(got$ts, "POSIXct")
+  expect_equal(as.numeric(got$ts), as.numeric(naive))
+})
+
+test_that("a POSIXct appends into a zone-less timestamp column", {
+  # A `timestamp` column is what Spark and PyIceberg write for a naive
+  # datetime, so an R POSIXct has to be castable onto one.
+  catalog <- local_namespace()
+  schema <- nanoarrow::na_struct(list(
+    id = nanoarrow::na_int32(),
+    ts = nanoarrow::na_timestamp(timezone = "")
+  ))
+  tbl <- icebergr_create_table(catalog, "db.naive", schema)
+  expect_equal(icebergr_schema(tbl)$type[[2L]], "timestamp")
+
+  instant <- as.POSIXct("2024-06-15 08:00:00", tz = "UTC")
+  tbl <- icebergr_append(tbl, data.frame(id = 1L, ts = instant))
+
+  got <- icebergr_collect(tbl)
+  expect_equal(nrow(got), 1L)
+  expect_equal(as.numeric(got$ts), as.numeric(instant))
+})
+
 test_that("a timestamp in a non-UTC zone keeps its instant, not its clock face", {
   catalog <- local_namespace()
   events <- data.frame(

@@ -8,6 +8,7 @@
 mod arrow_bridge;
 mod catalog;
 mod errors;
+mod panic;
 mod predicate;
 mod runtime;
 mod scan;
@@ -54,6 +55,7 @@ fn rs_build_info() -> List {
 extendr_module! {
     mod icebergr;
     fn rs_build_info;
+    use panic;
     use catalog;
     use table;
     use scan;

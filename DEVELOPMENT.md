@@ -136,8 +136,26 @@ R CMD build .
 R CMD check --as-cran icebergr_*.tar.gz
 ```
 
-`tools/vendor.R` also prints the vendored size. See `FEASIBILITY.md` for why that
-number matters and why CRAN is not currently a viable target.
+`tools/vendor.R` also prints the vendored size, which is the number the CRAN size
+exemption request rests on. See `FEASIBILITY.md` §8d for what it is made of and
+what does and does not reduce it.
+
+### Pre-submission checklist
+
+Things that need a human, and cannot be done by CI:
+
+- [ ] Email `trademarks@apache.org` describing the package and the name, and keep
+      the reply. See `FEASIBILITY.md` §1a — this is the one item that is a
+      genuine external dependency rather than a task.
+- [ ] Reconfirm the name is free with `available.packages()`, not just against
+      the GitHub CRAN mirror (`FEASIBILITY.md` §6).
+- [ ] Re-read "Using Rust in CRAN packages" and the Repository Policy directly;
+      both move.
+- [ ] Re-run `Rscript tools/vendor.R` so `vendor.tar.xz` and `LICENSE.note` match
+      the `Cargo.lock` being shipped, and update the measured figures in
+      `cran-comments.md`, `NEWS.md` and the README if they have moved.
+- [ ] Fill in the "Test environments" and "R CMD check results" sections of
+      `cran-comments.md` from the actual submission run.
 
 ## Things that will go wrong, and what they mean
 

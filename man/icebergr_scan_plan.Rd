@@ -22,9 +22,12 @@ pushdown is verified rather than assumed: a filtered scan should plan fewer
 files, and fewer records, than an unfiltered one.
 }
 \examples{
-\dontrun{
+tbl <- icebergr_example_table(rows = 10)
+
+# The example table has two data files, one per append.
 all_files <- icebergr_scan_plan(icebergr_scan(tbl))
-hot_files <- icebergr_scan_plan(icebergr_scan(tbl, filter = year == 2024))
+hot_files <- icebergr_scan_plan(icebergr_scan(tbl, filter = id > 1000))
+
+nrow(hot_files) < nrow(all_files)
 sum(hot_files$record_count) < sum(all_files$record_count)
-}
 }

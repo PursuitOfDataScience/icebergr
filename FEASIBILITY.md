@@ -391,3 +391,49 @@ is built for that job: `cargo fmt`/`clippy`/`check` for fast Rust feedback,
 that reproduces the CRAN path and reports the real `vendor.tar.xz` size —
 replacing the 35–60 MB estimate in §4a with a measurement. Expect the first runs
 to be red.
+
+### 8d. The vendored size, measured (replaces the estimate in §4a)
+
+§4a estimated 35–60 MB and said so was an extrapolation. The measurement, from
+`tools/vendor.R` against the pinned `Cargo.lock`:
+
+| | |
+| --- | --- |
+| Crates a default install compiles | **308** |
+| Crates in `vendor.tar.xz` | **442** |
+| Vendor tree, uncompressed | 370.8 MB, pruned to 343.5 MB |
+| `vendor.tar.xz` | **31.3 MB** |
+
+So the estimate was high but the right order of magnitude, and the conclusion in
+§4d stands: this is ~2.3× the largest exception CRAN has granted, and the request
+has to be made explicitly.
+
+Two findings that were not visible before it could be measured:
+
+- **The vendor tree carries 134 crates the default build never compiles** — the
+  AWS Glue and S3 backends behind the non-default Cargo features. They cannot
+  simply be pruned: cargo resolves the *whole* lock graph before it selects
+  features, so an offline build fails at resolution ("no matching package named
+  `aws-sdk-glue`") if any locked package is absent from the vendor directory.
+  Confirmed by removing them and re-running resolution.
+- **Removing them from the manifest outright buys almost nothing.** Measured by
+  vendoring from a stripped manifest: 442 crates and 31.3 MB become 347 crates
+  and 28 MB. `aws-lc-sys` and `aws-sdk-glue` are 87 MB of the *uncompressed*
+  tree, but they are largely generated code and xz compresses them to almost
+  nothing. Giving up two documented backends for 10% of the archive is not a
+  trade worth making, so the features stay.
+
+The lever that is left, if CRAN declines the size, is the dependency itself
+rather than the packaging of it.
+
+### 8e. `cargo check` needs R, and R on the PATH (adds to §6)
+
+§6 recorded that nothing could be compiled. It can now, and one detail is worth
+writing down because the failure is opaque: `extendr-api`'s build script reads
+`DEP_R_R_VERSION_MAJOR`, which `extendr-ffi` only emits if it can find R. Setting
+`R_HOME` alone is not enough — `extendr-ffi` also needs `R_INCLUDE_DIR`, or `R`
+itself on the `PATH` to ask. Without them it warns, emits nothing, and
+`extendr-api` panics with a bare `called Result::unwrap() on an Err value:
+NotPresent`. Worse, cargo caches that build-script run, so fixing the environment
+is not enough on its own: `cargo clean -p extendr-ffi -p extendr-api` is needed
+to re-run it.

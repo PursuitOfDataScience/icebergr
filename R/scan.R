@@ -19,7 +19,9 @@
 #' @param batch_size Rows per Arrow batch, or `NULL` for the default. Affects
 #'   memory use, not results.
 #' @param case_sensitive Whether column names in `filter` and `select` are
-#'   matched case-sensitively.
+#'   matched case-sensitively. When `FALSE`, each name is resolved to the
+#'   table's own spelling before the scan is planned, so `select = "ID"` reads
+#'   the column the table calls `id`.
 #'
 #' @return An `icebergr_scan` object.
 #'
@@ -40,13 +42,22 @@
 #' Anything more elaborate should be applied in R after collecting.
 #'
 #' @examples
-#' \dontrun{
-#' # Projection and predicate pushdown
-#' icebergr_scan(tbl, filter = year == 2024 & amount > 100, select = c("id", "amount"))
+#' tbl <- icebergr_example_table(rows = 10)
 #'
-#' # Time travel
-#' icebergr_scan(tbl, as_of = as.POSIXct("2024-06-01", tz = "UTC"))
-#' }
+#' # Projection and predicate pushdown
+#' scan <- icebergr_scan(tbl, filter = id > 1000 & amount > 900, select = c("id", "amount"))
+#' scan
+#' icebergr_collect(scan)
+#'
+#' # A local variable is usable in a filter: a bare name is read as a column
+#' # only when the table has one of that name.
+#' cutoff <- 1005
+#' icebergr_collect(icebergr_scan(tbl, filter = id > cutoff, select = "id"))
+#'
+#' # Time travel, to the state before the second append
+#' history <- icebergr_snapshots(tbl)
+#' nrow(icebergr_collect(icebergr_scan(tbl, snapshot_id = history$snapshot_id[[1]])))
+#' nrow(icebergr_collect(icebergr_scan(tbl, as_of = history$timestamp[[1]])))
 #' @export
 icebergr_scan <- function(tbl,
                           filter = NULL,
@@ -73,20 +84,25 @@ icebergr_scan <- function(tbl,
       abort("`select` must be a character vector of column names.")
     }
     available <- table_columns(tbl)
-    matched <- if (case_sensitive) {
-      select %in% available
+    hits <- if (case_sensitive) {
+      match(select, available)
     } else {
-      tolower(select) %in% tolower(available)
+      match(tolower(select), tolower(available))
     }
-    if (!all(matched)) {
+    if (anyNA(hits)) {
       abort(c(
         paste0(
           "Cannot select column(s) not in the table: ",
-          paste(select[!matched], collapse = ", "), "."
+          paste(select[is.na(hits)], collapse = ", "), "."
         ),
         i = paste0("Available columns: ", paste(available, collapse = ", "), ".")
       ))
     }
+    # Resolved to the table's own spelling. `iceberg-rust` looks a projected
+    # column up case-sensitively whatever the scan's `case_sensitive` setting
+    # says, so passing the caller's casing straight through would fail there
+    # after being accepted here.
+    select <- available[hits]
   }
 
   snapshot <- if (!is.null(as_of)) {
@@ -116,7 +132,10 @@ icebergr_scan <- function(tbl,
   filter_json <- NULL
   if (!is.null(filter_expr)) {
     filter_json <- filter_to_json(
-      translate_filter(filter_expr, table_columns(tbl), parent.frame())
+      translate_filter(
+        filter_expr, table_columns(tbl), parent.frame(),
+        case_sensitive = case_sensitive
+      )
     )
   }
 
@@ -178,10 +197,13 @@ scan_stream <- function(scan) {
 #' objects.
 #'
 #' @examples
-#' \dontrun{
-#' icebergr_collect(icebergr_scan(tbl, filter = year == 2024))
+#' tbl <- icebergr_example_table(rows = 10)
+#'
+#' # A scan, materialised
+#' icebergr_collect(icebergr_scan(tbl, filter = id > 1000, select = c("id", "amount")))
+#'
+#' # A whole table, materialised
 #' icebergr_collect(tbl)
-#' }
 #' @export
 icebergr_collect <- function(x, ...) {
   UseMethod("icebergr_collect")
@@ -228,11 +250,14 @@ as.data.frame.icebergr_table <- function(x, row.names = NULL, optional = FALSE, 
 #'   read has no meaningful record count from the manifest.
 #'
 #' @examples
-#' \dontrun{
+#' tbl <- icebergr_example_table(rows = 10)
+#'
+#' # The example table has two data files, one per append.
 #' all_files <- icebergr_scan_plan(icebergr_scan(tbl))
-#' hot_files <- icebergr_scan_plan(icebergr_scan(tbl, filter = year == 2024))
+#' hot_files <- icebergr_scan_plan(icebergr_scan(tbl, filter = id > 1000))
+#'
+#' nrow(hot_files) < nrow(all_files)
 #' sum(hot_files$record_count) < sum(all_files$record_count)
-#' }
 #' @export
 icebergr_scan_plan <- function(scan) {
   check_scan(scan)

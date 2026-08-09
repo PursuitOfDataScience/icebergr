@@ -96,14 +96,25 @@ icebergr_create_table <- function(catalog, table, data, location = NULL) {
 #' @return An `icebergr_table` handle.
 #'
 #' @examples
-#' \dontrun{
-#' catalog <- icebergr_catalog("memory", warehouse = "/data/warehouse")
+#' # Build a table, then re-attach it from a second catalog, as you would in a
+#' # new session: a memory catalog keeps no registry between sessions.
+#' warehouse <- tempfile("warehouse")
+#' dir.create(warehouse)
+#' catalog <- icebergr_catalog("memory", warehouse = warehouse)
 #' icebergr_create_namespace(catalog, "db")
-#' tbl <- icebergr_register_table(
-#'   catalog, "db.events",
-#'   "/data/warehouse/db/events/metadata/v3.metadata.json"
-#' )
-#' }
+#' tbl <- icebergr_create_table(catalog, "db.events", data.frame(id = 1:3))
+#' tbl <- icebergr_append(tbl, data.frame(id = 1:3))
+#'
+#' # Iceberg writes one metadata file per commit; the newest is the current
+#' # state of the table.
+#' files <- list.files(warehouse, pattern = "metadata\\.json$", recursive = TRUE,
+#'                     full.names = TRUE)
+#' newest <- files[order(file.mtime(files))][length(files)]
+#'
+#' reopened <- icebergr_catalog("memory", warehouse = warehouse)
+#' icebergr_create_namespace(reopened, "db")
+#' again <- icebergr_register_table(reopened, "db.events", newest)
+#' icebergr_collect(again)
 #' @export
 icebergr_register_table <- function(catalog, table, metadata_location) {
   check_catalog(catalog)

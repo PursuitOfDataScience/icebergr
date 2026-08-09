@@ -142,6 +142,25 @@ test_that("compression choices all round trip", {
   }
 })
 
+test_that("dplyr::collect() reaches the same code as icebergr_collect()", {
+  # Registered in .onLoad() rather than imported: dplyr is a heavy dependency
+  # for the sake of one generic, so the method only exists if dplyr does.
+  skip_if_not_installed("dplyr")
+
+  catalog <- local_namespace()
+  events <- data.frame(id = 1:3L, amount = c(1, 2, 3))
+  tbl <- seed_table(catalog, "db.events", events)
+
+  expect_equal(
+    dplyr::collect(tbl)[order(dplyr::collect(tbl)$id), ],
+    icebergr_collect(tbl)[order(icebergr_collect(tbl)$id), ]
+  )
+  expect_equal(
+    nrow(dplyr::collect(icebergr_scan(tbl, filter = id > 1L))),
+    2L
+  )
+})
+
 test_that("an unknown compression codec is rejected", {
   catalog <- local_namespace()
   events <- data.frame(id = 1L, amount = 1)
