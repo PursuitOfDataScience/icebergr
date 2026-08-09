@@ -2,6 +2,11 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  # The full platform matrix runs here rather than on every push. See the note
+  # on billing below. Scheduled runs only fire on the default branch, and GitHub
+  # disables them after 60 days without repository activity.
+  schedule:
+    - cron: '17 5 * * 1'
   workflow_dispatch:
     inputs:
       rust_only:
@@ -15,17 +20,74 @@ name: R-CMD-check
 
 permissions: read-all
 
-# A full run builds 343+ crates on three platforms, so superseding an in-flight
-# run avoids paying for a stale commit's matrix alongside the current one.
+# A full run compiles ~308 crates per platform, so superseding an in-flight run
+# avoids paying for a stale commit's matrix alongside the current one. Note that
+# cancelling stops the clock but does not refund what has already run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Which platforms this run covers, decided from the event.
+  #
+  # The reason is billing rather than taste. GitHub charges macOS minutes at 10x
+  # and Windows at 2x, and this package compiles ~308 Rust crates from cold on
+  # every run. Measured over 22 runs: macOS was 56% of the bill and Windows 18%
+  # -- three quarters of it, from two of seven jobs. macOS is actually the
+  # *fastest* platform in wall clock, around nine minutes. It is purely the
+  # multiplier.
+  #
+  # So a push gets Linux only, and the full matrix runs weekly, on pull requests
+  # and on demand. Dispatch it by hand before anything that matters, a CRAN
+  # submission above all.
+  #
+  # Built in a job rather than inline: a `fromJSON` expression long enough to
+  # hold four configurations has to be one unbroken line, because a GitHub
+  # expression string literal cannot span lines.
+  plan:
+    runs-on: ubuntu-latest
+    if: inputs.rust_only != true
+    outputs:
+      config: ${{ steps.pick.outputs.config }}
+    steps:
+      - id: pick
+        shell: bash
+        run: |
+          # lto/cgu override [profile.release] for the run. Turning LTO off and
+          # raising codegen-units is where most of a release build's time goes,
+          # and it is still a release build -- same opt-level, same stripped
+          # symbols -- so the checks see what they are meant to see.
+          #
+          # A debug build was tried instead and is not usable here: it leaves
+          # src/rust/target inside the package (nothing cleans it without
+          # @CLEAN_TARGET@), so check then scans build-script C output and
+          # reports line-ending and pragma NOTEs, and the unoptimised staticlib
+          # still contains exit/abort/stderr, which trips "checking compiled
+          # code". Measured: 3 WARNINGs and 3 NOTEs, against 0 for this.
+          #
+          # The Linux legs run on every push, so they take the faster build.
+          # macOS and Windows run rarely and exist for build fidelity, so they
+          # keep the profile the package actually ships.
+          linux='{"os":"ubuntu-latest","r":"release","lto":"false","cgu":"16"}'
+          # DESCRIPTION declares R (>= 4.2), so an older R has to be exercised
+          # or the floor is a guess.
+          oldrel='{"os":"ubuntu-latest","r":"oldrel-1","lto":"false","cgu":"16"}'
+          mac='{"os":"macos-latest","r":"release","lto":"true","cgu":"1"}'
+          win='{"os":"windows-latest","r":"release","lto":"true","cgu":"1"}'
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            config="[$linux,$oldrel]"
+          else
+            config="[$linux,$oldrel,$mac,$win]"
+          fi
+          echo "Platforms for this ${{ github.event_name }} run: $config"
+          echo "config=$config" >> "$GITHUB_OUTPUT"
+
   # Broad platform coverage. Cargo is allowed to resolve dependencies from the
   # network here (NOT_CRAN=true), which is the fast path and the primary signal
-  # that the bindings compile and the tests pass on all three platforms.
+  # that the bindings compile and the tests pass on every platform.
   check:
+    needs: plan
     runs-on: ${{ matrix.config.os }}
     if: inputs.rust_only != true
 
@@ -34,18 +96,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config:
-          - {os: ubuntu-latest,  r: 'release'}
-          # DESCRIPTION declares R (>= 4.2), so an older R has to be exercised
-          # or the floor is a guess.
-          - {os: ubuntu-latest,  r: 'oldrel-1'}
-          - {os: macos-latest,   r: 'release'}
-          - {os: windows-latest, r: 'release'}
+        config: ${{ fromJSON(needs.plan.outputs.config) }}
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
       NOT_CRAN: true
+      # Set explicitly on every leg rather than left blank on some: cargo
+      # rejects an empty value for a profile override.
+      CARGO_PROFILE_RELEASE_LTO: ${{ matrix.config.lto }}
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.config.cgu }}
       # Cargo defaults to every logical CPU, which is more than a CI runner
       # should use and more than CRAN permits.
       CARGO_BUILD_JOBS: 2
@@ -75,16 +135,22 @@ jobs:
           cargo --version
         shell: bash
 
-      - name: Cache cargo registry and build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src/rust/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src/rust/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
+      # There is deliberately no cargo cache here, and there cannot usefully be
+      # one. It was tried: across 19 runs the step never wrote a single entry,
+      # so it never produced a hit either -- it was pure overhead dressed up as
+      # an optimisation. Three separate reasons, any one of which is fatal:
+      #
+      #   * src/Makevars sets CARGO_HOME to a directory inside the build tree,
+      #     as CRAN requires, and deletes it afterwards, so ~/.cargo is never
+      #     written by the package build.
+      #   * R CMD check compiles inside check/icebergr.Rcheck/00_pkg_src/, not
+      #     in the checked-out tree, so a repo-relative src/rust/target is not
+      #     the directory cargo is building into.
+      #   * check unpacks the sources fresh each run, so every fingerprint cargo
+      #     would compare against is new anyway.
+      #
+      # The cargo-check and cargo-extras jobs below invoke cargo directly rather
+      # than through R, so caching does work there, and they do cache.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           extra-packages: any::rcmdcheck, any::roxygen2
