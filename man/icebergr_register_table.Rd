@@ -33,8 +33,10 @@ tbl <- icebergr_append(tbl, data.frame(id = 1:3))
 
 # Iceberg writes one metadata file per commit; the newest is the current
 # state of the table.
-files <- list.files(warehouse, pattern = "metadata\\\\.json$", recursive = TRUE,
-                    full.names = TRUE)
+files <- list.files(warehouse,
+  pattern = "metadata\\\\.json$", recursive = TRUE,
+  full.names = TRUE
+)
 newest <- files[order(file.mtime(files))][length(files)]
 
 reopened <- icebergr_catalog("memory", warehouse = warehouse)
