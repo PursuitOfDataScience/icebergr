@@ -2,8 +2,9 @@ on:
   push:
     branches: [main, master]
   pull_request:
-  # The full platform matrix runs here rather than on every push. See the note
-  # on billing below. Scheduled runs only fire on the default branch, and GitHub
+  # Nothing here depends on a push to catch upstream drift: rustc comes from
+  # dtolnay/rust-toolchain@stable and R from setup-r, so a quiet week can still
+  # break the build. Scheduled runs only fire on the default branch, and GitHub
   # disables them after 60 days without repository activity.
   schedule:
     - cron: '17 5 * * 1'
@@ -21,75 +22,36 @@ name: R-CMD-check
 permissions: read-all
 
 # A full run compiles ~308 crates per platform, so superseding an in-flight run
-# avoids paying for a stale commit's matrix alongside the current one. Note that
-# cancelling stops the clock but does not refund what has already run.
+# avoids running a stale commit's matrix alongside the current one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Which platforms this run covers, decided from the event.
-  #
-  # The reason is billing rather than taste. GitHub charges macOS minutes at 10x
-  # and Windows at 2x, and this package compiles ~308 Rust crates from cold on
-  # every run. Measured over 22 runs: macOS was 56% of the bill and Windows 18%
-  # -- three quarters of it, from two of seven jobs. macOS is actually the
-  # *fastest* platform in wall clock, around nine minutes. It is purely the
-  # multiplier.
-  #
-  # So a push gets Linux only, and the full matrix runs weekly, on pull requests
-  # and on demand. Dispatch it by hand before anything that matters, a CRAN
-  # submission above all.
-  #
-  # Built in a job rather than inline: a `fromJSON` expression long enough to
-  # hold four configurations has to be one unbroken line, because a GitHub
-  # expression string literal cannot span lines.
-  plan:
-    runs-on: ubuntu-latest
-    if: inputs.rust_only != true
-    outputs:
-      config: ${{ steps.pick.outputs.config }}
-    steps:
-      - id: pick
-        shell: bash
-        run: |
-          # Two ways of making these jobs compile faster were tried and both
-          # rejected on measurement. Recorded so they are not tried again:
-          #
-          #   * A debug build (DEBUG=1) is not usable in a job that runs R CMD
-          #     check. Nothing removes src/rust/target without @CLEAN_TARGET@,
-          #     so check scans the C that build scripts generate and reports
-          #     line-ending and pragma NOTEs, and the unoptimised staticlib
-          #     still contains exit/abort/stderr, tripping "checking compiled
-          #     code". 3 WARNINGs and 3 NOTEs against 0.
-          #   * Turning LTO off (CARGO_PROFILE_RELEASE_LTO=false, codegen-units
-          #     16) made it *worse*: install went 735s to 905s CPU with elapsed
-          #     flat at ~480s, and the installed size went 27 Mb to 60 Mb. LTO
-          #     is not the bottleneck -- compiling 308 dependency crates is,
-          #     and the runner has two cores, so raising CARGO_BUILD_JOBS does
-          #     not help either.
-          #
-          # What remains is to run the expensive platforms less often.
-          linux='{"os":"ubuntu-latest","r":"release"}'
-          # DESCRIPTION declares R (>= 4.2), so an older R has to be exercised
-          # or the floor is a guess.
-          oldrel='{"os":"ubuntu-latest","r":"oldrel-1"}'
-          mac='{"os":"macos-latest","r":"release"}'
-          win='{"os":"windows-latest","r":"release"}'
-
-          if [ "${{ github.event_name }}" = "push" ]; then
-            config="[$linux,$oldrel]"
-          else
-            config="[$linux,$oldrel,$mac,$win]"
-          fi
-          echo "Platforms for this ${{ github.event_name }} run: $config"
-          echo "config=$config" >> "$GITHUB_OUTPUT"
-
   # Broad platform coverage. Cargo is allowed to resolve dependencies from the
   # network here (NOT_CRAN=true), which is the fast path and the primary signal
   # that the bindings compile and the tests pass on every platform.
+  #
+  # The whole matrix runs on every push because this repository is public, and
+  # GitHub bills nothing for standard runners on a public repository. That is
+  # worth not giving up: while it was private the same matrix cost roughly 170
+  # billed minutes a push, three quarters of it macOS at the 10x multiplier, and
+  # it consumed a 3,000-minute monthly allowance in four days.
+  #
+  # Two ways of making these jobs compile faster were tried and both rejected on
+  # measurement. Recorded so they are not tried again:
+  #
+  #   * A debug build (DEBUG=1) is not usable in a job that runs R CMD check.
+  #     Nothing removes src/rust/target without @CLEAN_TARGET@, so check scans
+  #     the C that build scripts generate and reports line-ending and pragma
+  #     NOTEs, and the unoptimised staticlib still contains exit/abort/stderr,
+  #     tripping "checking compiled code". 3 WARNINGs and 3 NOTEs against 0.
+  #   * Turning LTO off (CARGO_PROFILE_RELEASE_LTO=false, codegen-units 16) made
+  #     it *worse*: install went 735s to 905s CPU with elapsed flat at ~480s,
+  #     and the installed size went 27 Mb to 60 Mb. LTO is not the bottleneck --
+  #     compiling 308 dependency crates is, and the runner has two cores, so
+  #     raising CARGO_BUILD_JOBS does not help either.
   check:
-    needs: plan
     runs-on: ${{ matrix.config.os }}
     if: inputs.rust_only != true
 
@@ -98,7 +60,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config: ${{ fromJSON(needs.plan.outputs.config) }}
+        config:
+          - {os: ubuntu-latest,  r: 'release'}
+          # DESCRIPTION declares R (>= 4.2), so an older R has to be exercised
+          # or the floor is a guess.
+          - {os: ubuntu-latest,  r: 'oldrel-1'}
+          - {os: macos-latest,   r: 'release'}
+          - {os: windows-latest, r: 'release'}
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
