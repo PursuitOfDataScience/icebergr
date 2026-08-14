@@ -10,6 +10,8 @@ icebergr_spec_support()
 A list with class \code{icebergr_spec_support}:
 \describe{
 \item{\code{iceberg_rust_version}}{The pinned \code{iceberg-rust} version.}
+\item{\code{arrow_version}}{The version of the Rust \code{arrow} crate the
+interchange layer was built against.}
 \item{\code{spec_versions}}{Iceberg table spec versions that can be read and
 written.}
 \item{\code{catalogs}}{Catalog types available in this build.}

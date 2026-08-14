@@ -95,6 +95,20 @@ test_that("comparing against a vector suggests %in%", {
   expect_error(tr(id == c(1L, 2L)), "%in%")
 })
 
+test_that("an operator called in prefix form with too few arguments is reported", {
+  # `> `(id) and `&`(id > 1) are valid calls that no infix spelling can produce,
+  # and each used to index past the end of the call: "subscript out of bounds",
+  # which says nothing about the filter.
+  expect_error(tr(`>`(id)), class = "icebergr_unsupported_filter")
+  # Named by the operator, not by deparse1(): R deparses `` `>`(id) `` as ">id",
+  # which reads like a typo in the message rather than one in the filter.
+  expect_error(tr(`>`(id)), "`>` takes 2 argument", fixed = TRUE)
+  expect_error(tr(is.na()), "`is.na` takes 1 argument", fixed = TRUE)
+  expect_error(tr(`&`(id > 1L)), class = "icebergr_unsupported_filter")
+  expect_error(tr(`|`(id > 1L)), class = "icebergr_unsupported_filter")
+  expect_error(tr(`%in%`(id)), class = "icebergr_unsupported_filter")
+})
+
 test_that("JSON output is well formed for the common shapes", {
   expect_equal(js(id == 1L), '{"op":"eq","col":"id","value":1}')
   expect_equal(js(label == "a"), '{"op":"eq","col":"label","value":"a"}')

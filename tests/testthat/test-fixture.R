@@ -87,3 +87,20 @@ test_that("filtering on the date and timestamp columns pushes down", {
   expect_gt(nrow(by_time), 0L)
   expect_true(all(by_time$recorded_at >= cutoff))
 })
+
+test_that("a Date compared against a timestamp column says what to write instead", {
+  # The literal reached iceberg-rust as "2024-06-01" and came back as "Can't
+  # parse datetime., source: premature end of input", which describes its parser
+  # rather than the mistake.
+  tbl <- local_fixture_table(rows = 10L)
+
+  expect_error(
+    icebergr_collect(icebergr_scan(tbl, filter = recorded_at >= as.Date("2024-06-01"))),
+    "as.POSIXct",
+    fixed = TRUE
+  )
+  expect_error(
+    icebergr_collect(icebergr_scan(tbl, filter = recorded_at >= as.Date("2024-06-01"))),
+    "does not widen a date"
+  )
+})

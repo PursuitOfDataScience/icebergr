@@ -196,6 +196,7 @@ check_catalog <- function(x, call = rlang::caller_env()) {
   if (!inherits(x, "icebergr_catalog")) {
     abort("`catalog` must be an object created by `icebergr_catalog()`.", call = call)
   }
+  check_live_ptr(x$ptr, "catalog", call = call)
   invisible(NULL)
 }
 
@@ -213,7 +214,25 @@ as_namespace <- function(x, arg = "namespace", allow_null = FALSE,
   }
   # "a.b" and c("a", "b") mean the same thing. unlist() of an empty list is
   # NULL rather than character(), which Rust would refuse.
-  as.character(unlist(strsplit(x, ".", fixed = TRUE), use.names = FALSE))
+  levels <- as.character(unlist(strsplit(x, ".", fixed = TRUE), use.names = FALSE))
+
+  # A doubled separator splits to an empty level, and an empty level is not
+  # something a catalog can address: "a..b" would otherwise create the three
+  # levels c("a", "", "b"), which lists back as "a." and can never be named
+  # again -- parse_identifier() reads "a..b.events" as c("a", "b"). Dropped
+  # rather than rejected, for exactly that consistency.
+  levels <- levels[nzchar(levels)]
+
+  if (!length(levels) && length(x)) {
+    abort(
+      paste0(
+        "`", arg, "` has no namespace levels: ",
+        encodeString(paste(x, collapse = ", "), quote = "\""), "."
+      ),
+      call = call
+    )
+  }
+  levels
 }
 
 #' List namespaces in a catalog

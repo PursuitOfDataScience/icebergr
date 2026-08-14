@@ -170,8 +170,13 @@ collect_stream <- function(stream, limit = NULL) {
     return(as_tbl(convert_stream(stream)))
   }
 
-  limit <- as.integer(limit)
-  if (limit == 0L) {
+  # A double, not as.integer(): a limit past .Machine$integer.max coerced to NA,
+  # and the `limit == 0L` below then failed with "missing value where TRUE/FALSE
+  # needed" rather than reading the table. Nothing here needs an integer -- the
+  # value is only ever compared and passed to seq_len() -- and a double counts
+  # whole numbers exactly far past any row count that fits in memory.
+  limit <- as.numeric(limit)
+  if (limit == 0) {
     return(as_tbl(no_rows()))
   }
 

@@ -11,6 +11,8 @@
 
 rs_build_info <- function() .Call(wrap__rs_build_info)
 
+rs_ptr_is_null <- function(x) .Call(wrap__rs_ptr_is_null, x)
+
 rs_install_panic_hook <- function() .Call(wrap__rs_install_panic_hook)
 
 rs_catalog_connect <- function(kind, name, storage, keys, values) {

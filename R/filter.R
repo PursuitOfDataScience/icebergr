@@ -106,11 +106,23 @@ translate_filter <- function(e, columns, env, case_sensitive = TRUE,
   # `is.na()` and `startsWith("a")` parse perfectly well, so the argument count
   # has to be checked before indexing into the call. Without this the report is
   # "subscript out of bounds", which says nothing about the filter.
-  arity <- c("(" = 2L, "!" = 2L, "is.na" = 2L, "is.nan" = 2L, "startsWith" = 3L)
+  #
+  # The binary operators are here too. They cannot be written short in infix
+  # form, but the prefix spelling parses -- `` `>`(id) `` and `` `&`(id > 1) ``
+  # are both valid calls -- and each reached an `e[[3L]]` that was not there.
+  arity <- c(
+    "(" = 2L, "!" = 2L, "is.na" = 2L, "is.nan" = 2L, "startsWith" = 3L,
+    "&" = 3L, "&&" = 3L, "|" = 3L, "||" = 3L, "%in%" = 3L,
+    "==" = 3L, "!=" = 3L, "<" = 3L, "<=" = 3L, ">" = 3L, ">=" = 3L
+  )
   if (fn %in% names(arity) && length(e) != arity[[fn]]) {
+    # Named by the function rather than by deparse1(e): R deparses an operator
+    # call that is short of an operand by running the pieces together, so
+    # `` `>`(id) `` comes out as ">id", which reads like a typo in the message
+    # rather than a description of one in the filter.
     unsupported_filter(
       paste0(
-        encodeString(deparse1(e), quote = "`"), " takes ", arity[[fn]] - 1L,
+        encodeString(fn, quote = "`"), " takes ", arity[[fn]] - 1L,
         " argument(s), not ", length(e) - 1L
       ),
       call

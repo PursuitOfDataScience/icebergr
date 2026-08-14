@@ -50,6 +50,8 @@ feature_matrix <- function() {
 #' @return A list with class `icebergr_spec_support`:
 #'   \describe{
 #'     \item{`iceberg_rust_version`}{The pinned `iceberg-rust` version.}
+#'     \item{`arrow_version`}{The version of the Rust `arrow` crate the
+#'       interchange layer was built against.}
 #'     \item{`spec_versions`}{Iceberg table spec versions that can be read and
 #'       written.}
 #'     \item{`catalogs`}{Catalog types available in this build.}

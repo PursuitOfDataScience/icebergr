@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
+use arrow_cast::CastOptions;
 use arrow_schema::{Schema as ArrowSchema, SchemaRef};
 use extendr_api::prelude::*;
 use iceberg::spec::DataFileFormat;
@@ -79,9 +80,16 @@ fn align_batch(batch: &RecordBatch, target: &SchemaRef) -> RResult<RecordBatch> 
 
     let mut columns = Vec::with_capacity(target.fields().len());
     for field in target.fields() {
+        // Not "which the table requires": a table created from a data frame has
+        // every field optional, so naming the Iceberg requiredness here would be
+        // wrong in the common case. Every column has to be present regardless,
+        // because guessing that an absent one meant NA turns a mistyped name
+        // into a silent column of nulls.
         let idx = incoming.index_of(field.name()).map_err(|_| {
             extendr_api::Error::Other(format!(
-                "the data is missing column {:?}, which the table requires.",
+                "the data is missing column {:?}, which the table has.\n\
+                 Every column of the table must appear in the data; supply it as \
+                 NA if there is no value for it.",
                 field.name()
             ))
         })?;
@@ -90,7 +98,20 @@ fn align_batch(batch: &RecordBatch, target: &SchemaRef) -> RResult<RecordBatch> 
         let column = if column.data_type() == field.data_type() {
             column.clone()
         } else {
-            arrow_cast::cast(column, field.data_type()).map_err(|e| {
+            // safe = false, deliberately. The default cast replaces a value it
+            // cannot represent with a *null*: appending 3e9 to an `int` column,
+            // or "abc" to any numeric one, would otherwise write NA over the
+            // caller's data and commit it without a word. Refusing the append is
+            // the only answer that does not silently lose data.
+            arrow_cast::cast_with_options(
+                column,
+                field.data_type(),
+                &CastOptions {
+                    safe: false,
+                    ..CastOptions::default()
+                },
+            )
+            .map_err(|e| {
                 extendr_api::Error::Other(format!(
                     "column {:?} is {} in the data but {} in the table, and the \
                      two cannot be reconciled: {e}",

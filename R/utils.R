@@ -98,13 +98,53 @@ check_bool <- function(x, arg, call = rlang::caller_env()) {
   invisible(NULL)
 }
 
+#' @param max Optional inclusive upper bound, for a count that has to survive
+#'   being narrowed to a C `int` on the way into Rust. Without it, `as.integer()`
+#'   turns anything past `.Machine$integer.max` into `NA` and the failure
+#'   surfaces much later, as "Must not be NA".
 #' @noRd
-check_count <- function(x, arg, call = rlang::caller_env()) {
+check_count <- function(x, arg, max = NULL, call = rlang::caller_env()) {
   if (is.null(x)) {
     return(invisible(NULL))
   }
   if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 0 || x != trunc(x)) {
     abort(paste0("`", arg, "` must be a single non-negative whole number, or NULL."), call = call)
+  }
+  if (!is.null(max) && x > max) {
+    abort(
+      paste0(
+        "`", arg, "` must be at most ", format(max, scientific = FALSE), "."
+      ),
+      call = call
+    )
+  }
+  invisible(NULL)
+}
+
+#' Fail clearly on a handle whose Rust object did not survive the trip
+#'
+#' An `icebergr_catalog` or `icebergr_table` holds an external pointer. R
+#' serialises the pointer's box but never the Rust value behind it, so a handle
+#' that has been through `saveRDS()`, restored from `.RData`, or sent to a
+#' serialising parallel worker comes back pointing at nothing. Dereferencing it
+#' is caught in Rust, but the message describes the mechanism rather than the
+#' mistake.
+#' @noRd
+check_live_ptr <- function(x, what, call = rlang::caller_env()) {
+  if (!inherits(x, "externalptr") || rs_ptr_is_null(x)) {
+    abort(
+      c(
+        paste0("This ", what, " handle is no longer usable."),
+        i = paste(
+          "Handles hold a pointer into the Rust side, which does not survive",
+          "saveRDS(), a restored .RData, or a parallel worker that serialises",
+          "its inputs."
+        ),
+        i = "Open it again in this session with `icebergr_catalog()`."
+      ),
+      class = "icebergr_dead_handle",
+      call = call
+    )
   }
   invisible(NULL)
 }

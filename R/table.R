@@ -16,6 +16,7 @@ check_table <- function(x, arg = "tbl", call = rlang::caller_env()) {
       call = call
     )
   }
+  check_live_ptr(x$ptr, "table", call = call)
   invisible(NULL)
 }
 
@@ -111,6 +112,7 @@ table_columns <- function(tbl) {
 
 #' @export
 print.icebergr_table <- function(x, ...) {
+  check_table(x)
   ident <- rs_table_identifier(x$ptr)
   schema <- icebergr_schema(x)
   snapshot <- rs_table_current_snapshot(x$ptr)

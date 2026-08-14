@@ -287,12 +287,12 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
         PrimitiveType::Timestamp => match value {
             Json::String(s) => Datum::timestamp_from_str(s.trim_end_matches('Z'))
                 .or_else(|_| Datum::timestamp_from_str(s))
-                .map_err(|e| ctx("invalid timestamp", e))?,
+                .map_err(|e| bad_timestamp(s, col, ty, e))?,
             _ => Datum::timestamp_micros(as_i64()?),
         },
         PrimitiveType::Timestamptz => match value {
             Json::String(s) => {
-                Datum::timestamptz_from_str(s).map_err(|e| ctx("invalid timestamp", e))?
+                Datum::timestamptz_from_str(s).map_err(|e| bad_timestamp(s, col, ty, e))?
             }
             _ => Datum::timestamptz_micros(as_i64()?),
         },
@@ -345,6 +345,39 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
     })
 }
 
+/// Report a timestamp literal that would not parse.
+///
+/// Comparing a timestamp column against a `Date` is a natural thing for an R
+/// user to write and an unhelpful thing to be told about: the literal reaches
+/// iceberg-rust as "2024-06-01" and comes back as "Can't parse datetime., source:
+/// premature end of input", which describes its parser rather than the mistake.
+/// Widening the date to midnight is not the answer either -- which midnight, and
+/// in `==` a whole day is almost certainly what was meant rather than one instant
+/// -- so name the problem and the fix and let the caller choose.
+fn bad_timestamp<E: std::fmt::Display>(s: &str, col: &str, ty: &PrimitiveType, e: E) -> RError {
+    let b = s.as_bytes();
+    let looks_like_a_date = b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                true
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+
+    if looks_like_a_date {
+        return RError::Other(format!(
+            "cannot compare column {col:?} (Iceberg type {ty}) against the date \
+             {s:?}: Iceberg does not widen a date to a timestamp, so the \
+             comparison has no unambiguous meaning.\nGive the instant instead, \
+             e.g. as.POSIXct(\"{s} 00:00:00\", tz = \"UTC\")."
+        ));
+    }
+    ctx("invalid timestamp", e)
+}
+
 fn out_of_ns_range(s: &str, col: &str, ty: &PrimitiveType) -> RError {
     RError::Other(format!(
         "cannot compare column {col:?} (Iceberg type {ty}) against {s:?}: a \
@@ -361,7 +394,7 @@ fn naive_nanos(s: &str, col: &str, ty: &PrimitiveType) -> RResult<i64> {
         .trim_end_matches('Z')
         .parse::<NaiveDateTime>()
         .or_else(|_| s.parse::<NaiveDateTime>())
-        .map_err(|e| ctx("invalid timestamp", e))?;
+        .map_err(|e| bad_timestamp(s, col, ty, e))?;
     dt.and_utc()
         .timestamp_nanos_opt()
         .ok_or_else(|| out_of_ns_range(s, col, ty))
@@ -371,7 +404,7 @@ fn naive_nanos(s: &str, col: &str, ty: &PrimitiveType) -> RResult<i64> {
 fn utc_nanos(s: &str, col: &str, ty: &PrimitiveType) -> RResult<i64> {
     let dt = s
         .parse::<DateTime<Utc>>()
-        .map_err(|e| ctx("invalid timestamp", e))?;
+        .map_err(|e| bad_timestamp(s, col, ty, e))?;
     dt.timestamp_nanos_opt()
         .ok_or_else(|| out_of_ns_range(s, col, ty))
 }

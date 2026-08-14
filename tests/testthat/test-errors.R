@@ -21,6 +21,70 @@ test_that("scan arguments are validated", {
   expect_error(icebergr_scan(tbl, select = c("id", NA)), "character vector")
 })
 
+test_that("a limit past the integer range still works rather than failing on NA", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+
+  # as.integer() turned this into NA, and the limit test then failed with
+  # "missing value where TRUE/FALSE needed" instead of reading the table.
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, limit = 3e9))), 3L)
+  expect_silent(icebergr_collect(icebergr_scan(tbl, limit = 2^40)))
+})
+
+test_that("batch_size is bounded to what a C int can carry", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+
+  # Unbounded, this reached Rust as NA and failed there with "Must not be NA".
+  expect_error(icebergr_scan(tbl, batch_size = 3e9), "at most")
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, batch_size = 2L))), 3L)
+})
+
+test_that("an empty or repeated select is refused rather than silently reinterpreted", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L, amount = c(1, 2, 3)))
+
+  # iceberg-rust reads an empty projection as "no projection", i.e. every
+  # column -- the opposite of what asking for no columns says.
+  expect_error(icebergr_scan(tbl, select = character()), "no columns would be read")
+  expect_error(icebergr_scan(tbl, select = c("id", "id")), "more than once")
+  # Caught after case resolution too, where the caller's spellings differ.
+  expect_error(
+    icebergr_scan(tbl, select = c("id", "ID"), case_sensitive = FALSE),
+    "more than once"
+  )
+})
+
+test_that("an NA snapshot property name is refused in R, not in Rust", {
+  catalog <- local_namespace()
+  events <- data.frame(id = 1:3L)
+  tbl <- seed_table(catalog, "db.events", events)
+
+  # nzchar(NA) is TRUE, so an NA name passed the emptiness check and failed
+  # inside Rust with a bare "Must not be NA".
+  named_na <- stats::setNames("value", NA_character_)
+  expect_error(icebergr_append(tbl, events, properties = named_na), "named")
+})
+
+test_that("a handle that lost its Rust object says so instead of leaking extendr", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+
+  # saveRDS() writes the external pointer's box, never the Rust value behind it,
+  # so a restored handle points at nothing. The bare extendr message
+  # ("expected non-null pointer in externalptr") reads like a package bug.
+  path <- withr::local_tempfile(fileext = ".rds")
+  saveRDS(list(catalog = catalog, tbl = tbl), path)
+  restored <- readRDS(path)
+
+  expect_error(icebergr_schema(restored$tbl), class = "icebergr_dead_handle")
+  expect_error(icebergr_schema(restored$tbl), "no longer usable")
+  expect_error(
+    icebergr_list_namespaces(restored$catalog),
+    class = "icebergr_dead_handle"
+  )
+})
+
 test_that("append properties must be a named character vector", {
   catalog <- local_namespace()
   events <- data.frame(id = 1:3L)

@@ -84,6 +84,35 @@ test_that("appending zero rows warns and commits nothing", {
   expect_equal(nrow(icebergr_collect(tbl)), 3L)
 })
 
+test_that("an Arrow stream carrying no rows warns too, not just an empty data frame", {
+  # The warning used to be driven by nrow(data), which only exists for a data
+  # frame, so an empty Arrow stream was a silent no-op.
+  catalog <- local_namespace()
+  events <- data.frame(id = 1:3L, amount = c(1, 2, 3))
+  tbl <- seed_table(catalog, "db.events", events)
+  before <- nrow(icebergr_snapshots(tbl))
+
+  stream <- nanoarrow::as_nanoarrow_array_stream(events[0L, ])
+  expect_warning(tbl <- icebergr_append(tbl, stream), "no rows")
+  expect_equal(nrow(icebergr_snapshots(tbl)), before)
+})
+
+test_that("a value the table's column type cannot hold is refused, not written as NA", {
+  # The default Arrow cast substitutes a null for a value it cannot represent, so
+  # this committed NA over the caller's data without a word.
+  catalog <- local_namespace()
+  tbl <- icebergr_create_table(catalog, "db.events", data.frame(id = 1L))
+
+  expect_error(icebergr_append(tbl, data.frame(id = 3e9)), "id")
+  expect_error(icebergr_append(tbl, data.frame(id = "abc")), "id")
+  expect_equal(nrow(icebergr_collect(tbl)), 0L)
+
+  # A double that is exactly an integer is the ordinary R case and must still
+  # work: data.frame(id = 4) is a double, not an integer.
+  tbl <- icebergr_append(tbl, data.frame(id = 4))
+  expect_equal(icebergr_collect(tbl)$id, 4L)
+})
+
 test_that("select reads only the requested columns", {
   catalog <- local_namespace()
   events <- data.frame(id = 1:3L, amount = c(1, 2, 3), label = c("a", "b", "c"))

@@ -187,17 +187,19 @@ icebergr_append <- function(tbl,
   keys <- character()
   values <- character()
   if (!is.null(properties)) {
+    # anyNA(names()) as well as anyNA(values): nzchar(NA) is TRUE, so an NA name
+    # slipped past the emptiness check and failed inside Rust with a bare
+    # "Must not be NA".
     if (!is.character(properties) || is.null(names(properties)) ||
-      any(!nzchar(names(properties))) || anyNA(properties)) {
+      any(!nzchar(names(properties))) || anyNA(names(properties)) ||
+      anyNA(properties)) {
       abort("`properties` must be a fully named character vector without NAs.")
     }
     keys <- names(properties)
     values <- unname(properties)
   }
 
-  if (is.data.frame(data) && nrow(data) == 0L) {
-    warn("`data` has no rows; the table is unchanged and no snapshot was committed.")
-  }
+  before <- rs_table_current_snapshot(tbl$ptr)
 
   # The stream must outlive the call: Rust drains it during the append.
   holder <- export_stream(data)
@@ -208,5 +210,13 @@ icebergr_append <- function(tbl,
     property_keys = keys,
     property_values = values
   )
+
+  # Reported from what Rust actually did rather than from nrow(data), which only
+  # exists for a data frame: an Arrow stream carrying no batches used to be a
+  # silent no-op.
+  if (identical(rs_table_current_snapshot(ptr), before)) {
+    warn("`data` has no rows; the table is unchanged and no snapshot was committed.")
+  }
+
   new_icebergr_table(ptr, tbl$catalog)
 }

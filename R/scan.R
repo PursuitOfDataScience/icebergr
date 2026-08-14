@@ -69,7 +69,9 @@ icebergr_scan <- function(tbl,
                           case_sensitive = TRUE) {
   check_table(tbl)
   check_count(limit, "limit")
-  check_count(batch_size, "batch_size")
+  # batch_size crosses into Rust as a C int, so a larger one would arrive as NA
+  # and fail there with "Must not be NA".
+  check_count(batch_size, "batch_size", max = .Machine$integer.max)
   check_bool(case_sensitive, "case_sensitive")
 
   if (!is.null(snapshot_id) && !is.null(as_of)) {
@@ -82,6 +84,16 @@ icebergr_scan <- function(tbl,
   if (!is.null(select)) {
     if (!is.character(select) || anyNA(select) || !all(nzchar(select))) {
       abort("`select` must be a character vector of column names.")
+    }
+    # `select = character(0)` used to reach iceberg-rust, which treats an empty
+    # projection as "no projection" and reads every column -- the opposite of
+    # what asking for no columns says. Iceberg cannot express a zero-column
+    # scan, so say so rather than quietly reading all of them.
+    if (!length(select)) {
+      abort(c(
+        "`select` is empty, so no columns would be read.",
+        i = "Use `select = NULL` to read all of them."
+      ))
     }
     available <- table_columns(tbl)
     hits <- if (case_sensitive) {
@@ -96,6 +108,19 @@ icebergr_scan <- function(tbl,
           paste(select[is.na(hits)], collapse = ", "), "."
         ),
         i = paste0("Available columns: ", paste(available, collapse = ", "), ".")
+      ))
+    }
+    # Checked on the resolved indices rather than on `select` itself, so that
+    # c("id", "ID") under case_sensitive = FALSE is caught too. Left to the
+    # tibble constructor it surfaces as a `.name_repair` error naming a column
+    # the caller never wrote.
+    if (anyDuplicated(hits)) {
+      abort(c(
+        paste0(
+          "`select` names the same column more than once: ",
+          paste(unique(available[hits][duplicated(hits)]), collapse = ", "), "."
+        ),
+        i = "A scan result cannot have two columns of the same name."
       ))
     }
     # Resolved to the table's own spelling. `iceberg-rust` looks a projected
@@ -159,6 +184,9 @@ check_scan <- function(x, call = rlang::caller_env()) {
   if (!inherits(x, "icebergr_scan")) {
     abort("Expected a scan created by `icebergr_scan()`.", call = call)
   }
+  # A scan carries the table handle it was built from, so it goes stale the same
+  # way one does.
+  check_table(x$tbl, "tbl", call = call)
   invisible(NULL)
 }
 
@@ -212,6 +240,7 @@ icebergr_collect <- function(x, ...) {
 #' @rdname icebergr_collect
 #' @export
 icebergr_collect.icebergr_scan <- function(x, ...) {
+  check_scan(x)
   collect_stream(scan_stream(x), limit = x$limit)
 }
 
@@ -272,6 +301,7 @@ icebergr_scan_plan <- function(scan) {
 
 #' @export
 print.icebergr_scan <- function(x, ...) {
+  check_scan(x)
   ident <- rs_table_identifier(x$tbl$ptr)
   cat("<icebergr_scan>\n")
   cat("  table:    ", paste(ident, collapse = "."), "\n", sep = "")

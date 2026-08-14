@@ -43,6 +43,26 @@ test_that("a dotted string and a character vector name the same namespace", {
   expect_true("a.b" %in% icebergr_list_namespaces(catalog, parent = "a"))
 })
 
+test_that("a doubled separator does not create a namespace level nothing can name", {
+  # "a..b" split to c("a", "", "b"), which the catalog accepted and then listed
+  # back as "a." -- unreachable, since parse_identifier() reads "a..b.events" as
+  # c("a", "b"). The two spellings have to agree.
+  catalog <- local_catalog()
+  icebergr_create_namespace(catalog, "a..b")
+
+  expect_equal(icebergr_list_namespaces(catalog, parent = "a"), "a.b")
+  expect_equal(icebergr_list_tables(catalog, "a..b"), character())
+
+  # The table lands where the namespace is, whichever spelling names it.
+  icebergr_create_table(catalog, "a..b.events", data.frame(id = integer()))
+  expect_equal(icebergr_list_tables(catalog, "a.b"), "events")
+})
+
+test_that("a namespace of nothing but separators is refused", {
+  catalog <- local_catalog()
+  expect_error(icebergr_create_namespace(catalog, "."), "no namespace levels")
+})
+
 test_that("tables are listed within their namespace", {
   catalog <- local_namespace()
   expect_equal(icebergr_list_tables(catalog, "db"), character())

@@ -64,6 +64,7 @@ tbl <- icebergr_example_table()
 tbl
 #> <icebergr_table>
 #>   table:    db.events
+#>   location: /tmp/RtmpXXXXXX/icebergr-warehouse/db/events
 #>   format:   v2
 #>   snapshot: 4964299904926817223
 #>   columns:  5
