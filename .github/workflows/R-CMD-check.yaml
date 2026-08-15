@@ -376,6 +376,15 @@ jobs:
       - name: cargo check (default features)
         run: cargo check --manifest-path src/rust/Cargo.toml --all-targets
 
+      # Unit tests for the pure-Rust helpers -- the ones whose inputs are awkward
+      # to reach from R. `metadata_name_is_committable` is the reason this step
+      # exists: it takes a path, and its `/`-only split refused every append on
+      # Windows while passing everywhere else, so only one platform's R tests
+      # caught it. A `cargo check --all-targets` compiles these but never runs
+      # them, which is not the same thing.
+      - name: cargo test
+        run: cargo test --manifest-path src/rust/Cargo.toml --lib
+
   # Secondary Rust checks. Slower and less urgent than the type-check above.
   cargo-extras:
     runs-on: ubuntu-latest

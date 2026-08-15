@@ -319,7 +319,15 @@ test_that("a metadata file Iceberg cannot name a successor for is refused early"
   expect_equal(icebergr_schema(tbl)$name, "id")
 
   before <- list.files(warehouse, pattern = "\\.parquet$", recursive = TRUE)
-  expect_error(icebergr_append(tbl, data.frame(id = 1L)), "not-a-uuid", fixed = TRUE)
+  # Quoted in full, so the message must carry the *file name* and not the whole
+  # path. Matching a bare "not-a-uuid" passed on Windows for the wrong reason: the
+  # separator split missed backslashes, the entire path was tested as a file name,
+  # and the substring was in there either way.
+  expect_error(
+    icebergr_append(tbl, data.frame(id = 1L)),
+    '"99999-not-a-uuid.metadata.json"',
+    fixed = TRUE
+  )
   expect_error(icebergr_append(tbl, data.frame(id = 1L)), "<version>-<uuid>", fixed = TRUE)
   expect_equal(list.files(warehouse, pattern = "\\.parquet$", recursive = TRUE), before)
 })

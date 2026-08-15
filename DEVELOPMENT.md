@@ -103,11 +103,21 @@ Much faster than a full `R CMD check`, and it catches most mistakes:
 cargo fmt   --manifest-path src/rust/Cargo.toml
 cargo check --manifest-path src/rust/Cargo.toml --all-targets
 cargo clippy --manifest-path src/rust/Cargo.toml -- -D warnings
+cargo test  --manifest-path src/rust/Cargo.toml --lib
 ```
 
 `cargo check` type-checks without linking, so it does not need libR. Run it
 before `R CMD INSTALL` — a type error found in 30 seconds beats one found after a
 ten-minute build.
+
+`cargo test` is for the pure-Rust helpers whose inputs are awkward to reach from
+R — anything taking a path or a file name, in particular. It earns its place:
+`metadata_name_is_committable()` split a path on `/` only, which refused every
+append on Windows and passed on every other platform, so a single OS's R tests
+were the only thing standing between that and a release. Note that `cargo check
+--all-targets` compiles `#[cfg(test)]` code without running it, which is not the
+same thing. Keep these tests free of `extendr` calls so the test binary needs no
+R session.
 
 ## Optional features
 

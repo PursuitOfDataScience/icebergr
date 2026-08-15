@@ -33,6 +33,17 @@ use crate::errors::{RResult, ctx};
 use crate::runtime::block_on;
 use crate::table::RTable;
 
+/// The file name part of a metadata location.
+///
+/// Both separators, because both occur. iceberg-rust builds its own locations
+/// with `/`, but a location that came from R has been through `normalizePath()`,
+/// which on Windows returns `C:\warehouse\db\events\metadata\...`. Splitting on
+/// `/` alone left the whole path as the "file name", so the check below saw a
+/// version of `C:\...\99999` and refused every legitimate append on Windows.
+fn metadata_file_name(location: &str) -> &str {
+    location.rsplit(['/', '\\']).next().unwrap_or(location)
+}
+
 /// Whether iceberg-rust will be able to derive the *next* metadata file name from
 /// this one.
 ///
@@ -203,7 +214,7 @@ fn rs_table_append(
     // which names neither the file nor the convention, and leaves orphan Parquet
     // behind each time it is retried.
     if let Some(location) = table.metadata_location() {
-        let file_name = location.rsplit('/').next().unwrap_or(location);
+        let file_name = metadata_file_name(location);
         if !metadata_name_is_committable(file_name) {
             return Err(extendr_api::Error::Other(format!(
                 "cannot append to {:?}: its metadata file is named {file_name:?}, \
@@ -302,4 +313,79 @@ fn rs_table_append(
 extendr_module! {
     mod write;
     fn rs_table_append;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{metadata_file_name, metadata_name_is_committable};
+
+    const UUID: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
+    #[test]
+    fn file_name_handles_both_separators() {
+        // A Windows path reached this as one undivided string, so the whole thing
+        // was tested as a file name and every append to a registered table was
+        // refused. R's normalizePath() produces these.
+        assert_eq!(
+            metadata_file_name("C:\\warehouse\\db\\events\\metadata\\00003-x.metadata.json"),
+            "00003-x.metadata.json"
+        );
+        assert_eq!(
+            metadata_file_name("/warehouse/db/events/metadata/00003-x.metadata.json"),
+            "00003-x.metadata.json"
+        );
+        // Mixed, which is what a Windows warehouse path joined to iceberg-rust's
+        // own forward-slash suffix actually looks like.
+        assert_eq!(
+            metadata_file_name("C:\\warehouse\\db\\events/metadata/00003-x.metadata.json"),
+            "00003-x.metadata.json"
+        );
+        assert_eq!(
+            metadata_file_name("00003-x.metadata.json"),
+            "00003-x.metadata.json"
+        );
+    }
+
+    #[test]
+    fn accepts_the_names_iceberg_writes() {
+        assert!(metadata_name_is_committable(&format!(
+            "00003-{UUID}.metadata.json"
+        )));
+        // Unpadded and large versions are still i32 parses.
+        assert!(metadata_name_is_committable(&format!(
+            "3-{UUID}.metadata.json"
+        )));
+        assert!(metadata_name_is_committable(&format!(
+            "99999-{UUID}.metadata.json"
+        )));
+        // Gzipped metadata is a documented Iceberg option.
+        assert!(metadata_name_is_committable(&format!(
+            "00003-{UUID}.gz.metadata.json"
+        )));
+    }
+
+    #[test]
+    fn rejects_what_iceberg_cannot_derive_a_successor_from() {
+        assert!(!metadata_name_is_committable(
+            "00003-not-a-uuid.metadata.json"
+        ));
+        assert!(!metadata_name_is_committable(&format!(
+            "v3-{UUID}.metadata.json"
+        )));
+        assert!(!metadata_name_is_committable(&format!(
+            "{UUID}.metadata.json"
+        )));
+        assert!(!metadata_name_is_committable("metadata.json"));
+        assert!(!metadata_name_is_committable(&format!("00003-{UUID}.json")));
+        assert!(!metadata_name_is_committable(""));
+    }
+
+    #[test]
+    fn a_windows_location_is_committable_end_to_end() {
+        // The regression itself: this exact shape failed on Windows CI.
+        let location = format!(
+            "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\db\\events\\metadata\\99999-{UUID}.metadata.json"
+        );
+        assert!(metadata_name_is_committable(metadata_file_name(&location)));
+    }
 }
