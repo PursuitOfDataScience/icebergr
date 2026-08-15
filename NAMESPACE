@@ -17,13 +17,16 @@ export(icebergr_example_table)
 export(icebergr_list_namespaces)
 export(icebergr_list_tables)
 export(icebergr_partitions)
+export(icebergr_properties)
 export(icebergr_register_table)
+export(icebergr_reload)
 export(icebergr_scan)
 export(icebergr_scan_plan)
 export(icebergr_schema)
 export(icebergr_snapshots)
 export(icebergr_spec_support)
 export(icebergr_table)
+export(icebergr_table_exists)
 importFrom(rlang,
   abort,
   warn

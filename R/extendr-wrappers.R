@@ -19,10 +19,6 @@ rs_catalog_connect <- function(kind, name, storage, keys, values) {
   .Call(wrap__rs_catalog_connect, kind, name, storage, keys, values)
 }
 
-rs_catalog_kind <- function(cat) .Call(wrap__rs_catalog_kind, cat)
-
-rs_catalog_name <- function(cat) .Call(wrap__rs_catalog_name, cat)
-
 rs_list_namespaces <- function(cat, parent) .Call(wrap__rs_list_namespaces, cat, parent)
 
 rs_list_tables <- function(cat, namespace) .Call(wrap__rs_list_tables, cat, namespace)
@@ -58,8 +54,6 @@ rs_table_identifier <- function(tbl) .Call(wrap__rs_table_identifier, tbl)
 rs_table_location <- function(tbl) .Call(wrap__rs_table_location, tbl)
 
 rs_table_format_version <- function(tbl) .Call(wrap__rs_table_format_version, tbl)
-
-rs_table_uuid <- function(tbl) .Call(wrap__rs_table_uuid, tbl)
 
 rs_table_schema <- function(tbl, snapshot_id) {
   .Call(wrap__rs_table_schema, tbl, snapshot_id)

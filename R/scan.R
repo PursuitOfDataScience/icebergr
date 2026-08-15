@@ -154,12 +154,26 @@ icebergr_scan <- function(tbl,
       match(tolower(select), tolower(available))
     }
     if (anyNA(hits)) {
+      missing <- select[is.na(hits)]
+      # A dotted name whose first part *is* a column is someone reaching for a
+      # nested field, which is a reasonable thing to try and a confusing thing to
+      # be told is "not in the table". iceberg-rust refuses to project one
+      # ("not a direct child of schema"), so name the actual limitation.
+      nested <- missing[sub("[.].*$", "", missing) %in% available &
+        grepl(".", missing, fixed = TRUE)]
       abort(c(
         paste0(
           "Cannot select column(s) not in the table: ",
-          paste(select[is.na(hits)], collapse = ", "), "."
+          paste(missing, collapse = ", "), "."
         ),
-        i = paste0("Available columns: ", paste(available, collapse = ", "), ".")
+        i = paste0("Available columns: ", paste(available, collapse = ", "), "."),
+        i = if (length(nested)) {
+          paste0(
+            "Iceberg cannot project a nested field on its own. Select ",
+            paste0("\"", unique(sub("[.].*$", "", nested)), "\"", collapse = ", "),
+            " and take the field from the data frame column it arrives as."
+          )
+        }
       ))
     }
     # Checked on the resolved indices rather than on `select` itself, so that

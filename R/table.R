@@ -57,6 +57,102 @@ icebergr_table <- function(catalog, table) {
   new_icebergr_table(ptr, catalog)
 }
 
+#' Whether a table exists in a catalog
+#'
+#' Asks the catalog directly, so an absent table is an answer rather than an
+#' error to be caught.
+#'
+#' @param catalog An `icebergr_catalog` from [icebergr_catalog()].
+#' @param table A table identifier, `"namespace.table"`.
+#'
+#' @return `TRUE` or `FALSE`.
+#'
+#' @details
+#' A namespace that does not exist gives `FALSE` rather than an error, since it
+#' cannot hold the table either way. Any other failure -- an unreachable catalog,
+#' a rejected credential -- is still an error, because reporting one of those as
+#' "no such table" would be a confident wrong answer.
+#'
+#' @examples
+#' warehouse <- tempfile("warehouse")
+#' dir.create(warehouse)
+#' catalog <- icebergr_catalog("memory", warehouse = warehouse)
+#' icebergr_create_namespace(catalog, "db")
+#'
+#' icebergr_table_exists(catalog, "db.events")
+#' icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
+#' icebergr_table_exists(catalog, "db.events")
+#' @export
+icebergr_table_exists <- function(catalog, table) {
+  check_catalog(catalog)
+  ident <- parse_identifier(table)
+  rs_table_exists(catalog$ptr, ident$namespace, ident$name)
+}
+
+#' Re-read a table's metadata from its catalog
+#'
+#' A table handle is a snapshot of the metadata as it was when the handle was
+#' opened, which is what makes a read consistent. That also means a handle never
+#' sees a commit made after it: [icebergr_append()] hands back an updated handle
+#' for your own writes, but a commit from another session, process or engine is
+#' invisible until the metadata is read again. This is how to do that without
+#' going back to the catalog by name.
+#'
+#' @param tbl An `icebergr_table` from [icebergr_table()].
+#'
+#' @return A new `icebergr_table` handle seeing the table's current state. The
+#'   handle passed in is unchanged, so reassign it:
+#'   `tbl <- icebergr_reload(tbl)`.
+#'
+#' @examples
+#' warehouse <- tempfile("warehouse")
+#' dir.create(warehouse)
+#' catalog <- icebergr_catalog("memory", warehouse = warehouse)
+#' icebergr_create_namespace(catalog, "db")
+#' events <- data.frame(id = 1:3L)
+#' tbl <- icebergr_create_table(catalog, "db.events", events)
+#'
+#' # A second handle on the same table, as another session would hold.
+#' stale <- icebergr_table(catalog, "db.events")
+#' tbl <- icebergr_append(tbl, events)
+#'
+#' # The second handle still sees the table as it was when it was opened.
+#' nrow(icebergr_collect(stale))
+#' nrow(icebergr_collect(icebergr_reload(stale)))
+#' @export
+icebergr_reload <- function(tbl) {
+  check_table(tbl)
+  new_icebergr_table(rs_table_reload(tbl$ptr), tbl$catalog)
+}
+
+#' The properties of an Iceberg table
+#'
+#' Table properties are the free-form key-value settings Iceberg stores in table
+#' metadata -- write defaults, compaction targets, engine-specific hints -- as
+#' whichever engine created or last configured the table left them.
+#'
+#' @param tbl An `icebergr_table` from [icebergr_table()].
+#'
+#' @return A tibble of `name` and `value`, ordered by name. A table with no
+#'   properties returns zero rows.
+#'
+#' @details
+#' These are read-only here. Setting them is an `update_properties` transaction,
+#' which is out of scope for this version; see [icebergr_spec_support()].
+#'
+#' Not to be confused with the `properties` argument of [icebergr_append()],
+#' which records provenance in a single snapshot's summary rather than on the
+#' table.
+#'
+#' @examples
+#' tbl <- icebergr_example_table(rows = 10)
+#' icebergr_properties(tbl)
+#' @export
+icebergr_properties <- function(tbl) {
+  check_table(tbl)
+  as_result_tbl(rs_table_properties(tbl$ptr))
+}
+
 #' The schema of an Iceberg table
 #'
 #' @param tbl An `icebergr_table` from [icebergr_table()].

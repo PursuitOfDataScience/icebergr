@@ -28,10 +28,12 @@ use crate::errors::{RResult, config_err, ctx};
 use crate::runtime::{block_on, iceberg_runtime};
 
 /// A live catalog connection, handed to R as an external pointer.
+///
+/// Only the catalog itself. The kind and the connection name live on the R-side
+/// `icebergr_catalog` object, which is the one place they are read from; keeping
+/// a second copy here that nothing reads is state that can only drift.
 pub struct RCatalog {
     pub inner: Arc<dyn Catalog>,
-    pub kind: String,
-    pub name: String,
 }
 
 fn looks_like_local_path(w: &str) -> bool {
@@ -177,21 +179,7 @@ fn rs_catalog_connect(
         }
     };
 
-    Ok(ExternalPtr::new(RCatalog {
-        inner,
-        kind: kind.to_string(),
-        name: name.to_string(),
-    }))
-}
-
-#[extendr]
-fn rs_catalog_kind(cat: ExternalPtr<RCatalog>) -> String {
-    cat.kind.clone()
-}
-
-#[extendr]
-fn rs_catalog_name(cat: ExternalPtr<RCatalog>) -> String {
-    cat.name.clone()
+    Ok(ExternalPtr::new(RCatalog { inner }))
 }
 
 /// Namespaces are multi-level; each is returned as a dot-joined string.
@@ -235,8 +223,6 @@ fn rs_create_namespace(cat: ExternalPtr<RCatalog>, namespace: Vec<String>) -> RR
 extendr_module! {
     mod catalog;
     fn rs_catalog_connect;
-    fn rs_catalog_kind;
-    fn rs_catalog_name;
     fn rs_list_namespaces;
     fn rs_list_tables;
     fn rs_namespace_exists;

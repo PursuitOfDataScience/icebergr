@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use extendr_api::prelude::*;
 use iceberg::arrow::arrow_schema_to_schema_auto_assign_ids;
-use iceberg::spec::{SchemaRef as IcebergSchemaRef, TableMetadata};
+use iceberg::spec::{SchemaRef as IcebergSchemaRef, TableMetadata, Type};
 use iceberg::table::Table;
 use iceberg::{Catalog, NamespaceIdent, TableCreation, TableIdent};
 
@@ -97,6 +97,35 @@ impl RTable {
     }
 }
 
+/// Render an Iceberg type for the `type` column of `icebergr_schema()`.
+///
+/// iceberg-rust's own `Display` cannot be used for this. It writes a struct as
+/// its children's types run together with no names and no separator, so
+/// `struct<lat: double, lon: double>` comes out as `struct<doubledouble>` --
+/// which reads like a type called "doubledouble" -- and it renders a list or a
+/// map as the bare word `list` or `map`, dropping the element, key and value
+/// types entirely. `type` is a documented column, so it has to say something
+/// true.
+pub fn type_label(ty: &Type) -> String {
+    match ty {
+        Type::Primitive(p) => p.to_string(),
+        Type::Struct(s) => {
+            let fields: Vec<String> = s
+                .fields()
+                .iter()
+                .map(|f| format!("{}: {}", f.name, type_label(&f.field_type)))
+                .collect();
+            format!("struct<{}>", fields.join(", "))
+        }
+        Type::List(l) => format!("list<{}>", type_label(&l.element_field.field_type)),
+        Type::Map(m) => format!(
+            "map<{}, {}>",
+            type_label(&m.key_field.field_type),
+            type_label(&m.value_field.field_type)
+        ),
+    }
+}
+
 fn table_ident(namespace: Vec<String>, name: &str) -> RResult<TableIdent> {
     let ns = NamespaceIdent::from_vec(namespace).map_err(|e| ctx("invalid namespace", e))?;
     Ok(TableIdent::new(ns, name.to_string()))
@@ -125,6 +154,7 @@ fn rs_table_open(
     }))
 }
 
+/// Whether a table exists, as a question the catalog can answer with "no".
 #[extendr]
 fn rs_table_exists(
     cat: ExternalPtr<RCatalog>,
@@ -132,7 +162,16 @@ fn rs_table_exists(
     name: &str,
 ) -> RResult<bool> {
     let ident = table_ident(namespace, name)?;
-    block_on(cat.inner.table_exists(&ident)).map_err(|e| ctx("could not check table", e))
+    match block_on(cat.inner.table_exists(&ident)) {
+        Ok(found) => Ok(found),
+        // A namespace that does not exist cannot hold the table, so that is a
+        // "no", not a failure -- the point of asking is to avoid wrapping the
+        // call in a handler. Narrowed to this one error kind on purpose:
+        // swallowing the rest would turn an unreachable REST catalog, or a
+        // rejected credential, into a confident and wrong "no such table".
+        Err(e) if e.kind() == iceberg::ErrorKind::NamespaceNotFound => Ok(false),
+        Err(e) => Err(ctx("could not check whether the table exists", e)),
+    }
 }
 
 /// Re-read the table from the catalog, picking up snapshots committed since it
@@ -225,11 +264,6 @@ fn rs_table_format_version(tbl: ExternalPtr<RTable>) -> i32 {
     tbl.metadata().format_version() as i32
 }
 
-#[extendr]
-fn rs_table_uuid(tbl: ExternalPtr<RTable>) -> String {
-    tbl.metadata().uuid().to_string()
-}
-
 /// The schema, as parallel columns ready to become a tibble.
 ///
 /// `snapshot_id` selects the schema in force at that snapshot rather than the
@@ -243,7 +277,7 @@ fn rs_table_schema(tbl: ExternalPtr<RTable>, snapshot_id: Nullable<String>) -> R
 
     let ids: Vec<i32> = fields.iter().map(|f| f.id).collect();
     let names: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
-    let types: Vec<String> = fields.iter().map(|f| f.field_type.to_string()).collect();
+    let types: Vec<String> = fields.iter().map(|f| type_label(&f.field_type)).collect();
     let required: Vec<bool> = fields.iter().map(|f| f.required).collect();
     let docs: Vec<Rstr> = fields
         .iter()
@@ -411,7 +445,6 @@ extendr_module! {
     fn rs_table_identifier;
     fn rs_table_location;
     fn rs_table_format_version;
-    fn rs_table_uuid;
     fn rs_table_schema;
     fn rs_table_partitions;
     fn rs_table_snapshots;

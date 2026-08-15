@@ -187,6 +187,54 @@ test_that("Glue and S3 report clearly when not compiled in", {
   }
 })
 
+test_that("table existence is an answer, not an error to be caught", {
+  catalog <- local_namespace()
+
+  expect_false(icebergr_table_exists(catalog, "db.events"))
+  icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
+  expect_true(icebergr_table_exists(catalog, "db.events"))
+
+  # A namespace that does not exist is still just "no".
+  expect_false(icebergr_table_exists(catalog, "nope.events"))
+  expect_error(icebergr_table_exists("not a catalog", "db.x"), "icebergr_catalog")
+  expect_error(icebergr_table_exists(catalog, "events"), "namespace.table")
+})
+
+test_that("reload picks up a commit another handle made", {
+  catalog <- local_namespace()
+  events <- data.frame(id = 1:3L)
+  tbl <- icebergr_create_table(catalog, "db.events", events)
+
+  # A second handle on the same table, as another session would hold it.
+  stale <- icebergr_table(catalog, "db.events")
+  tbl <- icebergr_append(tbl, events)
+
+  # A handle is a snapshot of the metadata, so the second one cannot see the
+  # commit. That is the guarantee, not a bug -- reload is how you opt out of it.
+  expect_equal(nrow(icebergr_collect(stale)), 0L)
+  fresh <- icebergr_reload(stale)
+  expect_equal(nrow(icebergr_collect(fresh)), 3L)
+
+  # The handle passed in is left alone, as with icebergr_append().
+  expect_equal(nrow(icebergr_collect(stale)), 0L)
+  expect_s3_class(fresh, "icebergr_table")
+  expect_error(icebergr_reload("not a table"), "icebergr_table")
+})
+
+test_that("table properties are readable", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+
+  props <- icebergr_properties(tbl)
+  expect_s3_class(props, "tbl_df")
+  expect_named(props, c("name", "value"))
+  expect_type(props$name, "character")
+  expect_type(props$value, "character")
+  # Ordered by name, so the output is stable between calls.
+  expect_equal(props$name, sort(props$name))
+  expect_error(icebergr_properties("not a table"), "icebergr_table")
+})
+
 test_that("a table handle prints its identity and schema", {
   catalog <- local_namespace()
   tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L, amount = c(1, 2, 3)))

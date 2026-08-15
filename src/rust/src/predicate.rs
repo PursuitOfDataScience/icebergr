@@ -242,10 +242,20 @@ fn reference(col: &str, schema: &Schema, cs: bool) -> RResult<(Reference, Primit
 
     match field.field_type.as_ref() {
         Type::Primitive(p) => Ok((Reference::new(field.name.clone()), p.clone())),
+        // No advice to filter on a nested field by its dotted path: it cannot
+        // work by any route. iceberg-rust resolves such a path when *binding*
+        // the predicate, because the schema's name index covers nested fields,
+        // but then fails to plan the scan with "Field lat not found in schema";
+        // and projecting one is refused outright as "not a direct child of
+        // schema". Reading the parent column and filtering in R is the only
+        // thing that does work, so that is what this says.
         other => Err(RError::Other(format!(
-            "cannot filter on {col:?}: it has type {other}, and filters are \
-             supported only on primitive columns. Filter on a nested field by \
-             its full path, or select it and filter in R instead."
+            "cannot filter on {col:?}: it has type {}, and Iceberg pushes down \
+             filters only on primitive columns.\n\
+             Nested fields cannot be pushed down at all, by their dotted path or \
+             otherwise. Select {col:?} and filter it in R after \
+             icebergr_collect().",
+            crate::table::type_label(other)
         ))),
     }
 }

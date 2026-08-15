@@ -209,6 +209,67 @@ test_that("special double values survive", {
   expect_false(is.nan(got$d[[3L]]))
 })
 
+test_that("a nested struct column round trips, and its type reads as itself", {
+  catalog <- local_namespace()
+  schema <- nanoarrow::na_struct(list(
+    id = nanoarrow::na_int32(),
+    loc = nanoarrow::na_struct(list(
+      lat = nanoarrow::na_double(),
+      lon = nanoarrow::na_double()
+    ))
+  ))
+  tbl <- icebergr_create_table(catalog, "db.nested", schema)
+
+  # iceberg-rust's own Display runs a struct's child types together with no names
+  # and no separator, so this column read "struct<doubledouble>" -- which looks
+  # like a type called "doubledouble".
+  expect_equal(
+    icebergr_schema(tbl)$type,
+    c("int", "struct<lat: double, lon: double>")
+  )
+
+  events <- data.frame(id = 1:2L)
+  events$loc <- data.frame(lat = c(1.5, 2.5), lon = c(3.5, 4.5))
+  tbl <- icebergr_append(tbl, events)
+
+  got <- icebergr_collect(tbl)
+  got <- got[order(got$id), ]
+  expect_equal(nrow(got), 2L)
+  # A struct arrives as a data frame column.
+  expect_s3_class(got$loc, "data.frame")
+  expect_equal(got$loc$lat, c(1.5, 2.5))
+})
+
+test_that("a nested field cannot be pushed down, and is told so plainly", {
+  catalog <- local_namespace()
+  schema <- nanoarrow::na_struct(list(
+    id = nanoarrow::na_int32(),
+    loc = nanoarrow::na_struct(list(lat = nanoarrow::na_double()))
+  ))
+  tbl <- icebergr_create_table(catalog, "db.nested", schema)
+  events <- data.frame(id = 1L)
+  events$loc <- data.frame(lat = 1.5)
+  tbl <- icebergr_append(tbl, events)
+
+  # Filtering on the struct itself used to advise filtering "on a nested field by
+  # its full path", which cannot work by any route: iceberg-rust binds the dotted
+  # path but then cannot plan the scan, and refuses to project one outright.
+  err <- tryCatch(
+    icebergr_collect(icebergr_scan(tbl, filter = loc > 1)),
+    error = conditionMessage
+  )
+  expect_match(err, "primitive columns")
+  expect_match(err, "cannot be pushed down at all")
+  # The type in the message is rendered readably too.
+  expect_match(err, "struct<lat: double>", fixed = TRUE)
+
+  # Selecting one names the real limitation rather than "not in the table".
+  expect_error(
+    icebergr_scan(tbl, select = "loc.lat"),
+    "cannot project a nested field"
+  )
+})
+
 test_that("the reported schema matches the columns that come back", {
   catalog <- local_namespace()
   events <- data.frame(

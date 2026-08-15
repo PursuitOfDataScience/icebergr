@@ -9,8 +9,10 @@ built on `iceberg-rust` 0.10.0 via `extendr`.
   (used for local warehouses and the bundled test fixture), and AWS Glue when
   the package is compiled with the optional `glue` Cargo feature.
 * Discovery: `icebergr_list_namespaces()` and `icebergr_list_tables()`.
-* Table handles: `icebergr_table()`, `icebergr_schema()`,
-  `icebergr_partitions()`. `icebergr_schema(snapshot_id = )` reports the schema
+* Table handles: `icebergr_table()`, `icebergr_table_exists()`,
+  `icebergr_schema()`, `icebergr_partitions()`, `icebergr_properties()`, and
+  `icebergr_reload()` to re-read metadata so a handle can see a commit made by
+  another session. `icebergr_schema(snapshot_id = )` reports the schema
   as it was at an earlier snapshot, which is also what `icebergr_scan()` resolves
   `filter` and `select` against when reading one: Iceberg keeps a schema per
   snapshot, so a column another engine has since renamed or dropped is still

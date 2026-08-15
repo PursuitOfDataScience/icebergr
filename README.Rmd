@@ -171,7 +171,9 @@ against the optional features you compiled in.
 | ✅ | Row group and row-level scan pruning |
 | ✅ | Merge-on-read tables — positional *and* equality deletes applied |
 | ✅ | Inspect the file plan before reading, with `icebergr_scan_plan()` |
+| ✅ | Nested types — `struct`, `list` and `map` read and write |
 | 🦀 | Row `limit` pushdown — `limit` bounds decoding, not planning |
+| 🦀 | Pushdown *on* a nested field — read the parent column and filter in R |
 
 **🕰️ Time travel**
 
@@ -179,7 +181,8 @@ against the optional features you compiled in.
 | :-: | --- |
 | ✅ | Snapshot history |
 | ✅ | Read a snapshot by id |
-| ✅ | Read as of a timestamp — resolved against snapshot history |
+| ✅ | Read as of a timestamp — resolved against Iceberg's snapshot log, so a rollback's abandoned snapshot is not selected |
+| ✅ | Read the schema as of a snapshot, and filter and select by the names *it* had |
 
 **✍️ Writing**
 
@@ -198,6 +201,8 @@ against the optional features you compiled in.
 | ✅ | REST catalog |
 | ✅ | In-process `memory` catalog, for local warehouses |
 | ✅ | Schema and partition spec inspection |
+| ✅ | Table properties, and `icebergr_reload()` to see another session's commits |
+| 🚧 | Setting table properties — needs an `update_properties` transaction |
 | ⚙️ | AWS Glue — build with the `glue` Cargo feature |
 | ⚙️ | Object storage (S3) — build with the `s3` Cargo feature |
 | 🦀 | Hadoop / filesystem catalog — none exists upstream; use `type = "memory"` |
@@ -222,6 +227,7 @@ R types survive the Arrow round trip as follows:
 | `POSIXct` | `timestamptz` | Instant preserved; normalised to UTC |
 | `bit64::integer64` | `long` | Unchanged, full 64-bit precision. Reading a `long` back needs `bit64` installed; without it Arrow's `int64` narrows to a `double`. |
 | `factor` | `string` | **Returns `character`.** Iceberg has no dictionary type, so levels cannot be carried. |
+| data frame column | `struct` | Unchanged, and comes back as a data frame column. Iceberg cannot push a filter or a projection down *onto* a nested field, so read the parent column and subset it in R. |
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as random
 64-bit integers and an R numeric holds only 53 bits, so a double round trip would
