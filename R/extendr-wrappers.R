@@ -61,11 +61,15 @@ rs_table_format_version <- function(tbl) .Call(wrap__rs_table_format_version, tb
 
 rs_table_uuid <- function(tbl) .Call(wrap__rs_table_uuid, tbl)
 
-rs_table_schema <- function(tbl) .Call(wrap__rs_table_schema, tbl)
+rs_table_schema <- function(tbl, snapshot_id) {
+  .Call(wrap__rs_table_schema, tbl, snapshot_id)
+}
 
 rs_table_partitions <- function(tbl) .Call(wrap__rs_table_partitions, tbl)
 
 rs_table_snapshots <- function(tbl) .Call(wrap__rs_table_snapshots, tbl)
+
+rs_table_history <- function(tbl) .Call(wrap__rs_table_history, tbl)
 
 rs_table_current_snapshot <- function(tbl) .Call(wrap__rs_table_current_snapshot, tbl)
 

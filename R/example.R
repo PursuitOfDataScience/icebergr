@@ -79,7 +79,12 @@ example_batches <- function(n = 500L) {
 #' @export
 icebergr_example_table <- function(warehouse = tempfile("icebergr-warehouse"),
                                    rows = 500L) {
-  check_count(rows, "rows")
+  check_string(warehouse, "warehouse", allow_null = FALSE)
+  # `max` matters: `rows` is narrowed with as.integer() below to build the
+  # batches, and without a bound anything past .Machine$integer.max became NA
+  # there -- surfacing as "NAs introduced by coercion" followed by a seq_len()
+  # error, neither of which names the argument at fault.
+  check_count(rows, "rows", max = .Machine$integer.max)
   if (is.null(rows) || rows < 1) {
     abort("`rows` must be at least 1.")
   }

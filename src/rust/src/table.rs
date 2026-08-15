@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use extendr_api::prelude::*;
 use iceberg::arrow::arrow_schema_to_schema_auto_assign_ids;
-use iceberg::spec::TableMetadata;
+use iceberg::spec::{SchemaRef as IcebergSchemaRef, TableMetadata};
 use iceberg::table::Table;
 use iceberg::{Catalog, NamespaceIdent, TableCreation, TableIdent};
 
@@ -32,6 +32,68 @@ pub struct RTable {
 impl RTable {
     pub fn metadata(&self) -> &TableMetadata {
         self.table.metadata()
+    }
+
+    /// Parse a snapshot id supplied by R and check it against this table's
+    /// history.
+    ///
+    /// Catching an unknown id here, with the valid ones listed, is much kinder
+    /// than letting scan planning fail on a missing manifest list.
+    pub fn resolve_snapshot(&self, id: &str) -> RResult<i64> {
+        let parsed: i64 = id.trim().parse().map_err(|_| {
+            Error::Other(format!(
+                "{id:?} is not a valid snapshot id. Snapshot ids are 64-bit \
+                 integers, passed as strings; see icebergr_snapshots()."
+            ))
+        })?;
+
+        if self.metadata().snapshot_by_id(parsed).is_none() {
+            let mut known: Vec<String> = self
+                .metadata()
+                .snapshots()
+                .map(|s| s.snapshot_id().to_string())
+                .collect();
+            known.sort();
+            let known = if known.is_empty() {
+                "this table has no snapshots yet".to_string()
+            } else {
+                known.join(", ")
+            };
+            return Err(Error::Other(format!(
+                "snapshot {parsed} is not in this table's history.\nAvailable: {known}"
+            )));
+        }
+        Ok(parsed)
+    }
+
+    /// Resolve the optional snapshot id R supplied, once, so that everything
+    /// downstream -- the schema, scan planning, predicate binding and the
+    /// empty-result schema -- agrees on which snapshot is being read.
+    pub fn resolve_snapshot_opt(&self, id: &Option<String>) -> RResult<Option<i64>> {
+        match id {
+            Some(id) => Ok(Some(self.resolve_snapshot(id)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// The schema in force at `snapshot`, or the current one when it is `None`.
+    ///
+    /// Every name resolution for a read has to go through this rather than
+    /// through `current_schema()`: a filter or a projection on a since-renamed
+    /// column would otherwise be checked against columns that snapshot never
+    /// had.
+    pub fn schema_at(&self, snapshot: Option<i64>) -> RResult<IcebergSchemaRef> {
+        let metadata = self.metadata();
+        match snapshot {
+            Some(id) => {
+                let snap = metadata
+                    .snapshot_by_id(id)
+                    .ok_or_else(|| Error::Other(format!("unknown snapshot {id}")))?;
+                snap.schema(metadata)
+                    .map_err(|e| ctx("could not read the schema for that snapshot", e))
+            }
+            None => Ok(metadata.current_schema().clone()),
+        }
     }
 }
 
@@ -168,10 +230,15 @@ fn rs_table_uuid(tbl: ExternalPtr<RTable>) -> String {
     tbl.metadata().uuid().to_string()
 }
 
-/// The current schema, as parallel columns ready to become a tibble.
+/// The schema, as parallel columns ready to become a tibble.
+///
+/// `snapshot_id` selects the schema in force at that snapshot rather than the
+/// current one, which is what a time-travelling read has to resolve its column
+/// names against.
 #[extendr]
-fn rs_table_schema(tbl: ExternalPtr<RTable>) -> List {
-    let schema = tbl.metadata().current_schema();
+fn rs_table_schema(tbl: ExternalPtr<RTable>, snapshot_id: Nullable<String>) -> RResult<List> {
+    let snapshot = tbl.resolve_snapshot_opt(&snapshot_id.into_option())?;
+    let schema = tbl.schema_at(snapshot)?;
     let fields = schema.as_struct().fields();
 
     let ids: Vec<i32> = fields.iter().map(|f| f.id).collect();
@@ -189,13 +256,13 @@ fn rs_table_schema(tbl: ExternalPtr<RTable>) -> List {
     // Named `field_type`, not `type`: `type` is a Rust keyword, so `list!` cannot
     // take it as an argument name. icebergr_schema() renames it back to `type`,
     // which is what the R-facing tibble has always been documented to have.
-    list!(
+    Ok(list!(
         field_id = ids,
         name = names,
         field_type = types,
         required = required,
         doc = docs
-    )
+    ))
 }
 
 /// The default partition spec.
@@ -295,6 +362,27 @@ fn rs_table_snapshots(tbl: ExternalPtr<RTable>) -> List {
     )
 }
 
+/// The snapshot log: which snapshot was the table's current one, and when.
+///
+/// Not the same thing as the snapshot *list*. `snapshots()` holds every snapshot
+/// the metadata still carries, which after a rollback includes the ones it
+/// abandoned, and on a branched table includes ones that were never on the main
+/// line. The log is the record of what the table actually looked like over time,
+/// so it is what a read "as of" a timestamp has to follow: a rollback appends a
+/// log entry pointing back at an *earlier* snapshot, while the snapshot it
+/// abandoned keeps its own later timestamp in the list.
+///
+/// Returned in log order rather than sorted. Iceberg only requires the log to be
+/// chronological within a clock-skew tolerance, and where the two disagree it is
+/// the commit order that says which snapshot superseded which.
+#[extendr]
+fn rs_table_history(tbl: ExternalPtr<RTable>) -> List {
+    let log = tbl.metadata().history();
+    let ids: Vec<String> = log.iter().map(|e| e.snapshot_id.to_string()).collect();
+    let ts: Vec<f64> = log.iter().map(|e| e.timestamp_ms() as f64).collect();
+    list!(snapshot_id = ids, timestamp_ms = ts)
+}
+
 #[extendr]
 fn rs_table_current_snapshot(tbl: ExternalPtr<RTable>) -> Nullable<String> {
     match tbl.metadata().current_snapshot_id() {
@@ -327,6 +415,7 @@ extendr_module! {
     fn rs_table_schema;
     fn rs_table_partitions;
     fn rs_table_snapshots;
+    fn rs_table_history;
     fn rs_table_current_snapshot;
     fn rs_table_properties;
 }

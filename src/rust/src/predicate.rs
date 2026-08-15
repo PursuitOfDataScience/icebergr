@@ -138,9 +138,9 @@ fn build(node: &Node, schema: &Schema, cs: bool) -> RResult<Predicate> {
         Node::Gte { col, value } => {
             binary(col, value, schema, cs, Reference::greater_than_or_equal_to)?
         }
-        Node::StartsWith { col, value } => binary(col, value, schema, cs, Reference::starts_with)?,
+        Node::StartsWith { col, value } => prefix(col, value, schema, cs, Reference::starts_with)?,
         Node::NotStartsWith { col, value } => {
-            binary(col, value, schema, cs, Reference::not_starts_with)?
+            prefix(col, value, schema, cs, Reference::not_starts_with)?
         }
 
         Node::In { col, values } => {
@@ -180,6 +180,35 @@ fn binary(
     f: fn(Reference, Datum) -> Predicate,
 ) -> RResult<Predicate> {
     let (r, ty) = reference(col, schema, cs)?;
+    Ok(f(r, datum(value, &ty, col)?))
+}
+
+/// A prefix comparison, which Iceberg defines only over string columns.
+///
+/// `startsWith(id, "1")` against an `int` column parses cleanly on both sides --
+/// R sees a column and a single string, and the prefix `"1"` converts to the
+/// integer `1` here -- so without this check the scan is planned against the
+/// nonsense predicate `id STARTS WITH 1`. iceberg-rust does reject that, but only
+/// from inside the statistics evaluators, and only for files that carry bounds:
+/// a data file written without them would be read and its rows returned as
+/// though the filter had been applied. The column and the operator are both in
+/// hand here, so say so here instead.
+fn prefix(
+    col: &str,
+    value: &Json,
+    schema: &Schema,
+    cs: bool,
+    f: fn(Reference, Datum) -> Predicate,
+) -> RResult<Predicate> {
+    let (r, ty) = reference(col, schema, cs)?;
+    if !matches!(ty, PrimitiveType::String) {
+        return Err(RError::Other(format!(
+            "cannot use startsWith() on column {col:?}: it has Iceberg type \
+             {ty}, and Iceberg compares prefixes only on string columns.\n\
+             Select the column and filter it in R after icebergr_collect() \
+             instead."
+        )));
+    }
     Ok(f(r, datum(value, &ty, col)?))
 }
 

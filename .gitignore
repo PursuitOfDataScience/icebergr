@@ -16,7 +16,14 @@ LICENSE.note
 
 # Rust build artefacts
 src/rust/target/
+# Two different vendor trees, and both need naming. tools/vendor.R writes
+# src/rust/vendor/ to build the archive from; an *install* unpacks that archive
+# from inside src/, so the copy a build creates is src/vendor/ (see VENDOR_DIR in
+# src/Makevars.in). A successful install removes it, an interrupted one does not,
+# and 442 untracked crate directories make `git status` useless and `git add -A`
+# dangerous.
 src/rust/vendor/
+src/vendor/
 src/rust/vendor.tar.xz
 src/.cargo/
 src/*.o

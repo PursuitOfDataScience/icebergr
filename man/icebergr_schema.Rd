@@ -4,10 +4,13 @@
 \alias{icebergr_schema}
 \title{The schema of an Iceberg table}
 \usage{
-icebergr_schema(tbl)
+icebergr_schema(tbl, snapshot_id = NULL)
 }
 \arguments{
 \item{tbl}{An \code{icebergr_table} from \code{\link[=icebergr_table]{icebergr_table()}}.}
+
+\item{snapshot_id}{Report the schema as it was at this snapshot rather than
+the current one. A character id from \code{\link[=icebergr_snapshots]{icebergr_snapshots()}}.}
 }
 \value{
 A tibble with one row per top-level field: \code{field_id}, \code{name},
@@ -16,7 +19,19 @@ A tibble with one row per top-level field: \code{field_id}, \code{name},
 \description{
 The schema of an Iceberg table
 }
+\details{
+Iceberg records a schema per snapshot, so a table whose columns were changed
+by another engine has more than one. \code{snapshot_id} is how the earlier one is
+read, and it is also what \code{\link[=icebergr_scan]{icebergr_scan()}} resolves \code{filter} and \code{select}
+against when it is given a \code{snapshot_id} or an \code{as_of}: a column that has
+since been renamed or dropped is still nameable as of the snapshot that had
+it.
+}
 \examples{
 tbl <- icebergr_example_table(rows = 10)
 icebergr_schema(tbl)
+
+# The schema as of the first snapshot.
+history <- icebergr_snapshots(tbl)
+icebergr_schema(tbl, snapshot_id = history$snapshot_id[[1]])
 }

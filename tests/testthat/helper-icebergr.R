@@ -35,3 +35,59 @@ local_fixture_table <- function(rows = 50L, env = parent.frame()) {
   warehouse <- withr::local_tempdir("fixture", .local_envir = env)
   icebergr_example_table(warehouse = warehouse, rows = rows)
 }
+
+# Rewrite a warehouse's newest table metadata as though the table had been rolled
+# back to `to_snapshot`, and hand back a handle on the result.
+#
+# Built by hand because icebergr cannot roll a table back itself, and a rollback
+# is the one shape where Iceberg's snapshot *log* and snapshot *list* give
+# different answers: the rollback appends a log entry pointing at the earlier
+# snapshot, while the snapshot it abandoned stays in the list carrying its own,
+# later, timestamp. `as_of` has to follow the log. Only the three fields a
+# rollback touches are rewritten; the field names are the Iceberg spec's, not
+# iceberg-rust's.
+rolled_back_table <- function(warehouse, table, to_snapshot) {
+  files <- list.files(warehouse,
+    pattern = "metadata\\.json$",
+    recursive = TRUE, full.names = TRUE
+  )
+  newest <- files[order(file.mtime(files))][length(files)]
+  json <- paste(readLines(newest, warn = FALSE), collapse = "")
+
+  updated <- as.numeric(sub('.*"last-updated-ms"[ ]*:[ ]*([0-9]+).*', "\\1", json))
+  rolled_at <- sprintf("%.0f", updated + 1000)
+
+  json <- sub(
+    '("snapshot-log"[ ]*:[ ]*\\[[^]]*)\\]',
+    paste0(
+      '\\1,{"snapshot-id":', to_snapshot,
+      ',"timestamp-ms":', rolled_at, "}]"
+    ),
+    json
+  )
+  json <- sub(
+    '"current-snapshot-id"[ ]*:[ ]*-?[0-9]+',
+    paste0('"current-snapshot-id":', to_snapshot), json
+  )
+  # The main branch ref moves with it. iceberg-rust refuses metadata whose
+  # current-snapshot-id and main ref disagree, which is the right thing to refuse:
+  # they are two records of the same fact.
+  json <- sub(
+    '("refs"[ ]*:[ ]*\\{[ ]*"main"[ ]*:[ ]*\\{[^}]*"snapshot-id"[ ]*:[ ]*)-?[0-9]+',
+    paste0("\\1", to_snapshot), json
+  )
+  json <- sub(
+    '"last-updated-ms"[ ]*:[ ]*[0-9]+',
+    paste0('"last-updated-ms":', rolled_at), json
+  )
+
+  path <- file.path(dirname(newest), "99999-rollback.metadata.json")
+  writeLines(json, path)
+
+  reopened <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(reopened, sub("[.][^.]*$", "", table))
+  list(
+    table = icebergr_register_table(reopened, table, path),
+    rolled_at = as.POSIXct(as.numeric(rolled_at) / 1000, origin = "1970-01-01", tz = "UTC")
+  )
+}

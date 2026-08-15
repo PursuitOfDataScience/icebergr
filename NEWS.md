@@ -10,14 +10,21 @@ built on `iceberg-rust` 0.10.0 via `extendr`.
   the package is compiled with the optional `glue` Cargo feature.
 * Discovery: `icebergr_list_namespaces()` and `icebergr_list_tables()`.
 * Table handles: `icebergr_table()`, `icebergr_schema()`,
-  `icebergr_partitions()`.
+  `icebergr_partitions()`. `icebergr_schema(snapshot_id = )` reports the schema
+  as it was at an earlier snapshot, which is also what `icebergr_scan()` resolves
+  `filter` and `select` against when reading one: Iceberg keeps a schema per
+  snapshot, so a column another engine has since renamed or dropped is still
+  nameable as of the snapshot that had it.
 * Reads: `icebergr_scan()` with predicate and projection pushdown, materialised
   with `icebergr_collect()` or `as.data.frame()`. Arrow is the interchange layer
   throughout, using the Arrow C stream interface, so no serialisation round trip
   occurs between Rust and R.
 * Time travel: `icebergr_snapshots()` for snapshot history, and
   `icebergr_scan(snapshot_id = )` or `icebergr_scan(as_of = )` to read an
-  earlier state of a table.
+  earlier state of a table. `as_of` resolves against Iceberg's snapshot *log*,
+  so a snapshot a rollback abandoned, or one that only ever existed on another
+  branch, is not selected even though the snapshot list still carries it with a
+  matching timestamp.
 * Append-only writes: `icebergr_append()`.
 * `icebergr_spec_support()` reports the supported Iceberg spec version and the
   full supported/unsupported feature matrix programmatically.

@@ -30,8 +30,10 @@ icebergr_scan(
 id from \code{\link[=icebergr_snapshots]{icebergr_snapshots()}}.}
 
 \item{as_of}{Read the table as it was at this time, a \code{POSIXct} or \code{Date}.
-Resolved to the newest snapshot committed at or before it. Cannot be
-combined with \code{snapshot_id}.}
+Resolved against the table's snapshot log to the snapshot that was current
+at that moment -- so a snapshot a rollback abandoned, or one that only ever
+existed on another branch, is not selected even though it carries a matching
+timestamp. Cannot be combined with \code{snapshot_id}.}
 
 \item{batch_size}{Rows per Arrow batch, or \code{NULL} for the default. Affects
 memory use, not results.}
@@ -64,6 +66,20 @@ Filters may use \code{==}, \code{!=}, \code{<}, \code{<=}, \code{>}, \code{>=}, 
 the table has a column of that name, and otherwise evaluated in the calling
 environment, so \code{filter = year == target} works with a local \code{target}.
 Anything more elaborate should be applied in R after collecting.
+
+\code{startsWith()} is pushed down only against a \code{string} column, since Iceberg
+defines a prefix comparison for no other type.
+}
+
+\section{Column names and time travel}{
+
+Iceberg records a schema per snapshot, so \code{filter} and \code{select} are resolved
+against the schema of the snapshot actually being read -- the one named by
+\code{snapshot_id} or \code{as_of}, and otherwise the current one. A column another
+engine has since renamed or dropped is therefore still nameable as of a
+snapshot that had it, and one added afterwards is refused for a snapshot that
+did not. \code{\link[=icebergr_schema]{icebergr_schema()}} takes the same \code{snapshot_id} and reports what
+those columns are.
 }
 
 \examples{

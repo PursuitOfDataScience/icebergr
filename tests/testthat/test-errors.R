@@ -132,6 +132,39 @@ test_that("snapshot ids are validated before reaching Rust", {
   expect_null(as_snapshot_id(NULL))
 })
 
+test_that("an integer64 snapshot id is exact, so it is accepted rather than refused", {
+  skip_if_not_installed("bit64")
+  # integer64 is a double underneath, so it satisfies is.numeric() and used to be
+  # measured against the same 2^53 limit as one -- and refused with "too large to
+  # be represented exactly as a number", which is the one thing it is not.
+  big <- bit64::as.integer64("7434046026776969423")
+  expect_equal(as_snapshot_id(big), "7434046026776969423")
+  expect_equal(as_snapshot_id(bit64::as.integer64(123)), "123")
+})
+
+test_that("a namespace with no levels is named as such", {
+  catalog <- local_catalog()
+
+  # character(0) means the same as NULL: no levels were given. It used to reach
+  # seq_len(-1L) and report "argument must be coercible to non-negative
+  # integer", which names neither the argument nor the mistake.
+  expect_error(icebergr_create_namespace(catalog, character()), "`namespace` is required")
+  expect_error(icebergr_list_tables(catalog, character()), "`namespace` is required")
+  expect_error(icebergr_create_namespace(catalog, "."), "no namespace levels")
+  # A NULL parent still means "all of them" for a listing.
+  expect_equal(icebergr_list_namespaces(catalog, character()), character())
+})
+
+test_that("the example table's own arguments are validated", {
+  # dir.exists() on a number reports "invalid filename argument", which reads
+  # like an internal failure rather than a mistyped argument.
+  expect_error(icebergr_example_table(warehouse = 42), "single string")
+  expect_error(icebergr_example_table(rows = 0), "at least 1")
+  # as.integer() turned this into NA, giving "NAs introduced by coercion"
+  # followed by a seq_len() error, neither of which names `rows`.
+  expect_error(icebergr_example_table(rows = 3e9), "at most")
+})
+
 test_that("identifiers are parsed and rejected predictably", {
   expect_equal(parse_identifier("db.events"), list(namespace = "db", name = "events"))
   expect_equal(parse_identifier("a.b.events"), list(namespace = c("a", "b"), name = "events"))

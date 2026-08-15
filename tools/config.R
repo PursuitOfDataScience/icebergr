@@ -8,13 +8,20 @@
 
 source("tools/msrv.R")
 
-env_debug <- Sys.getenv("DEBUG")
-env_not_cran <- Sys.getenv("NOT_CRAN")
-
 vendor_exists <- file.exists("src/rust/vendor.tar.xz")
 
-is_not_cran <- env_not_cran != ""
-is_debug <- env_debug != ""
+# Read as a flag, not as "is it set at all". `NOT_CRAN=false` is a value R
+# tooling really does pass -- devtools::check() sets exactly that -- and treating
+# any non-empty string as TRUE turned a --as-cran check into a networked,
+# unrestricted build, which is the one thing this switch exists to prevent. An
+# unrecognised value is read as TRUE, so "1", "yes" and "true" all keep working.
+as_flag <- function(name) {
+  value <- tolower(trimws(Sys.getenv(name)))
+  nzchar(value) && !value %in% c("false", "f", "no", "n", "0", "off")
+}
+
+is_not_cran <- as_flag("NOT_CRAN")
+is_debug <- as_flag("DEBUG")
 
 if (is_debug) {
   # CRAN builds are always release builds, so a debug build implies NOT_CRAN.
@@ -141,7 +148,7 @@ if (file.exists(mv_ofp)) {
   invisible(file.remove(mv_ofp))
 }
 
-mv_txt <- readLines(mv_fp)
+mv_txt <- readLines(mv_fp, warn = FALSE)
 
 new_txt <- gsub("@CRAN_FLAGS@", .cran_flags, mv_txt)
 new_txt <- gsub("@FEATURES@", .features, new_txt)

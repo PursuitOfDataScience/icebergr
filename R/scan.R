@@ -14,8 +14,10 @@
 #' @param snapshot_id Read this snapshot instead of the current one. A character
 #'   id from [icebergr_snapshots()].
 #' @param as_of Read the table as it was at this time, a `POSIXct` or `Date`.
-#'   Resolved to the newest snapshot committed at or before it. Cannot be
-#'   combined with `snapshot_id`.
+#'   Resolved against the table's snapshot log to the snapshot that was current
+#'   at that moment -- so a snapshot a rollback abandoned, or one that only ever
+#'   existed on another branch, is not selected even though it carries a matching
+#'   timestamp. Cannot be combined with `snapshot_id`.
 #' @param batch_size Rows per Arrow batch, or `NULL` for the default. Affects
 #'   memory use, not results.
 #' @param case_sensitive Whether column names in `filter` and `select` are
@@ -40,6 +42,18 @@
 #' the table has a column of that name, and otherwise evaluated in the calling
 #' environment, so `filter = year == target` works with a local `target`.
 #' Anything more elaborate should be applied in R after collecting.
+#'
+#' `startsWith()` is pushed down only against a `string` column, since Iceberg
+#' defines a prefix comparison for no other type.
+#'
+#' @section Column names and time travel:
+#' Iceberg records a schema per snapshot, so `filter` and `select` are resolved
+#' against the schema of the snapshot actually being read -- the one named by
+#' `snapshot_id` or `as_of`, and otherwise the current one. A column another
+#' engine has since renamed or dropped is therefore still nameable as of a
+#' snapshot that had it, and one added afterwards is refused for a snapshot that
+#' did not. [icebergr_schema()] takes the same `snapshot_id` and reports what
+#' those columns are.
 #'
 #' @examples
 #' tbl <- icebergr_example_table(rows = 10)
@@ -81,6 +95,45 @@ icebergr_scan <- function(tbl,
     ))
   }
 
+  snapshot <- if (!is.null(as_of)) {
+    snapshot_as_of(tbl, as_of)
+  } else {
+    as_snapshot_id(snapshot_id)
+  }
+
+  # Checked here rather than left to scan planning, for the same reason `select`
+  # is: a scan is cheap to build and the mistake is in the call, so reporting it
+  # at the call beats reporting it from inside a later collect().
+  if (!is.null(snapshot) && is.null(as_of)) {
+    known <- icebergr_snapshots(tbl)$snapshot_id
+    if (!snapshot %in% known) {
+      abort(c(
+        paste0("Snapshot ", snapshot, " is not in this table's history."),
+        i = if (length(known)) {
+          paste0("Available: ", paste(known, collapse = ", "), ".")
+        } else {
+          "This table has no snapshots yet."
+        }
+      ))
+    }
+  }
+
+  filter_expr <- substitute(filter)
+
+  # The schema *of the snapshot being read*, not the current one. Iceberg keeps a
+  # schema per snapshot, so a table another engine has evolved has more than one,
+  # and both `select` and `filter` bind on the Rust side against the snapshot's.
+  # Resolving them here against the current schema therefore disagreed with the
+  # scan itself: a since-dropped column was refused by name although the
+  # snapshot has it, and a filter naming a since-renamed one fell through to
+  # being evaluated as a local variable.
+  #
+  # Read only when something needs it, so an unfiltered whole-table scan still
+  # crosses into Rust exactly once, at collect().
+  available <- if (!is.null(select) || !is.null(filter_expr)) {
+    table_columns(tbl, snapshot)
+  }
+
   if (!is.null(select)) {
     if (!is.character(select) || anyNA(select) || !all(nzchar(select))) {
       abort("`select` must be a character vector of column names.")
@@ -95,7 +148,6 @@ icebergr_scan <- function(tbl,
         i = "Use `select = NULL` to read all of them."
       ))
     }
-    available <- table_columns(tbl)
     hits <- if (case_sensitive) {
       match(select, available)
     } else {
@@ -130,35 +182,11 @@ icebergr_scan <- function(tbl,
     select <- available[hits]
   }
 
-  snapshot <- if (!is.null(as_of)) {
-    snapshot_as_of(tbl, as_of)
-  } else {
-    as_snapshot_id(snapshot_id)
-  }
-
-  # Checked here rather than left to scan planning, for the same reason `select`
-  # is: a scan is cheap to build and the mistake is in the call, so reporting it
-  # at the call beats reporting it from inside a later collect().
-  if (!is.null(snapshot) && is.null(as_of)) {
-    known <- icebergr_snapshots(tbl)$snapshot_id
-    if (!snapshot %in% known) {
-      abort(c(
-        paste0("Snapshot ", snapshot, " is not in this table's history."),
-        i = if (length(known)) {
-          paste0("Available: ", paste(known, collapse = ", "), ".")
-        } else {
-          "This table has no snapshots yet."
-        }
-      ))
-    }
-  }
-
-  filter_expr <- substitute(filter)
   filter_json <- NULL
   if (!is.null(filter_expr)) {
     filter_json <- filter_to_json(
       translate_filter(
-        filter_expr, table_columns(tbl), parent.frame(),
+        filter_expr, available, parent.frame(),
         case_sensitive = case_sensitive
       )
     )

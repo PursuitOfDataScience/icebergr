@@ -169,6 +169,15 @@ as_snapshot_id <- function(x, arg = "snapshot_id", call = rlang::caller_env()) {
     return(x)
   }
 
+  # Checked before the numeric branch: bit64::integer64 is a double underneath,
+  # so it satisfies is.numeric(), but it holds a 64-bit integer *exactly*. The
+  # "too large to be represented exactly" refusal below is simply untrue of it,
+  # and icebergr_snapshots() ids past 2^53 are precisely the ones a user is
+  # likely to have converted with bit64::as.integer64().
+  if (inherits(x, "integer64")) {
+    return(format(x, scientific = FALSE))
+  }
+
   if (is.numeric(x)) {
     # A snapshot id is a random 64-bit integer. Anything past 2^53 has already
     # lost precision by the time it gets here, so refuse rather than read the

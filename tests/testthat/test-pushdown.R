@@ -71,6 +71,46 @@ test_that("%in% pushes down", {
   expect_setequal(got$id, c(2L, 3L, 1005L))
 })
 
+test_that("%in% keeps the class of a Date or timestamp set", {
+  catalog <- local_namespace()
+  events <- data.frame(
+    id = 1:4L,
+    day = as.Date(c("2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01")),
+    ts = as.POSIXct(
+      c(
+        "2024-01-01 00:00:00", "2024-02-01 00:00:00",
+        "2024-03-01 00:00:00", "2024-04-01 00:00:00"
+      ),
+      tz = "UTC"
+    )
+  )
+  tbl <- seed_table(catalog, "db.events", events)
+
+  # The set goes through as.list(), which each element's own class has to survive.
+  # Stripped to bare numbers, a Date would still land correctly by coincidence --
+  # its numeric value is days since the epoch, which is Iceberg's own
+  # representation -- but a POSIXct is *seconds* where Iceberg wants
+  # microseconds, so the comparison would be wrong by a factor of a million and
+  # would quietly match nothing.
+  days <- icebergr_collect(
+    icebergr_scan(tbl, filter = day %in% as.Date(c("2024-02-01", "2024-04-01")))
+  )
+  expect_setequal(days$id, c(2L, 4L))
+
+  stamps <- icebergr_collect(
+    icebergr_scan(tbl, filter = ts %in% events$ts[c(1L, 3L)])
+  )
+  expect_setequal(stamps$id, c(1L, 3L))
+})
+
+test_that("%in% with an empty set matches nothing rather than everything", {
+  tbl <- split_table()
+  # iceberg-rust reads an empty IN list as a predicate it cannot use, so this has
+  # to become AlwaysFalse rather than falling back to a scan of the table.
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, filter = id %in% integer()))), 0L)
+  expect_equal(nrow(icebergr_scan_plan(icebergr_scan(tbl, filter = id %in% integer()))), 0L)
+})
+
 test_that("negation pushes down", {
   tbl <- split_table()
   got <- icebergr_collect(icebergr_scan(tbl, filter = !(id > 500L)))
@@ -110,6 +150,39 @@ test_that("string filters push down", {
   expect_setequal(
     icebergr_collect(icebergr_scan(tbl, filter = startsWith(label, "ap")))$id,
     c(1L, 3L)
+  )
+})
+
+test_that("startsWith on a non-string column is refused, not turned into nonsense", {
+  catalog <- local_namespace()
+  events <- data.frame(
+    id = 1:4L,
+    amount = c(1.5, 2.5, 3.5, 4.5),
+    label = c("apple", "banana", "apricot", "cherry"),
+    stringsAsFactors = FALSE
+  )
+  tbl <- seed_table(catalog, "db.events", events)
+
+  # This parses on both sides: R sees a column and a single string, and "1"
+  # converts to the integer 1, so the scan was planned against the meaningless
+  # predicate `id STARTS WITH 1`. iceberg-rust does reject that, but only from
+  # inside the statistics evaluators and only for files that carry bounds.
+  expect_error(
+    icebergr_collect(icebergr_scan(tbl, filter = startsWith(id, "1"))),
+    "startsWith"
+  )
+  expect_error(
+    icebergr_collect(icebergr_scan(tbl, filter = startsWith(id, "1"))),
+    "only on string columns"
+  )
+  expect_error(
+    icebergr_scan_plan(icebergr_scan(tbl, filter = startsWith(amount, "1"))),
+    "only on string columns"
+  )
+  # The negated form goes through the same check.
+  expect_error(
+    icebergr_scan_plan(icebergr_scan(tbl, filter = !startsWith(id, "1"))),
+    "only on string columns"
   )
 })
 

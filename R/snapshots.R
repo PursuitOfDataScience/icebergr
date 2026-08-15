@@ -24,6 +24,16 @@
 #' would come back subtly altered and then silently select the wrong snapshot, so
 #' ids are character throughout, and [icebergr_scan()] accepts them as such.
 #'
+#' @section Every snapshot, not only the current line:
+#' This is the table's snapshot *list*: every snapshot the metadata still
+#' carries, ordered by commit time. That is not always the same as the states the
+#' table passed through. A rollback leaves the snapshot it abandoned in the list,
+#' and a snapshot committed to another branch appears here too, in both cases
+#' with a timestamp at which it was never the table's current state. Reading with
+#' `icebergr_scan(as_of = )` follows Iceberg's snapshot log instead, so it is not
+#' misled by either; any id listed here can still be read directly with
+#' `icebergr_scan(snapshot_id = )`.
+#'
 #' @examples
 #' # Two appends, so there is history to travel through.
 #' tbl <- icebergr_example_table(rows = 10)
@@ -72,8 +82,16 @@ summary_number <- function(summaries, key) {
 #' Resolve a timestamp to the snapshot that was current at that moment
 #'
 #' Iceberg's scan API takes a snapshot id, not a timestamp, so `as_of` is
-#' resolved here against the snapshot history: the newest snapshot committed at
-#' or before `as_of`.
+#' resolved here: the last entry of the table's *snapshot log* committed at or
+#' before `as_of`.
+#'
+#' The snapshot log, not the snapshot list. The two differ, and only the log
+#' answers the question `as_of` asks. A rollback appends a log entry pointing
+#' back at an earlier snapshot while leaving the snapshot it abandoned in the
+#' list with its own, later, timestamp; a branch puts snapshots in the list that
+#' were never on the main line at all. Resolved against the list, a read of a
+#' rolled-back table as of *now* returned the abandoned snapshot -- the one state
+#' the table demonstrably was not in.
 #' @noRd
 snapshot_as_of <- function(tbl, as_of, call = rlang::caller_env()) {
   if (!inherits(as_of, "POSIXt") && !inherits(as_of, "Date")) {
@@ -83,8 +101,10 @@ snapshot_as_of <- function(tbl, as_of, call = rlang::caller_env()) {
     abort("`as_of` must be a single non-missing time.", call = call)
   }
 
-  history <- icebergr_snapshots(tbl)
-  if (nrow(history) == 0L) {
+  log <- rs_table_history(tbl$ptr)
+  committed <- as.POSIXct(log$timestamp_ms / 1000, origin = "1970-01-01", tz = "UTC")
+
+  if (!length(committed)) {
     abort(
       c(
         "This table has no snapshots, so it cannot be read as of a past time.",
@@ -95,9 +115,9 @@ snapshot_as_of <- function(tbl, as_of, call = rlang::caller_env()) {
   }
 
   target <- as.POSIXct(as_of, tz = "UTC")
-  eligible <- history[history$timestamp <= target, , drop = FALSE]
+  eligible <- which(committed <= target)
 
-  if (nrow(eligible) == 0L) {
+  if (!length(eligible)) {
     abort(
       c(
         paste0(
@@ -106,12 +126,16 @@ snapshot_as_of <- function(tbl, as_of, call = rlang::caller_env()) {
         ),
         i = paste0(
           "Its earliest snapshot is ",
-          format(min(history$timestamp), "%Y-%m-%d %H:%M:%S", tz = "UTC"), " UTC."
+          format(min(committed), "%Y-%m-%d %H:%M:%S", tz = "UTC"), " UTC."
         )
       ),
       call = call
     )
   }
 
-  eligible$snapshot_id[[nrow(eligible)]]
+  # The latest eligible entry in *log* order, which is commit order. Iceberg
+  # requires the log to be chronological only within a clock-skew tolerance, and
+  # where the timestamps and the order disagree it is the order that says which
+  # snapshot superseded which.
+  log$snapshot_id[[eligible[[length(eligible)]]]]
 }

@@ -35,6 +35,18 @@ would come back subtly altered and then silently select the wrong snapshot, so
 ids are character throughout, and \code{\link[=icebergr_scan]{icebergr_scan()}} accepts them as such.
 }
 
+\section{Every snapshot, not only the current line}{
+
+This is the table's snapshot \emph{list}: every snapshot the metadata still
+carries, ordered by commit time. That is not always the same as the states the
+table passed through. A rollback leaves the snapshot it abandoned in the list,
+and a snapshot committed to another branch appears here too, in both cases
+with a timestamp at which it was never the table's current state. Reading with
+\code{icebergr_scan(as_of = )} follows Iceberg's snapshot log instead, so it is not
+misled by either; any id listed here can still be read directly with
+\code{icebergr_scan(snapshot_id = )}.
+}
+
 \examples{
 # Two appends, so there is history to travel through.
 tbl <- icebergr_example_table(rows = 10)

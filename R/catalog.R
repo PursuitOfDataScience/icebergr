@@ -203,7 +203,12 @@ check_catalog <- function(x, call = rlang::caller_env()) {
 #' @noRd
 as_namespace <- function(x, arg = "namespace", allow_null = FALSE,
                          call = rlang::caller_env()) {
-  if (is.null(x)) {
+  # character(0) means the same as NULL: no levels were named. Letting it past
+  # here produced an empty level vector that nothing downstream can use --
+  # icebergr_create_namespace() reached `seq_len(-1L)` and reported "argument
+  # must be coercible to non-negative integer", which names neither the argument
+  # nor the mistake.
+  if (is.null(x) || !length(x)) {
     if (allow_null) {
       return(character())
     }

@@ -60,17 +60,31 @@ icebergr_table <- function(catalog, table) {
 #' The schema of an Iceberg table
 #'
 #' @param tbl An `icebergr_table` from [icebergr_table()].
+#' @param snapshot_id Report the schema as it was at this snapshot rather than
+#'   the current one. A character id from [icebergr_snapshots()].
 #'
 #' @return A tibble with one row per top-level field: `field_id`, `name`,
 #'   `type` (the Iceberg type), `required` and `doc`.
 #'
+#' @details
+#' Iceberg records a schema per snapshot, so a table whose columns were changed
+#' by another engine has more than one. `snapshot_id` is how the earlier one is
+#' read, and it is also what [icebergr_scan()] resolves `filter` and `select`
+#' against when it is given a `snapshot_id` or an `as_of`: a column that has
+#' since been renamed or dropped is still nameable as of the snapshot that had
+#' it.
+#'
 #' @examples
 #' tbl <- icebergr_example_table(rows = 10)
 #' icebergr_schema(tbl)
+#'
+#' # The schema as of the first snapshot.
+#' history <- icebergr_snapshots(tbl)
+#' icebergr_schema(tbl, snapshot_id = history$snapshot_id[[1]])
 #' @export
-icebergr_schema <- function(tbl) {
+icebergr_schema <- function(tbl, snapshot_id = NULL) {
   check_table(tbl)
-  raw <- rs_table_schema(tbl$ptr)
+  raw <- rs_table_schema(tbl$ptr, as_snapshot_id(snapshot_id))
   # Rust hands the Iceberg type over as `field_type`, because `type` is a
   # keyword there and cannot name a `list!` argument. The column is `type`.
   tibble::tibble(
@@ -105,9 +119,16 @@ icebergr_partitions <- function(tbl) {
   as_result_tbl(rs_table_partitions(tbl$ptr))
 }
 
+#' The column names of a table, as of `snapshot_id`
+#'
+#' Snapshot-aware because a read is: `icebergr_scan()` resolves `filter` and
+#' `select` against the schema of the snapshot it is going to read, not against
+#' the current one. Resolving against the current schema refused a column the
+#' snapshot did have, accepted one it did not, and read a filter naming a
+#' since-renamed column as an ordinary local variable.
 #' @noRd
-table_columns <- function(tbl) {
-  rs_table_schema(tbl$ptr)$name
+table_columns <- function(tbl, snapshot_id = NULL) {
+  rs_table_schema(tbl$ptr, snapshot_id)$name
 }
 
 #' @export

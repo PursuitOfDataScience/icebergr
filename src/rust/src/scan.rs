@@ -17,73 +17,12 @@ use extendr_api::prelude::*;
 use futures::TryStreamExt;
 use iceberg::arrow::schema_to_arrow_schema;
 use iceberg::scan::TableScan;
-use iceberg::spec::SchemaRef as IcebergSchemaRef;
 
 use crate::arrow_bridge::{BlockingBatchReader, export_reader};
 use crate::errors::{RResult, ctx};
 use crate::predicate::build_predicate;
 use crate::runtime::block_on;
 use crate::table::RTable;
-
-/// Parse a snapshot id and check it against this table's history.
-///
-/// Catching an unknown id here, with the valid ones listed, is much kinder than
-/// letting scan planning fail on a missing manifest list.
-fn resolve_snapshot(tbl: &RTable, id: &str) -> RResult<i64> {
-    let parsed: i64 = id.trim().parse().map_err(|_| {
-        extendr_api::Error::Other(format!(
-            "{id:?} is not a valid snapshot id. Snapshot ids are 64-bit \
-             integers, passed as strings; see icebergr_snapshots()."
-        ))
-    })?;
-
-    if tbl.metadata().snapshot_by_id(parsed).is_none() {
-        let mut known: Vec<String> = tbl
-            .metadata()
-            .snapshots()
-            .map(|s| s.snapshot_id().to_string())
-            .collect();
-        known.sort();
-        let known = if known.is_empty() {
-            "this table has no snapshots yet".to_string()
-        } else {
-            known.join(", ")
-        };
-        return Err(extendr_api::Error::Other(format!(
-            "snapshot {parsed} is not in this table's history.\nAvailable: {known}"
-        )));
-    }
-    Ok(parsed)
-}
-
-/// The schema a predicate should be resolved against.
-///
-/// When reading an old snapshot, that is the schema *as of* that snapshot, not
-/// the current one; otherwise a filter on a since-renamed column would bind to
-/// the wrong field.
-fn predicate_schema(tbl: &RTable, snapshot: Option<i64>) -> RResult<IcebergSchemaRef> {
-    let metadata = tbl.metadata();
-    match snapshot {
-        Some(id) => {
-            let snap = metadata
-                .snapshot_by_id(id)
-                .ok_or_else(|| extendr_api::Error::Other(format!("unknown snapshot {id}")))?;
-            snap.schema(metadata)
-                .map_err(|e| ctx("could not read the schema for that snapshot", e))
-        }
-        None => Ok(metadata.current_schema().clone()),
-    }
-}
-
-/// Resolve the optional snapshot id R supplied, once, so that everything
-/// downstream -- scan planning, predicate binding and the empty-result schema --
-/// agrees on which snapshot is being read.
-fn resolve_snapshot_opt(tbl: &RTable, snapshot_id: &Option<String>) -> RResult<Option<i64>> {
-    match snapshot_id {
-        Some(id) => Ok(Some(resolve_snapshot(tbl, id)?)),
-        None => Ok(None),
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 fn configure(
@@ -110,7 +49,7 @@ fn configure(
 
     // Predicate pushdown: used to prune manifests, files and row groups.
     if let Some(json) = filter_json {
-        let schema = predicate_schema(tbl, snapshot)?;
+        let schema = tbl.schema_at(snapshot)?;
         let predicate = build_predicate(json, &schema, case_sensitive)?;
         builder = builder.with_filter(predicate);
     }
@@ -141,7 +80,7 @@ fn fallback_schema(
     snapshot: Option<i64>,
     case_sensitive: bool,
 ) -> RResult<SchemaRef> {
-    let full = schema_to_arrow_schema(predicate_schema(tbl, snapshot)?.as_ref())
+    let full = schema_to_arrow_schema(tbl.schema_at(snapshot)?.as_ref())
         .map_err(|e| ctx("could not convert the Iceberg schema to Arrow", e))?;
 
     match select {
@@ -193,7 +132,7 @@ fn rs_scan_to_stream(
 ) -> RResult<()> {
     let select = select.into_option();
     let filter_json = filter_json.into_option();
-    let snapshot = resolve_snapshot_opt(&tbl, &snapshot_id.into_option())?;
+    let snapshot = tbl.resolve_snapshot_opt(&snapshot_id.into_option())?;
 
     let scan = configure(
         &tbl,
@@ -225,7 +164,7 @@ fn rs_scan_plan(
     snapshot_id: Nullable<String>,
     case_sensitive: bool,
 ) -> RResult<List> {
-    let snapshot = resolve_snapshot_opt(&tbl, &snapshot_id.into_option())?;
+    let snapshot = tbl.resolve_snapshot_opt(&snapshot_id.into_option())?;
     let scan = configure(
         &tbl,
         &select.into_option(),
