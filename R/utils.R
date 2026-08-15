@@ -155,6 +155,25 @@ as_result_tbl <- function(x) {
   tibble::as_tibble(x)
 }
 
+#' A filesystem path in the form Iceberg treats as a location
+#'
+#' Iceberg locations are slash-separated, and `iceberg-rust` parses one by
+#' splitting on `/`: it wants the directory to end in `/metadata` and the file to
+#' be `<version>-<uuid>.metadata.json`, and it derives the *next* metadata file
+#' name the same way when committing. `normalizePath()` on Windows returns
+#' `C:\\warehouse\\db\\events\\metadata\\...`, which contains no `/` at all, so a
+#' table registered from one read perfectly well and then failed every commit with
+#' "Invalid metadata location". Windows file APIs accept forward slashes, so this
+#' only changes the separator.
+#'
+#' Left alone off Windows, where a backslash is a legal character in a file name
+#' and rewriting it would corrupt the path. `windows` is an argument so that both
+#' branches are testable from either platform.
+#' @noRd
+as_iceberg_location <- function(path, windows = .Platform$OS.type == "windows") {
+  if (windows) gsub("\\", "/", path, fixed = TRUE) else path
+}
+
 #' The index in `columns` of the column `name` refers to, or NA for none
 #'
 #' An exact match always wins, even when matching case-insensitively. Iceberg

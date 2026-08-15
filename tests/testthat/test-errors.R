@@ -123,6 +123,31 @@ test_that("a failure names the table the way the caller spelled it", {
   expect_error(icebergr_table(catalog, "db.absent"), "db.absent", fixed = TRUE)
 })
 
+test_that("a Windows path becomes a location Iceberg can parse", {
+  # iceberg-rust splits a metadata location on "/" -- it wants the directory to
+  # end in /metadata and the file to be <version>-<uuid>.metadata.json, and it
+  # derives the next file name the same way when committing. normalizePath() on
+  # Windows returns backslashes and no forward slash at all, so a table registered
+  # from one read fine and then failed every commit with "Invalid metadata
+  # location". Both branches are exercised here whatever the platform.
+  windows_path <- "C:\\warehouse\\db\\events\\metadata\\00003-uuid.metadata.json"
+  expect_equal(
+    as_iceberg_location(windows_path, windows = TRUE),
+    "C:/warehouse/db/events/metadata/00003-uuid.metadata.json"
+  )
+  # A path that is already slash-separated is unchanged.
+  expect_equal(
+    as_iceberg_location("/warehouse/db/events/metadata/00003-uuid.metadata.json", windows = TRUE),
+    "/warehouse/db/events/metadata/00003-uuid.metadata.json"
+  )
+  # Off Windows a backslash is a legal character in a file name, so nothing is
+  # rewritten and a path containing one survives.
+  expect_equal(
+    as_iceberg_location("/warehouse/odd\\name/metadata/x.metadata.json", windows = FALSE),
+    "/warehouse/odd\\name/metadata/x.metadata.json"
+  )
+})
+
 test_that("register_table requires the metadata file to exist", {
   catalog <- local_namespace()
   expect_error(

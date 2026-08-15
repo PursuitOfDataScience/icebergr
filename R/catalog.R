@@ -141,7 +141,12 @@ icebergr_catalog <- function(type = c("rest", "memory", "glue"),
         i = "It is the directory the table data lives in."
       ))
     }
-    warehouse <- normalizePath(warehouse, mustWork = FALSE)
+    # Slash-separated, because this becomes the root of every table location
+    # Iceberg writes into the table's own metadata. On Windows normalizePath()
+    # returns backslashes, which iceberg-rust then joins its own "/" onto, giving
+    # a mixed "C:\warehouse/db/events" that happens to parse here and is a poor
+    # thing to hand another engine reading the same warehouse.
+    warehouse <- as_iceberg_location(normalizePath(warehouse, mustWork = FALSE))
     if (!dir.exists(warehouse)) {
       abort(paste0(
         "The warehouse directory does not exist: ",

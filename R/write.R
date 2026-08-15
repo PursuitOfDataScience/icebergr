@@ -78,7 +78,10 @@ icebergr_create_table <- function(catalog, table, data, location = NULL) {
   # The schema object has to outlive the call: Rust only borrows it.
   holder <- export_schema(data)
   ptr <- rs_create_table(
-    catalog$ptr, ident$namespace, ident$name, holder$addr, location
+    catalog$ptr, ident$namespace, ident$name, holder$addr,
+    # A caller-supplied location may be a Windows path or a URI. Only the former
+    # has separators to normalise, and Iceberg wants them forward.
+    if (is.null(location)) NULL else as_iceberg_location(location)
   )
   new_icebergr_table(ptr, catalog)
 }
@@ -131,7 +134,7 @@ icebergr_register_table <- function(catalog, table, metadata_location) {
 
   ptr <- rs_register_table(
     catalog$ptr, ident$namespace, ident$name,
-    normalizePath(metadata_location, mustWork = TRUE)
+    as_iceberg_location(normalizePath(metadata_location, mustWork = TRUE))
   )
   new_icebergr_table(ptr, catalog)
 }
