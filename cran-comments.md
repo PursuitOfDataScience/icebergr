@@ -17,6 +17,11 @@
 The note is CRAN incoming feasibility: a new submission, and the size of the
 tarball. The size is the subject of the request below.
 
+One warning appears on the local machine only, and is not a property of the
+package: `checking top-level files` reports "A complete check needs the
+'checkbashisms' script", which is not installed there. The package's own shell
+scripts are `configure` and `configure.win`, both two lines and both POSIX.
+
 Check also reports, as INFO rather than a note, an installed size of 24.0 Mb, all
 of it `libs`. That is the statically linked Rust library: Apache Iceberg's Rust
 implementation, the Arrow and Parquet columnar readers, and an Avro reader for

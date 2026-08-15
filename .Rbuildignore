@@ -13,6 +13,7 @@
 ^FEASIBILITY\.md$
 ^DEVELOPMENT\.md$
 ^\.git$
+^\.claude$
 ^\.gitignore$
 ^icebergr\.Rcheck$
 ^icebergr_.*\.tar\.gz$

@@ -1,4 +1,6 @@
 .Rproj.user
+# Local tooling state; nothing here belongs to the package or the tarball.
+.claude/
 .Rhistory
 .RData
 .Ruserdata

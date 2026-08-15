@@ -105,15 +105,30 @@ Also present upstream, beyond our scope: `expire_snapshots`, `update_schema`,
 - **MERGE / UPDATE / row-level DELETE writes.** No path through the transaction
   API. Copy-on-Write and Merge-on-Read are an open upstream epic. (Already on
   the "do not build" list — but the reason is upstream absence, not just scope.)
-- **Compaction and maintenance operations.**
+  Checked again against 0.10.0: an `equality_delete_writer` *does* exist, so the
+  file can be written; there is simply no action that commits one. Worth stating
+  precisely, or a reader who finds the writer concludes we merely failed to
+  expose it.
+- **Overwrite writes.** The 0.10.0 transaction API has exactly eight actions —
+  `upgrade_table_version`, `update_table_properties`, `update_schema`,
+  `fast_append`, `replace_sort_order`, `update_location`, `update_statistics`,
+  `expire_snapshots` — and `fast_append` takes data files only. Nothing
+  overwrites or rewrites.
+- **Compaction.** Needs a rewrite action, which is the same gap. Note this is
+  *not* true of maintenance generally: `expire_snapshots` is upstream, as listed
+  above, and skipping it is our scope choice rather than an upstream absence.
 - **Partition evolution.**
 - **No row `limit` in the scan builder.** `iceberg_scan(limit=)` cannot be
   pushed down; it has to be applied R-side after the Arrow stream. This must be
   documented, because a `limit` that looks like pushdown but isn't is a
   performance trap.
 - **No `as_of` timestamp on the scan builder.** Timestamp-based time travel has
-  to be implemented in R by resolving the timestamp against snapshot history to
-  a `snapshot_id`. Straightforward, but it is our code, not upstream's.
+  to be implemented in R by resolving the timestamp to a `snapshot_id`. Less
+  straightforward than it looks, and it is our code, not upstream's: it has to
+  resolve against the table's snapshot **log**, not its snapshot list. A rollback
+  appends a log entry pointing back at an earlier snapshot and leaves the one it
+  abandoned in the list carrying a later timestamp, so resolving against the list
+  returns the single state the table demonstrably was not in.
 
 ### 3a. There is no Hadoop catalog — this breaks the planned test strategy
 

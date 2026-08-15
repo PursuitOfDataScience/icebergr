@@ -34,7 +34,16 @@ built on `iceberg-rust` 0.10.0 via `extendr`.
   so a snapshot a rollback abandoned, or one that only ever existed on another
   branch, is not selected even though the snapshot list still carries it with a
   matching timestamp.
-* Append-only writes: `icebergr_append()`.
+* Append-only writes: `icebergr_append()`, to an unpartitioned table whose
+  metadata file is named the way Iceberg names them. Both of those are checked
+  before any data file is written, because Iceberg only discovers them at the
+  commit — which would leave orphan Parquet in the warehouse and report the cause
+  in terms of neither the table nor the file.
+* Nested types: `struct` and `list` columns read and write, a `struct` arriving as
+  a data frame column. Iceberg cannot push a filter or a projection down *onto* a
+  nested field, so read the parent column and subset it in R. Nanosecond
+  timestamps read, write and filter, but an R `POSIXct` is a double of seconds, so
+  sub-microsecond precision is lost.
 * `icebergr_spec_support()` reports the supported Iceberg spec version and the
   full supported/unsupported feature matrix programmatically.
 
