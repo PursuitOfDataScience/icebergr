@@ -73,6 +73,81 @@ test_that("as_of picks the snapshot current at that moment", {
   expect_equal(nrow(history_1), 1L)
 })
 
+test_that("the snapshot summary counts are read out of free-form JSON", {
+  # A targeted match rather than a JSON parser, so the cases that could go wrong
+  # are worth naming: a summary without the key, an unquoted number, and a key
+  # whose name merely ends with the one being looked for.
+  expect_equal(summary_number('{"added-records":"50"}', "added-records"), 50)
+  expect_equal(summary_number('{"added-records":50}', "added-records"), 50)
+  expect_equal(summary_number("{}", "added-records"), NA_real_)
+  expect_equal(summary_number('{"other":"1"}', "added-records"), NA_real_)
+  # "total-records-deleted" must not answer for "total-records".
+  expect_equal(summary_number('{"total-records-deleted":"9"}', "total-records"), NA_real_)
+  # Nor may a longer key shadow the real one by matching later in the string.
+  expect_equal(
+    summary_number('{"x-added-records":"9","added-records":"3"}', "added-records"),
+    3
+  )
+  # Vectorised, and length-preserving even when nothing matches.
+  expect_equal(
+    summary_number(c('{"added-records":"1"}', "{}", '{"added-records":"2"}'), "added-records"),
+    c(1, NA, 2)
+  )
+  expect_equal(summary_number(character(), "added-records"), numeric())
+})
+
+test_that("as_of accepts a Date, which means that day's midnight in UTC", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+
+  # Documented as accepting a Date, and never once given one. A Date is an
+  # instant, not a day: midnight UTC, which is what Iceberg's AS OF TIMESTAMP
+  # means too. So today's date is *before* a table written today, and tomorrow's
+  # is after it. Pinned because the alternative reading -- end of that day --
+  # would look like a kindness and would disagree with every other engine.
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, as_of = Sys.Date() + 1))), 3L)
+  expect_error(
+    icebergr_scan(tbl, as_of = as.Date("2000-01-01")),
+    "no snapshot at or before"
+  )
+  # The resolved instant is named, so it is clear why.
+  expect_error(icebergr_scan(tbl, as_of = as.Date("2000-01-01")), "2000-01-01 00:00:00")
+})
+
+test_that("as_of is inclusive of a snapshot's own commit time", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+  Sys.sleep(0.05)
+  tbl <- icebergr_append(tbl, data.frame(id = 4:6L))
+  history <- icebergr_snapshots(tbl)
+
+  # "at or before", so a snapshot's own timestamp selects that snapshot and not
+  # the one before it.
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, as_of = history$timestamp[[1L]]))), 3L)
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, as_of = history$timestamp[[2L]]))), 6L)
+})
+
+test_that("every scan option can be combined", {
+  tbl <- local_fixture_table(rows = 20L)
+  history <- icebergr_snapshots(tbl)
+
+  got <- icebergr_collect(icebergr_scan(
+    tbl,
+    filter = id > 1000L & amount > 600,
+    select = c("ID", "Amount"),
+    limit = 5,
+    snapshot_id = history$snapshot_id[[2L]],
+    batch_size = 2,
+    case_sensitive = FALSE
+  ))
+
+  expect_equal(nrow(got), 5L)
+  # Resolved to the table's own spelling, not the caller's.
+  expect_named(got, c("id", "amount"))
+  expect_true(all(got$id > 1000L))
+  expect_true(all(got$amount > 600))
+})
+
 test_that("as_of before the first snapshot is an informative error", {
   catalog <- local_namespace()
   tbl <- seed_table(catalog, "db.events", data.frame(id = 1L))
