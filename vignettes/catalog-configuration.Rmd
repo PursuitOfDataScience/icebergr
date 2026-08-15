@@ -274,3 +274,10 @@ table shows which one — and whether a filter is pruning more than you meant, w
 **Writes to a table another engine performs deletes on.** `icebergr` only
 appends, which is always safe. It cannot delete or update rows, so a workflow
 needing that must do it elsewhere; see `icebergr_spec_support()`.
+
+**`cannot append to "db.events": it is partitioned by …`.** Reading a partitioned
+table works, and `icebergr_partitions()` reports its spec, but appending to one
+would have to compute a partition value for every row, which this version does
+not do. The append is refused before any data file is written, so nothing is left
+behind in the warehouse. Write to such a table with an engine that supports
+partitioned writes.

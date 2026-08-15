@@ -99,6 +99,30 @@ test_that("create_table requires a data frame or a schema", {
   expect_error(icebergr_create_table(catalog, "db.x", 42), "data frame")
 })
 
+test_that("a failure names the table the way the caller spelled it", {
+  catalog <- local_namespace()
+
+  # "could not create table \"events\"" named neither the string passed in nor
+  # the thing that was actually missing, which was the namespace.
+  expect_error(
+    icebergr_create_table(catalog, "nope.events", data.frame(id = 1L)),
+    "nope.events",
+    fixed = TRUE
+  )
+  expect_error(
+    icebergr_create_table(catalog, "nope.events", data.frame(id = 1L)),
+    "No such namespace"
+  )
+
+  icebergr_create_table(catalog, "db.events", data.frame(id = 1L))
+  expect_error(
+    icebergr_create_table(catalog, "db.events", data.frame(id = 1L)),
+    "db.events",
+    fixed = TRUE
+  )
+  expect_error(icebergr_table(catalog, "db.absent"), "db.absent", fixed = TRUE)
+})
+
 test_that("register_table requires the metadata file to exist", {
   catalog <- local_namespace()
   expect_error(

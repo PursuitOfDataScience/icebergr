@@ -131,6 +131,17 @@ fn table_ident(namespace: Vec<String>, name: &str) -> RResult<TableIdent> {
     Ok(TableIdent::new(ns, name.to_string()))
 }
 
+/// A table identifier spelled the way the R caller wrote it.
+///
+/// Error messages name the table with this rather than with the bare name.
+/// `icebergr_create_table(catalog, "nope.events", …)` reported "could not create
+/// table \"events\"", which is not the string the caller passed and is ambiguous
+/// across namespaces -- while the failure it was reporting was that the
+/// *namespace* did not exist.
+fn ident_label(namespace: &NamespaceIdent, name: &str) -> String {
+    format!("{}.{}", namespace.as_ref().join("."), name)
+}
+
 #[extendr]
 fn rs_table_open(
     cat: ExternalPtr<RCatalog>,
@@ -141,9 +152,8 @@ fn rs_table_open(
     let table = block_on(cat.inner.load_table(&ident)).map_err(|e| {
         ctx(
             &format!(
-                "could not open table {}.{}",
-                ident.namespace().as_ref().join("."),
-                name
+                "could not open table {}",
+                ident_label(ident.namespace(), name)
             ),
             e,
         )
@@ -214,8 +224,12 @@ fn rs_create_table(
         .location_opt(location.into_option())
         .build();
 
-    let table = block_on(cat.inner.create_table(&ns, creation))
-        .map_err(|e| ctx(&format!("could not create table {name:?}"), e))?;
+    let table = block_on(cat.inner.create_table(&ns, creation)).map_err(|e| {
+        ctx(
+            &format!("could not create table {:?}", ident_label(&ns, name)),
+            e,
+        )
+    })?;
 
     Ok(ExternalPtr::new(RTable {
         catalog: cat.inner.clone(),
@@ -239,7 +253,15 @@ fn rs_register_table(
         cat.inner
             .register_table(&ident, metadata_location.to_string()),
     )
-    .map_err(|e| ctx(&format!("could not register table {name:?}"), e))?;
+    .map_err(|e| {
+        ctx(
+            &format!(
+                "could not register table {:?}",
+                ident_label(ident.namespace(), name)
+            ),
+            e,
+        )
+    })?;
     Ok(ExternalPtr::new(RTable {
         catalog: cat.inner.clone(),
         table,

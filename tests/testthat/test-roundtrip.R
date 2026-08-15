@@ -161,14 +161,59 @@ test_that("an empty table reads back with the right columns and no rows", {
 
 test_that("compression choices all round trip", {
   catalog <- local_namespace()
-  events <- data.frame(id = 1:10L, amount = as.double(1:10))
+  events <- data.frame(
+    id = 1:10L,
+    amount = as.double(1:10),
+    label = letters[1:10],
+    stringsAsFactors = FALSE
+  )
 
-  for (codec in c("zstd", "snappy", "uncompressed")) {
+  # Every codec the argument accepts, not a subset of them: `gzip` and `lz4` were
+  # documented, reachable through match.arg, and never once written or read. LZ4
+  # in particular has a history of Parquet writing one variant and readers
+  # expecting another, which would show up here as unreadable data.
+  for (codec in c("zstd", "snappy", "gzip", "lz4", "uncompressed")) {
     name <- paste0("db.events_", codec)
     tbl <- icebergr_create_table(catalog, name, events)
     tbl <- icebergr_append(tbl, events, compression = codec)
-    expect_equal(nrow(icebergr_collect(tbl)), 10L, info = codec)
+    got <- icebergr_collect(tbl)
+    expect_equal(nrow(got), 10L, info = codec)
+    expect_setequal(got$label, events$label)
+    expect_equal(sum(got$amount), sum(events$amount), info = codec)
   }
+})
+
+test_that("the compression argument reaches the Parquet writer", {
+  # Round-tripping does not prove the codec was applied rather than ignored.
+  # Distinct file sizes do. They are all within a few hundred bytes of each other
+  # because Parquet's dictionary and RLE encoding shrink data this repetitive to
+  # almost nothing before any codec runs -- which is why this asserts that they
+  # differ, and not that any one is smaller.
+  rows <- 20000L
+  events <- data.frame(
+    id = rep(1L, rows),
+    label = rep(strrep("a", 30L), rows),
+    stringsAsFactors = FALSE
+  )
+
+  sizes <- vapply(
+    c("uncompressed", "snappy", "gzip", "lz4", "zstd"),
+    function(codec) {
+      warehouse <- withr::local_tempdir("codec")
+      catalog <- icebergr_catalog("memory", warehouse = warehouse)
+      icebergr_create_namespace(catalog, "db")
+      tbl <- icebergr_create_table(catalog, "db.t", events)
+      tbl <- icebergr_append(tbl, events, compression = codec)
+      expect_equal(nrow(icebergr_collect(tbl)), rows, info = codec)
+      sum(file.size(list.files(
+        warehouse,
+        pattern = "\\.parquet$", recursive = TRUE, full.names = TRUE
+      )))
+    },
+    numeric(1)
+  )
+
+  expect_length(unique(sizes), length(sizes))
 })
 
 test_that("dplyr::collect() reaches the same code as icebergr_collect()", {
