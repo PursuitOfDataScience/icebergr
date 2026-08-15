@@ -169,6 +169,12 @@ icebergr_register_table <- function(catalog, table, metadata_location) {
 #' files already left in the warehouse. Partitioned tables can still be read; see
 #' [icebergr_partitions()] and [icebergr_spec_support()].
 #'
+#' A table registered with [icebergr_register_table()] must also have been
+#' registered from a metadata file named the way Iceberg names them,
+#' `<version>-<uuid>.metadata.json`, because the next one is derived from that
+#' name. Every engine writes conforming names; a renamed or hand-made file reads
+#' fine and is refused here, again before anything is written.
+#'
 #' This is an append. Row-level deletes, overwrites and MERGE are not supported;
 #' see [icebergr_spec_support()].
 #'

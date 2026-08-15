@@ -291,6 +291,77 @@ test_that("appending to a partitioned table is refused before anything is writte
   expect_equal(nrow(icebergr_collect(tbl)), 0L)
 })
 
+test_that("a metadata file Iceberg cannot name a successor for is refused early", {
+  warehouse <- withr::local_tempdir("badname")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
+
+  files <- list.files(warehouse,
+    pattern = "metadata\\.json$",
+    recursive = TRUE, full.names = TRUE
+  )
+  newest <- files[order(file.mtime(files))][length(files)]
+  # Iceberg names these <version>-<uuid>.metadata.json and parses the current
+  # name to build the next one -- during the commit, once the data files are
+  # written. So this reads perfectly and used to fail its first append with
+  # "Failed to convert between uuid und iceberg value ... invalid character",
+  # naming neither the file nor the convention, and leaving orphan Parquet behind.
+  renamed <- file.path(dirname(newest), "99999-not-a-uuid.metadata.json")
+  file.copy(newest, renamed)
+
+  reopened <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(reopened, "db")
+  tbl <- icebergr_register_table(reopened, "db.events", renamed)
+
+  # Reading is unaffected, which is exactly why the failure was confusing.
+  expect_equal(nrow(icebergr_collect(tbl)), 0L)
+  expect_equal(icebergr_schema(tbl)$name, "id")
+
+  before <- list.files(warehouse, pattern = "\\.parquet$", recursive = TRUE)
+  expect_error(icebergr_append(tbl, data.frame(id = 1L)), "not-a-uuid", fixed = TRUE)
+  expect_error(icebergr_append(tbl, data.frame(id = 1L)), "<version>-<uuid>", fixed = TRUE)
+  expect_equal(list.files(warehouse, pattern = "\\.parquet$", recursive = TRUE), before)
+})
+
+test_that("a spec v1 table reads, filters and appends", {
+  warehouse <- withr::local_tempdir("v1")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  icebergr_create_table(catalog, "db.events", data.frame(
+    id = integer(), label = character()
+  ))
+
+  # The feature matrix claims v1 tables are supported, and every table these
+  # tests build is v2 -- iceberg-rust defaults to it and icebergr does not expose
+  # the choice. So the one v1 table here is made by hand.
+  files <- list.files(warehouse,
+    pattern = "metadata\\.json$",
+    recursive = TRUE, full.names = TRUE
+  )
+  newest <- files[order(file.mtime(files))][length(files)]
+  json <- sub(
+    '"format-version":2', '"format-version":1',
+    paste(readLines(newest, warn = FALSE), collapse = "")
+  )
+  path <- file.path(dirname(newest), metadata_file_name())
+  writeLines(json, path)
+
+  reopened <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(reopened, "db")
+  tbl <- icebergr_register_table(reopened, "db.events", path)
+
+  expect_output(print(tbl), "format:   v1", fixed = TRUE)
+  expect_equal(nrow(icebergr_collect(tbl)), 0L)
+
+  tbl <- icebergr_append(tbl, data.frame(id = 1:3L, label = c("a", "b", "c")))
+  expect_equal(nrow(icebergr_collect(tbl)), 3L)
+  expect_setequal(icebergr_collect(icebergr_scan(tbl, filter = id > 1L))$id, 2:3L)
+  expect_equal(nrow(icebergr_snapshots(tbl)), 1L)
+  # Writing to it must not quietly promote it.
+  expect_output(print(tbl), "format:   v1", fixed = TRUE)
+})
+
 test_that("table properties are readable", {
   catalog <- local_namespace()
   tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))

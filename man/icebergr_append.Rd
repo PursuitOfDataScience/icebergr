@@ -48,6 +48,12 @@ it is refused before any data is written rather than failing at the commit with
 files already left in the warehouse. Partitioned tables can still be read; see
 \code{\link[=icebergr_partitions]{icebergr_partitions()}} and \code{\link[=icebergr_spec_support]{icebergr_spec_support()}}.
 
+A table registered with \code{\link[=icebergr_register_table]{icebergr_register_table()}} must also have been
+registered from a metadata file named the way Iceberg names them,
+\verb{<version>-<uuid>.metadata.json}, because the next one is derived from that
+name. Every engine writes conforming names; a renamed or hand-made file reads
+fine and is refused here, again before anything is written.
+
 This is an append. Row-level deletes, overwrites and MERGE are not supported;
 see \code{\link[=icebergr_spec_support]{icebergr_spec_support()}}.
 }

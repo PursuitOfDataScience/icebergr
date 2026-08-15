@@ -191,10 +191,12 @@ against the optional features you compiled in.
 | :-: | --- |
 | ✅ | Append rows |
 | ✅ | Create a table (unpartitioned) and a namespace |
-| ✅ | Register an existing table |
+| ✅ | Register an existing table — from a metadata file named `<version>-<uuid>.metadata.json`, as every engine writes them; a renamed file reads but cannot be appended to |
+| ✅ | Spec **v1** tables read, filter and append, and stay v1 |
 | 🚧 | Appending to a *partitioned* table — refused before anything is written, since a partition value per row is not computed. Reading one works |
-| 🦀 | Row-level deletes and `MERGE` / upsert — *reading* such tables works |
-| 🚧 | Overwrite writes, partitioned table creation |
+| 🦀 | Row-level deletes and `MERGE` / upsert — *reading* such tables works. `iceberg-rust` can write an equality delete file but has no transaction action that commits one |
+| 🦀 | Overwrite writes — `fast_append` is the only way `iceberg-rust` 0.10.0 can add files |
+| 🚧 | Partitioned table creation — available upstream, not exposed here |
 
 **🗂️ Catalogs and metadata**
 
@@ -209,8 +211,9 @@ against the optional features you compiled in.
 | ⚙️ | Object storage (S3) — build with the `s3` Cargo feature |
 | 🦀 | Hadoop / filesystem catalog — none exists upstream; use `type = "memory"` |
 
-**🚧 Not in 0.1.0** — schema evolution, partition evolution, compaction and
-maintenance, `dbplyr` lazy verbs, table encryption.
+**🚧 Not in 0.1.0** — schema evolution, partition evolution, snapshot expiry,
+`dbplyr` lazy verbs, table encryption. Compaction is 🦀: it needs a rewrite action
+`iceberg-rust` 0.10.0 does not have.
 
 A correct narrow surface beats a broad buggy one. Anything marked 🦀 or 🚧 raises
 an informative error rather than failing obscurely.

@@ -33,6 +33,24 @@ use crate::errors::{RResult, ctx};
 use crate::runtime::block_on;
 use crate::table::RTable;
 
+/// Whether iceberg-rust will be able to derive the *next* metadata file name from
+/// this one.
+///
+/// Mirrors `MetadataLocation::parse_file_name` exactly, because being stricter
+/// here would refuse an append that would in fact have succeeded: strip
+/// `.metadata.json` and an optional `.gz` before it, split once on `-`, and
+/// require an `i32` version and a parseable uuid.
+fn metadata_name_is_committable(file_name: &str) -> bool {
+    let Some(stripped) = file_name.strip_suffix(".metadata.json") else {
+        return false;
+    };
+    let stripped = stripped.strip_suffix(".gz").unwrap_or(stripped);
+    let Some((version, id)) = stripped.split_once('-') else {
+        return false;
+    };
+    version.parse::<i32>().is_ok() && uuid::Uuid::parse_str(id).is_ok()
+}
+
 fn compression_from(name: &str) -> RResult<Compression> {
     Ok(match name.to_ascii_lowercase().as_str() {
         "zstd" => Compression::ZSTD(ZstdLevel::default()),
@@ -174,6 +192,29 @@ fn rs_table_append(
             table.identifier().name(),
             by.join(", ")
         )));
+    }
+
+    // Also before writing, and for the same reason. Iceberg names each metadata
+    // file <version>-<uuid>.metadata.json and derives the next one by parsing the
+    // current one -- during the *commit*, once the data files are already on disk.
+    // So a table registered from a metadata file that does not follow the
+    // convention reads perfectly well and then fails its first append with
+    // "Failed to convert between uuid und iceberg value ... invalid character",
+    // which names neither the file nor the convention, and leaves orphan Parquet
+    // behind each time it is retried.
+    if let Some(location) = table.metadata_location() {
+        let file_name = location.rsplit('/').next().unwrap_or(location);
+        if !metadata_name_is_committable(file_name) {
+            return Err(extendr_api::Error::Other(format!(
+                "cannot append to {:?}: its metadata file is named {file_name:?}, \
+                 and Iceberg derives the next one from that name, which has to be \
+                 <version>-<uuid>.metadata.json.\n\
+                 Reading such a table works; only a commit needs the name. \
+                 Re-register it from the file the writing engine produced, for \
+                 example 00003-3f2504e0-4f89-41d3-9a0c-0305e82c3301.metadata.json.",
+                table.identifier().name()
+            )));
+        }
     }
 
     // The Iceberg schema converted to Arrow carries the field-id metadata that

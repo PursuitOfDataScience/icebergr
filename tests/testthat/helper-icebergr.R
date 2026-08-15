@@ -36,6 +36,23 @@ local_fixture_table <- function(rows = 50L, env = parent.frame()) {
   icebergr_example_table(warehouse = warehouse, rows = rows)
 }
 
+# A metadata file name Iceberg can derive the *next* one from.
+#
+# Iceberg names these <version>-<uuid>.metadata.json and parses the current name
+# to build the successor, so a hand-written file needs a real uuid in it or the
+# table reads fine and fails its first append. Every engine produces conforming
+# names, so the helpers below use one too rather than exercising a shape no real
+# warehouse contains.
+metadata_file_name <- function(version = 99999L) {
+  hex <- paste(sample(c(0:9, letters[1:6]), 32L, replace = TRUE), collapse = "")
+  uuid <- paste(
+    substr(hex, 1, 8), substr(hex, 9, 12), substr(hex, 13, 16),
+    substr(hex, 17, 20), substr(hex, 21, 32),
+    sep = "-"
+  )
+  sprintf("%05d-%s.metadata.json", version, uuid)
+}
+
 # Rewrite a warehouse's newest table metadata as though the table had been rolled
 # back to `to_snapshot`, and hand back a handle on the result.
 #
@@ -81,7 +98,7 @@ rolled_back_table <- function(warehouse, table, to_snapshot) {
     paste0('"last-updated-ms":', rolled_at), json
   )
 
-  path <- file.path(dirname(newest), "99999-rollback.metadata.json")
+  path <- file.path(dirname(newest), metadata_file_name())
   writeLines(json, path)
 
   reopened <- icebergr_catalog("memory", warehouse = warehouse)
@@ -135,7 +152,7 @@ partitioned_table <- function(warehouse, table, fields) {
     replaced
   )
 
-  path <- file.path(dirname(newest), "99999-partitioned.metadata.json")
+  path <- file.path(dirname(newest), metadata_file_name())
   writeLines(json, path)
 
   reopened <- icebergr_catalog("memory", warehouse = warehouse)

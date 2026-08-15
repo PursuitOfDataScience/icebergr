@@ -36,6 +36,30 @@ test_that("the things this version deliberately omits are marked unsupported", {
   expect_true("Row limit pushdown" %in% unsupported)
 })
 
+test_that("an upstream gap is not reported as our scope choice", {
+  features <- icebergr_spec_support()$features
+  reason_for <- function(name) features$reason[features$feature == name]
+
+  # These are the matrix's whole purpose: a user deciding whether to wait for the
+  # next icebergr or to reach for another engine needs to know which gap is
+  # whose. Overwrite was filed under "Out of scope for icebergr 0.1.0", but
+  # iceberg-rust 0.10.0 has no overwrite or rewrite transaction action at all --
+  # fast_append is the only way it can add files -- so waiting on us would not
+  # have helped.
+  expect_match(reason_for("Overwrite writes"), "iceberg-rust")
+  expect_match(reason_for("Compaction / maintenance"), "rewrite action")
+
+  # And the converse: partitioned creation *is* available upstream, so that one
+  # really is our scope.
+  expect_match(reason_for("Partitioned table creation"), "icebergr 0.1.0")
+
+  # "Not implemented in iceberg-rust" was too blunt for the delete writes: the
+  # equality delete *writer* exists, and only the commit path is missing.
+  # Someone who found the writer would otherwise conclude we simply had not
+  # exposed it.
+  expect_match(reason_for("Row-level deletes (write)"), "transaction API")
+})
+
 test_that("the core reads and writes are marked supported", {
   features <- icebergr_spec_support()$features
   supported <- features$feature[isTRUE_vec(features$supported)]
