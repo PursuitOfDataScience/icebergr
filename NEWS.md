@@ -25,6 +25,9 @@ built on `iceberg-rust` 0.10.0 via `extendr`.
   A filter on a `decimal` column runs with `iceberg-rust`'s row-level selection
   disabled, since in 0.10.0 that stage discards every row of an ordering
   comparison against a decimal; file and row group pruning still apply.
+  `case_sensitive = FALSE` prefers an exact match, so a table holding both `id`
+  and `ID` resolves each to itself, and a name matching two columns and neither
+  exactly is an error rather than a silent choice.
 * Time travel: `icebergr_snapshots()` for snapshot history, and
   `icebergr_scan(snapshot_id = )` or `icebergr_scan(as_of = )` to read an
   earlier state of a table. `as_of` resolves against Iceberg's snapshot *log*,

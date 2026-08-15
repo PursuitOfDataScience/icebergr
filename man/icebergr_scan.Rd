@@ -41,7 +41,13 @@ memory use, not results.}
 \item{case_sensitive}{Whether column names in \code{filter} and \code{select} are
 matched case-sensitively. When \code{FALSE}, each name is resolved to the
 table's own spelling before the scan is planned, so \code{select = "ID"} reads
-the column the table calls \code{id}.}
+the column the table calls \code{id}.
+
+An exact match always wins. Iceberg column names are case-sensitive, so a
+table may hold both \code{id} and \code{ID}; asking for \code{ID} reads \code{ID}, not whichever
+the two happen to be ordered. A name that matches no column exactly and more
+than one case-insensitively is ambiguous, and is an error rather than a
+silent choice between them.}
 }
 \value{
 An \code{icebergr_scan} object.

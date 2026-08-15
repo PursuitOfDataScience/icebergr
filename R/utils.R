@@ -155,6 +155,52 @@ as_result_tbl <- function(x) {
   tibble::as_tibble(x)
 }
 
+#' The index in `columns` of the column `name` refers to, or NA for none
+#'
+#' An exact match always wins, even when matching case-insensitively. Iceberg
+#' column names are case-sensitive, so a schema may legitimately hold both `id`
+#' and `ID` -- Spark will create one -- and `match(tolower(name),
+#' tolower(columns))` then returned whichever came first. Asking for `ID` under
+#' `case_sensitive = FALSE` therefore read the column called `id`: the wrong
+#' column's data for a name that was an exact match for the right one. As a
+#' filter it was worse than wrong, it was empty, since `ID > 250` bound to `id`
+#' and matched nothing.
+#'
+#' With no exact match and more than one case-insensitive candidate the name is
+#' genuinely ambiguous. There is no defensible pick, and picking silently is how
+#' the above happened, so that is an error naming the candidates.
+#' @noRd
+column_index <- function(name, columns, case_sensitive = TRUE,
+                         call = rlang::caller_env()) {
+  exact <- match(name, columns)
+  if (!is.na(exact)) {
+    return(exact)
+  }
+  if (case_sensitive) {
+    return(NA_integer_)
+  }
+
+  candidates <- which(tolower(columns) == tolower(name))
+  if (!length(candidates)) {
+    return(NA_integer_)
+  }
+  if (length(candidates) > 1L) {
+    abort(
+      c(
+        paste0(
+          encodeString(name, quote = "`"), " matches ", length(candidates),
+          " columns when case is ignored: ",
+          paste(columns[candidates], collapse = ", "), "."
+        ),
+        i = "Name one of them exactly, or use `case_sensitive = TRUE`."
+      ),
+      class = "icebergr_ambiguous_column",
+      call = call
+    )
+  }
+  candidates[[1L]]
+}
+
 #' Snapshot ids are carried as character to survive R's 53-bit numerics
 #' @noRd
 as_snapshot_id <- function(x, arg = "snapshot_id", call = rlang::caller_env()) {

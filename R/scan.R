@@ -25,6 +25,12 @@
 #'   table's own spelling before the scan is planned, so `select = "ID"` reads
 #'   the column the table calls `id`.
 #'
+#'   An exact match always wins. Iceberg column names are case-sensitive, so a
+#'   table may hold both `id` and `ID`; asking for `ID` reads `ID`, not whichever
+#'   the two happen to be ordered. A name that matches no column exactly and more
+#'   than one case-insensitively is ambiguous, and is an error rather than a
+#'   silent choice between them.
+#'
 #' @return An `icebergr_scan` object.
 #'
 #' @section Pushdown:
@@ -154,11 +160,16 @@ icebergr_scan <- function(tbl,
         i = "Use `select = NULL` to read all of them."
       ))
     }
-    hits <- if (case_sensitive) {
-      match(select, available)
-    } else {
-      match(tolower(select), tolower(available))
-    }
+    # Resolved one name at a time so that an exact match wins over a merely
+    # case-insensitive one, and so that a name matching two columns is refused
+    # rather than silently bound to whichever came first. See column_index().
+    frame <- environment()
+    hits <- vapply(
+      select,
+      function(nm) column_index(nm, available, case_sensitive, call = frame),
+      integer(1),
+      USE.NAMES = FALSE
+    )
     if (anyNA(hits)) {
       missing <- select[is.na(hits)]
       # A dotted name whose first part *is* a column is someone reaching for a

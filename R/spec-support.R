@@ -23,7 +23,7 @@ feature_matrix <- function() {
     "Object storage (S3)",        NA,         "Requires the optional 's3' Cargo feature",
     "Read positional deletes",    TRUE,       "Applied by iceberg-rust during the scan",
     "Read equality deletes",      TRUE,       "Applied by iceberg-rust during the scan",
-    "Nested types (read/write)",  TRUE,       "struct, list and map round trip; a struct arrives as a data frame column",
+    "Nested types (read/write)",  TRUE,       "struct and list round trip; a struct arrives as a data frame column. A map column can be created, but writing map values needs the 'arrow' package: nanoarrow cannot build a map array on its own",
     "Decimal predicates",         TRUE,       "Row-level selection is disabled for these scans; iceberg-rust 0.10.0 drops every row of an ordering comparison on a decimal. File and row group pruning still apply",
     "Nanosecond timestamps",      TRUE,       "Read, written and filtered, but R's POSIXct is a double of seconds, so sub-microsecond precision is lost and nanoarrow warns on every such read",
     "Nested field pushdown",      FALSE,      "iceberg-rust cannot plan a scan filtered or projected on a nested field; read the parent column and filter in R",

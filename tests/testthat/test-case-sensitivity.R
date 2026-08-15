@@ -18,6 +18,61 @@ mixed_case_table <- function(env = parent.frame()) {
   )
 }
 
+test_that("an exact match wins even when case is being ignored", {
+  # Iceberg column names are case-sensitive, so a schema may hold both. Spark
+  # will create one. match(tolower(name), tolower(columns)) returned whichever
+  # came first, so asking for `ID` read the column called `id`.
+  columns <- c("id", "ID")
+
+  expect_equal(column_index("ID", columns, case_sensitive = FALSE), 2L)
+  expect_equal(column_index("id", columns, case_sensitive = FALSE), 1L)
+  expect_equal(
+    translate_filter(quote(ID == 1L), columns, parent.frame(), case_sensitive = FALSE),
+    list(op = "eq", col = "ID", value = 1L)
+  )
+})
+
+test_that("a name matching two columns is refused rather than guessed at", {
+  columns <- c("id", "ID")
+
+  # No exact match and two candidates: there is no defensible pick, and picking
+  # silently returns another column's data.
+  expect_error(
+    column_index("iD", columns, case_sensitive = FALSE),
+    class = "icebergr_ambiguous_column"
+  )
+  expect_error(column_index("iD", columns, case_sensitive = FALSE), "matches 2 columns")
+  expect_error(
+    translate_filter(quote(iD == 1L), columns, parent.frame(), case_sensitive = FALSE),
+    "case is ignored"
+  )
+  # Unambiguous under case-sensitive matching, where it simply is not a column.
+  expect_null(column_ref(quote(iD), columns, case_sensitive = TRUE))
+})
+
+test_that("an ambiguous schema resolves to the column actually named", {
+  catalog <- local_namespace()
+  events <- data.frame(id = 1:4L, ID = c(100L, 200L, 300L, 400L), check.names = FALSE)
+  tbl <- seed_table(catalog, "db.ambiguous", events)
+  expect_equal(icebergr_schema(tbl)$name, c("id", "ID"))
+
+  # `select = "ID"` used to return the column called `id`, and `filter = ID > 250`
+  # bound to `id` and so returned nothing at all.
+  got <- icebergr_collect(icebergr_scan(tbl, select = "ID", case_sensitive = FALSE))
+  expect_named(got, "ID")
+  expect_setequal(got$ID, c(100L, 200L, 300L, 400L))
+
+  rows <- icebergr_collect(icebergr_scan(tbl, filter = ID > 250L, case_sensitive = FALSE))
+  expect_equal(nrow(rows), 2L)
+  expect_setequal(rows$id, c(3L, 4L))
+
+  # And the genuinely ambiguous spelling is refused at the scan.
+  expect_error(
+    icebergr_scan(tbl, select = "iD", case_sensitive = FALSE),
+    class = "icebergr_ambiguous_column"
+  )
+})
+
 test_that("the translator matches column names exactly by default", {
   columns <- c("id", "amount")
   expect_error(

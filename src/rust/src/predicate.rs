@@ -290,7 +290,15 @@ fn reference(col: &str, schema: &Schema, cs: bool) -> RResult<(Reference, Primit
     let field = if cs {
         schema.field_by_name(col)
     } else {
-        schema.field_by_name_case_insensitive(col)
+        // An exact match first, even here. Iceberg column names are
+        // case-sensitive, so a schema may hold both `id` and `ID`, and
+        // iceberg-rust's case-insensitive index is a map keyed on the lowercased
+        // name -- one of the two wins arbitrarily. Relaxing the match must not
+        // resolve a name that *is* one of them to the other. R refuses a name
+        // that matches two columns and no column exactly before it reaches here.
+        schema
+            .field_by_name(col)
+            .or_else(|| schema.field_by_name_case_insensitive(col))
     };
 
     let Some(field) = field else {

@@ -25,16 +25,12 @@ flipped_ops <- c(lt = "gt", lte = "gte", gt = "lt", gte = "lte", eq = "eq", ne =
 #' predicate case-sensitively regardless of the scan's own setting, so a
 #' differently-cased name has to be resolved here rather than left to it.
 #' @noRd
-column_ref <- function(e, columns, case_sensitive = TRUE) {
+column_ref <- function(e, columns, case_sensitive = TRUE,
+                       call = rlang::caller_env()) {
   if (!is.symbol(e)) {
     return(NULL)
   }
-  name <- as.character(e)
-  hit <- if (case_sensitive) {
-    match(name, columns)
-  } else {
-    match(tolower(name), tolower(columns))
-  }
+  hit <- column_index(as.character(e), columns, case_sensitive, call = call)
   if (is.na(hit)) NULL else columns[[hit]]
 }
 
@@ -79,7 +75,7 @@ eval_literal <- function(e, env, call) {
 translate_filter <- function(e, columns, env, case_sensitive = TRUE,
                              call = rlang::caller_env()) {
   recurse <- function(x) translate_filter(x, columns, env, case_sensitive, call)
-  as_column <- function(x) column_ref(x, columns, case_sensitive)
+  as_column <- function(x) column_ref(x, columns, case_sensitive, call = call)
 
   # A literal TRUE/FALSE is a legitimate, if unusual, filter.
   if (is.logical(e) && length(e) == 1L && !is.na(e)) {

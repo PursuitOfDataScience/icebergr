@@ -289,6 +289,42 @@ test_that("a nested struct column round trips, and its type reads as itself", {
   expect_equal(got$loc$lat, c(1.5, 2.5))
 })
 
+test_that("a list column round trips, and a map column can be created", {
+  # A bare R list has no Arrow type nanoarrow can infer, so building a list
+  # column at all needs vctrs::list_of. That is what the type-fidelity table
+  # documents, so it is what the test uses.
+  skip_if_not_installed("vctrs")
+  catalog <- local_namespace()
+
+  tbl <- icebergr_create_table(catalog, "db.lists", nanoarrow::na_struct(list(
+    id = nanoarrow::na_int32(),
+    tags = nanoarrow::na_list(nanoarrow::na_int32())
+  )))
+  expect_equal(icebergr_schema(tbl)$type, c("int", "list<int>"))
+
+  events <- data.frame(id = 1:2L)
+  events$tags <- vctrs::list_of(c(1L, 2L), c(3L))
+  tbl <- icebergr_append(tbl, events)
+
+  got <- icebergr_collect(tbl)
+  got <- got[order(got$id), ]
+  expect_equal(nrow(got), 2L)
+  expect_equal(as.integer(got$tags[[1L]]), c(1L, 2L))
+  expect_equal(as.integer(got$tags[[2L]]), 3L)
+
+  # A map's *schema* is fine, and renders as itself. Writing map values is not
+  # tested because nanoarrow cannot build a map array without the arrow package,
+  # which is not a dependency -- and that is the honest extent of the support the
+  # feature matrix claims.
+  map_tbl <- icebergr_create_table(catalog, "db.maps", nanoarrow::na_struct(list(
+    id = nanoarrow::na_int32(),
+    # The key type has to be built non-nullable or nanoarrow's own validator
+    # rejects the schema it just constructed.
+    attrs = nanoarrow::na_map(nanoarrow::na_string(nullable = FALSE), nanoarrow::na_int32())
+  )))
+  expect_equal(icebergr_schema(map_tbl)$type, c("int", "map<string, int>"))
+})
+
 test_that("a nested field cannot be pushed down, and is told so plainly", {
   catalog <- local_namespace()
   schema <- nanoarrow::na_struct(list(

@@ -157,7 +157,7 @@ against the optional features you compiled in.
 | ✅ | Row group and row-level scan pruning |
 | ✅ | Merge-on-read tables — positional *and* equality deletes applied |
 | ✅ | Inspect the file plan before reading, with `icebergr_scan_plan()` |
-| ✅ | Nested types — `struct`, `list` and `map` read and write |
+| ✅ | Nested types — `struct` and `list` read and write. A `map` column can be created, but writing map *values* from R needs the `arrow` package, since `nanoarrow` cannot build a map array alone. Note `nanoarrow::na_map()` needs its key type built non-nullable: `na_map(na_string(nullable = FALSE), …)` |
 | 🦀 | Row `limit` pushdown — `limit` bounds decoding, not planning |
 | 🦀 | Pushdown *on* a nested field — read the parent column and filter in R |
 | ✅ | `decimal` filters — row-level selection is disabled for these scans, because `iceberg-rust` 0.10.0 drops every row of an ordering comparison on a decimal; file and row group pruning still apply |
@@ -216,6 +216,7 @@ R types survive the Arrow round trip as follows:
 | `factor` | `string` | **Returns `character`.** Iceberg has no dictionary type, so levels cannot be carried. |
 | `POSIXct` | `timestamp_ns` | Readable, writable and filterable, but a `POSIXct` is a double of *seconds*, so sub-microsecond precision is lost. `nanoarrow` warns on every such read — it triggers on the nanosecond count exceeding 2^53, which any present-day instant does, so the warning appears even when nothing was actually lost. |
 | data frame column | `struct` | Unchanged, and comes back as a data frame column. Iceberg cannot push a filter or a projection down *onto* a nested field, so read the parent column and subset it in R. |
+| `vctrs::list_of` | `list` | Unchanged, and comes back as a `list_of` column. |
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as random
 64-bit integers and an R numeric holds only 53 bits, so a double round trip would
