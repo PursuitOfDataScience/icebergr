@@ -24,6 +24,8 @@ feature_matrix <- function() {
     "Read positional deletes",    TRUE,       "Applied by iceberg-rust during the scan",
     "Read equality deletes",      TRUE,       "Applied by iceberg-rust during the scan",
     "Nested types (read/write)",  TRUE,       "struct, list and map round trip; a struct arrives as a data frame column",
+    "Decimal predicates",         TRUE,       "Row-level selection is disabled for these scans; iceberg-rust 0.10.0 drops every row of an ordering comparison on a decimal. File and row group pruning still apply",
+    "Nanosecond timestamps",      TRUE,       "Read, written and filtered, but R's POSIXct is a double of seconds, so sub-microsecond precision is lost and nanoarrow warns on every such read",
     "Nested field pushdown",      FALSE,      "iceberg-rust cannot plan a scan filtered or projected on a nested field; read the parent column and filter in R",
     "Table properties (read)",    TRUE,       NA_character_,
     "Table properties (write)",   FALSE,      "Needs an update_properties transaction; out of scope for icebergr 0.1.0",

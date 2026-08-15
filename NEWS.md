@@ -20,7 +20,11 @@ built on `iceberg-rust` 0.10.0 via `extendr`.
 * Reads: `icebergr_scan()` with predicate and projection pushdown, materialised
   with `icebergr_collect()` or `as.data.frame()`. Arrow is the interchange layer
   throughout, using the Arrow C stream interface, so no serialisation round trip
-  occurs between Rust and R.
+  occurs between Rust and R. `long` columns come back as `bit64::integer64` at
+  any depth, including inside a `struct`, so a value past 2^53 stays exact.
+  A filter on a `decimal` column runs with `iceberg-rust`'s row-level selection
+  disabled, since in 0.10.0 that stage discards every row of an ordering
+  comparison against a decimal; file and row group pruning still apply.
 * Time travel: `icebergr_snapshots()` for snapshot history, and
   `icebergr_scan(snapshot_id = )` or `icebergr_scan(as_of = )` to read an
   earlier state of a table. `as_of` resolves against Iceberg's snapshot *log*,

@@ -91,28 +91,53 @@ int64_ptype <- function(schema) {
     return(NULL)
   }
   tryCatch(
-    {
-      ptype <- nanoarrow::infer_nanoarrow_ptype(schema)
-      children <- schema$children
-      if (!is.data.frame(ptype) || length(children) != length(ptype)) {
-        return(NULL)
-      }
-      # "l" is the Arrow C data interface format string for int64.
-      is_int64 <- vapply(
-        children,
-        function(child) identical(child$format, "l"),
-        logical(1)
-      )
-      if (!any(is_int64)) {
-        return(NULL)
-      }
-      for (i in which(is_int64)) {
-        ptype[[i]] <- bit64::integer64()
-      }
-      ptype
-    },
+    rewrite_int64(nanoarrow::infer_nanoarrow_ptype(schema), schema$children),
     error = function(e) NULL
   )
+}
+
+#' Retype the int64 columns of an inferred prototype, at any depth
+#'
+#' Recursive, because a `long` inside a `struct` loses precision in exactly the
+#' way a top-level one does, and silently: a struct field holding
+#' 9007199254740993 read back as 9007199254740992 while the same value in a
+#' top-level column came back exact. A struct arrives in R as a data frame
+#' column, so the fix is the same rewrite applied one level down.
+#'
+#' Returns `NULL` when there is no `int64` anywhere in the subtree, which is how
+#' the caller decides to leave nanoarrow's defaults alone entirely.
+#'
+#' `list` and `map` are deliberately not descended into. Their prototypes are not
+#' data frames, so retyping an element would mean constructing a `list_of` ptype
+#' rather than substituting a column, and a `list<long>` remains as nanoarrow
+#' converts it. That is the behaviour these columns already had; the struct case
+#' is the one Iceberg users actually hit, and the one now documented as
+#' supported.
+#' @noRd
+rewrite_int64 <- function(ptype, children) {
+  # A schema whose prototype is not a data frame, or does not line up with its
+  # own children, is not something to guess at.
+  if (!is.data.frame(ptype) || length(children) != length(ptype)) {
+    return(NULL)
+  }
+
+  changed <- FALSE
+  for (i in seq_along(children)) {
+    # Arrow C data interface format strings: "l" is int64, "+s" is struct.
+    format <- children[[i]]$format
+    if (identical(format, "l")) {
+      ptype[[i]] <- bit64::integer64()
+      changed <- TRUE
+    } else if (identical(format, "+s")) {
+      nested <- rewrite_int64(ptype[[i]], children[[i]]$children)
+      if (!is.null(nested)) {
+        ptype[[i]] <- nested
+        changed <- TRUE
+      }
+    }
+  }
+
+  if (changed) ptype else NULL
 }
 
 #' Give a UTC timestamp column R's own name for UTC

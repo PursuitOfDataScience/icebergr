@@ -89,11 +89,81 @@ enum Node {
     },
 }
 
+/// A predicate, plus what the scan needs to know about how to apply it.
+pub struct BuiltPredicate {
+    pub predicate: Predicate,
+    /// Whether any column the predicate references is a `decimal`.
+    ///
+    /// iceberg-rust 0.10.0's row-selection filter drops *every* row for an
+    /// ordering comparison against a decimal column. On a `decimal(10, 2)`
+    /// holding 1.50, 2.25, 10.00 and 99.99, `price > 2.25` returns nothing and
+    /// `price <= 10` returns nothing, while the same scans with row selection
+    /// disabled return the two and three rows they should. Equality is
+    /// unaffected, which is what makes it so easy to miss.
+    ///
+    /// Established by toggling row-group filtering and row selection
+    /// independently, over every primitive type this package can write: only row
+    /// selection changes the answer, and only for `decimal`. So the scan turns
+    /// row selection off when this is set. Manifest, file and row-group pruning
+    /// all still apply, so what it costs is the last and narrowest pruning stage
+    /// on decimal filters only -- against silently returning no rows at all,
+    /// which is the worst way for a filter to be wrong.
+    pub has_decimal: bool,
+}
+
 /// Build a predicate from the JSON tree produced by the R translator.
-pub fn build_predicate(json: &str, schema: &Schema, case_sensitive: bool) -> RResult<Predicate> {
+pub fn build_predicate(
+    json: &str,
+    schema: &Schema,
+    case_sensitive: bool,
+) -> RResult<BuiltPredicate> {
     let node: Node =
         serde_json::from_str(json).map_err(|e| ctx("could not read the filter expression", e))?;
-    build(&node, schema, case_sensitive)
+    let predicate = build(&node, schema, case_sensitive)?;
+
+    let mut cols = Vec::new();
+    referenced_columns(&node, &mut cols);
+    // Every one of these resolved while `build` ran, so a failed lookup here is
+    // not reachable; treating it as "not a decimal" keeps this from inventing a
+    // second place that can reject a filter.
+    let has_decimal = cols.iter().any(|c| {
+        matches!(
+            reference(c, schema, case_sensitive),
+            Ok((_, PrimitiveType::Decimal { .. }))
+        )
+    });
+
+    Ok(BuiltPredicate {
+        predicate,
+        has_decimal,
+    })
+}
+
+/// Every column the predicate refers to.
+fn referenced_columns<'a>(node: &'a Node, out: &mut Vec<&'a str>) {
+    match node {
+        Node::And { args } | Node::Or { args } => {
+            for n in args {
+                referenced_columns(n, out);
+            }
+        }
+        Node::Not { arg } => referenced_columns(arg, out),
+        Node::AlwaysTrue | Node::AlwaysFalse => {}
+        Node::Eq { col, .. }
+        | Node::Ne { col, .. }
+        | Node::Lt { col, .. }
+        | Node::Lte { col, .. }
+        | Node::Gt { col, .. }
+        | Node::Gte { col, .. }
+        | Node::StartsWith { col, .. }
+        | Node::NotStartsWith { col, .. }
+        | Node::IsNull { col }
+        | Node::IsNotNull { col }
+        | Node::IsNan { col }
+        | Node::IsNotNan { col }
+        | Node::In { col, .. }
+        | Node::NotIn { col, .. } => out.push(col.as_str()),
+    }
 }
 
 fn build(node: &Node, schema: &Schema, cs: bool) -> RResult<Predicate> {

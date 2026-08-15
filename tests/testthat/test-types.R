@@ -150,6 +150,55 @@ test_that("integer64 survives without losing precision", {
   expect_equal(as.character(got$big), as.character(big))
 })
 
+test_that("integer64 stays exact inside a struct, not only at the top level", {
+  skip_if_not_installed("bit64")
+  catalog <- local_namespace()
+  schema <- nanoarrow::na_struct(list(
+    flat = nanoarrow::na_int64(),
+    nest = nanoarrow::na_struct(list(
+      big = nanoarrow::na_int64(),
+      lab = nanoarrow::na_string()
+    ))
+  ))
+  tbl <- icebergr_create_table(catalog, "db.nested64", schema)
+
+  # 2^53 + 1: the first integer a double cannot represent. The prototype that
+  # asks nanoarrow for integer64 only looked at top-level children, so this came
+  # back as 9007199254740992 from inside the struct while the identical top-level
+  # value came back exact.
+  exact <- "9007199254740993"
+  events <- data.frame(flat = bit64::as.integer64(exact))
+  events$nest <- data.frame(big = bit64::as.integer64(exact), lab = "x")
+  tbl <- icebergr_append(tbl, events)
+
+  got <- icebergr_collect(tbl)
+  expect_equal(as.character(got$flat), exact)
+  expect_equal(as.character(got$nest$big), exact)
+  expect_equal(got$nest$lab, "x")
+
+  # The limit path converts batch by batch rather than the whole stream, so it
+  # needs the same prototype.
+  limited <- icebergr_collect(icebergr_scan(tbl, limit = 1))
+  expect_equal(as.character(limited$nest$big), exact)
+})
+
+test_that("a struct with no int64 in it is left as nanoarrow converts it", {
+  catalog <- local_namespace()
+  schema <- nanoarrow::na_struct(list(
+    a = nanoarrow::na_int32(),
+    s = nanoarrow::na_struct(list(d = nanoarrow::na_double()))
+  ))
+  tbl <- icebergr_create_table(catalog, "db.plain", schema)
+  events <- data.frame(a = 1L)
+  events$s <- data.frame(d = 1.5)
+  tbl <- icebergr_append(tbl, events)
+
+  got <- icebergr_collect(tbl)
+  expect_type(got$a, "integer")
+  expect_s3_class(got$s, "data.frame")
+  expect_equal(got$s$d, 1.5)
+})
+
 test_that("a factor becomes character, as documented", {
   catalog <- local_namespace()
   events <- data.frame(

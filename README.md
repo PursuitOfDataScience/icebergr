@@ -160,6 +160,7 @@ against the optional features you compiled in.
 | ✅ | Nested types — `struct`, `list` and `map` read and write |
 | 🦀 | Row `limit` pushdown — `limit` bounds decoding, not planning |
 | 🦀 | Pushdown *on* a nested field — read the parent column and filter in R |
+| ✅ | `decimal` filters — row-level selection is disabled for these scans, because `iceberg-rust` 0.10.0 drops every row of an ordering comparison on a decimal; file and row group pruning still apply |
 
 **🕰️ Time travel**
 
@@ -213,6 +214,7 @@ R types survive the Arrow round trip as follows:
 | `POSIXct` | `timestamptz` | Instant preserved; normalised to UTC |
 | `bit64::integer64` | `long` | Unchanged, full 64-bit precision. Reading a `long` back needs `bit64` installed; without it Arrow's `int64` narrows to a `double`. |
 | `factor` | `string` | **Returns `character`.** Iceberg has no dictionary type, so levels cannot be carried. |
+| `POSIXct` | `timestamp_ns` | Readable, writable and filterable, but a `POSIXct` is a double of *seconds*, so sub-microsecond precision is lost. `nanoarrow` warns on every such read — it triggers on the nanosecond count exceeding 2^53, which any present-day instant does, so the warning appears even when nothing was actually lost. |
 | data frame column | `struct` | Unchanged, and comes back as a data frame column. Iceberg cannot push a filter or a projection down *onto* a nested field, so read the parent column and subset it in R. |
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as random

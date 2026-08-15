@@ -103,6 +103,50 @@ test_that("%in% keeps the class of a Date or timestamp set", {
   expect_setequal(stamps$id, c(1L, 3L))
 })
 
+test_that("a decimal filter returns the rows it should", {
+  catalog <- local_namespace()
+  schema <- nanoarrow::na_struct(list(
+    id = nanoarrow::na_int32(),
+    price = nanoarrow::na_decimal128(precision = 10, scale = 2)
+  ))
+  tbl <- icebergr_create_table(catalog, "db.prices", schema)
+  tbl <- icebergr_append(
+    tbl,
+    data.frame(id = 1:4L, price = c(1.50, 2.25, 10.00, 99.99))
+  )
+
+  # Every one of these returned zero rows. iceberg-rust 0.10.0's row-selection
+  # filter discards every row of an ordering comparison against a decimal
+  # column, so the scan now runs with that stage off when a decimal is involved.
+  # Equality was unaffected, which is what made it easy to miss.
+  expect_setequal(icebergr_collect(icebergr_scan(tbl, filter = price > 2.25))$id, c(3L, 4L))
+  expect_setequal(icebergr_collect(icebergr_scan(tbl, filter = price <= 10))$id, 1:3L)
+  expect_setequal(icebergr_collect(icebergr_scan(tbl, filter = price < 2.25))$id, 1L)
+  expect_setequal(icebergr_collect(icebergr_scan(tbl, filter = price >= 10))$id, c(3L, 4L))
+  expect_setequal(icebergr_collect(icebergr_scan(tbl, filter = price == 1.50))$id, 1L)
+  expect_setequal(icebergr_collect(icebergr_scan(tbl, filter = price != 1.50))$id, 2:4L)
+  expect_setequal(
+    icebergr_collect(icebergr_scan(tbl, filter = price %in% c(1.50, 99.99)))$id,
+    c(1L, 4L)
+  )
+  # A decimal on one side of a compound filter is enough to disable the stage,
+  # and the other half of the filter must still be applied.
+  expect_setequal(
+    icebergr_collect(icebergr_scan(tbl, filter = price > 2.25 & id < 4L))$id,
+    3L
+  )
+  # Passing the value as a string is exact, where a double is at the mercy of
+  # binary floating point.
+  expect_setequal(icebergr_collect(icebergr_scan(tbl, filter = price > "2.25"))$id, c(3L, 4L))
+
+  # More decimal places than the column's scale cannot be compared without
+  # rounding, so it is refused rather than silently truncated.
+  expect_error(
+    icebergr_collect(icebergr_scan(tbl, filter = price > 2.255)),
+    "decimal places"
+  )
+})
+
 test_that("%in% with an empty set matches nothing rather than everything", {
   tbl <- split_table()
   # iceberg-rust reads an empty IN list as a predicate it cannot use, so this has

@@ -33,7 +33,7 @@ fn configure(
     batch_size: Option<i32>,
     case_sensitive: bool,
     row_group_filtering: bool,
-    row_selection: bool,
+    mut row_selection: bool,
 ) -> RResult<TableScan> {
     let mut builder = tbl.table.scan().with_case_sensitive(case_sensitive);
 
@@ -50,8 +50,15 @@ fn configure(
     // Predicate pushdown: used to prune manifests, files and row groups.
     if let Some(json) = filter_json {
         let schema = tbl.schema_at(snapshot)?;
-        let predicate = build_predicate(json, &schema, case_sensitive)?;
-        builder = builder.with_filter(predicate);
+        let built = build_predicate(json, &schema, case_sensitive)?;
+        // A decimal comparison and iceberg-rust's row-selection filter cannot
+        // both be had: see BuiltPredicate::has_decimal for what that filter does
+        // to `price > 2.25`. Correct rows at the cost of the narrowest pruning
+        // stage is not a close call.
+        if built.has_decimal {
+            row_selection = false;
+        }
+        builder = builder.with_filter(built.predicate);
     }
 
     if let Some(n) = batch_size

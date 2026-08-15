@@ -69,6 +69,12 @@ Anything more elaborate should be applied in R after collecting.
 
 \code{startsWith()} is pushed down only against a \code{string} column, since Iceberg
 defines a prefix comparison for no other type.
+
+A filter on a \code{decimal} column is pushed down, but with \code{iceberg-rust}'s
+row-level selection turned off for that scan: in 0.10.0 that stage drops every
+row of an ordering comparison against a decimal, so \code{price > 2.25} returned
+nothing at all. File and row-group pruning still apply, so such a scan is a
+little less selective and still correct.
 }
 
 \section{Column names and time travel}{

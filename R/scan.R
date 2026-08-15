@@ -46,6 +46,12 @@
 #' `startsWith()` is pushed down only against a `string` column, since Iceberg
 #' defines a prefix comparison for no other type.
 #'
+#' A filter on a `decimal` column is pushed down, but with `iceberg-rust`'s
+#' row-level selection turned off for that scan: in 0.10.0 that stage drops every
+#' row of an ordering comparison against a decimal, so `price > 2.25` returned
+#' nothing at all. File and row-group pruning still apply, so such a scan is a
+#' little less selective and still correct.
+#'
 #' @section Column names and time travel:
 #' Iceberg records a schema per snapshot, so `filter` and `select` are resolved
 #' against the schema of the snapshot actually being read -- the one named by
