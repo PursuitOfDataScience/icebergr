@@ -91,3 +91,54 @@ rolled_back_table <- function(warehouse, table, to_snapshot) {
     rolled_at = as.POSIXct(as.numeric(rolled_at) / 1000, origin = "1970-01-01", tz = "UTC")
   )
 }
+
+# Give a freshly created, empty table a partition spec, and hand back a handle.
+#
+# icebergr cannot create a partitioned table -- that is out of scope, and stated
+# as such -- but it is documented as *reporting* one, and a table registered from
+# another engine is exactly how a user would meet one. So the spec is written by
+# hand. Only ever applied to a table with no data: rewriting the spec of a table
+# that already holds files would contradict the partition tuples in its manifests.
+#
+# `fields` is a list of list(source_id =, field_id =, transform =, name =).
+partitioned_table <- function(warehouse, table, fields) {
+  files <- list.files(warehouse,
+    pattern = "metadata\\.json$",
+    recursive = TRUE, full.names = TRUE
+  )
+  newest <- files[order(file.mtime(files))][length(files)]
+  json <- paste(readLines(newest, warn = FALSE), collapse = "")
+
+  entries <- vapply(
+    fields,
+    function(f) {
+      sprintf(
+        '{"source-id":%d,"field-id":%d,"transform":"%s","name":"%s"}',
+        f$source_id, f$field_id, f$transform, f$name
+      )
+    },
+    character(1)
+  )
+  spec <- paste0(
+    '"partition-specs":[{"spec-id":0,"fields":[',
+    paste(entries, collapse = ","), "]}]"
+  )
+  spec <- sub('"$', "", spec)
+
+  replaced <- sub('"partition-specs":\\[[^]]*\\]\\}\\]', spec, json)
+  # A silent no-op here would leave the table unpartitioned and the test would
+  # then assert nothing at all.
+  stopifnot(!identical(replaced, json))
+  json <- sub(
+    '"last-partition-id":[0-9]+',
+    paste0('"last-partition-id":', max(vapply(fields, function(f) f$field_id, numeric(1)))),
+    replaced
+  )
+
+  path <- file.path(dirname(newest), "99999-partitioned.metadata.json")
+  writeLines(json, path)
+
+  reopened <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(reopened, sub("[.][^.]*$", "", table))
+  icebergr_register_table(reopened, table, path)
+}

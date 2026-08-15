@@ -163,6 +163,12 @@ icebergr_register_table <- function(catalog, table, metadata_location) {
 #' Appending zero rows is a no-op: it returns the table unchanged rather than
 #' committing an empty snapshot.
 #'
+#' The table must be unpartitioned. An append to a partitioned table would have
+#' to compute a partition value for every row, which this version does not do, so
+#' it is refused before any data is written rather than failing at the commit with
+#' files already left in the warehouse. Partitioned tables can still be read; see
+#' [icebergr_partitions()] and [icebergr_spec_support()].
+#'
 #' This is an append. Row-level deletes, overwrites and MERGE are not supported;
 #' see [icebergr_spec_support()].
 #'

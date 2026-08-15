@@ -178,6 +178,7 @@ against the optional features you compiled in.
 | ✅ | Append rows |
 | ✅ | Create a table (unpartitioned) and a namespace |
 | ✅ | Register an existing table |
+| 🚧 | Appending to a *partitioned* table — refused before anything is written, since a partition value per row is not computed. Reading one works |
 | 🦀 | Row-level deletes and `MERGE` / upsert — *reading* such tables works |
 | 🚧 | Overwrite writes, partitioned table creation |
 
@@ -187,7 +188,7 @@ against the optional features you compiled in.
 | :-: | --- |
 | ✅ | REST catalog |
 | ✅ | In-process `memory` catalog, for local warehouses |
-| ✅ | Schema and partition spec inspection |
+| ✅ | Schema and partition spec inspection, including a partitioned table's spec |
 | ✅ | Table properties, and `icebergr_reload()` to see another session's commits |
 | 🚧 | Setting table properties — needs an `update_properties` transaction |
 | ⚙️ | AWS Glue — build with the `glue` Cargo feature |

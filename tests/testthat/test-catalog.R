@@ -221,6 +221,76 @@ test_that("reload picks up a commit another handle made", {
   expect_error(icebergr_reload("not a table"), "icebergr_table")
 })
 
+test_that("an unpartitioned table reports zero partition fields", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+
+  parts <- icebergr_partitions(tbl)
+  expect_s3_class(parts, "tbl_df")
+  expect_equal(nrow(parts), 0L)
+  expect_named(
+    parts,
+    c("spec_id", "field_id", "name", "transform", "source_id", "source_name")
+  )
+})
+
+test_that("a partitioned table's spec is reported, source names and all", {
+  warehouse <- withr::local_tempdir("partitioned")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  icebergr_create_table(catalog, "db.events", data.frame(
+    id = integer(), event = character(), day = as.Date(character())
+  ))
+
+  # icebergr cannot create one of these, so nothing exercised this function's
+  # actual purpose -- including the source_id-to-name lookup and the transform
+  # rendering.
+  tbl <- partitioned_table(warehouse, "db.events", list(
+    list(source_id = 2L, field_id = 1000L, transform = "identity", name = "event_part"),
+    list(source_id = 3L, field_id = 1001L, transform = "month", name = "day_month")
+  ))
+
+  parts <- icebergr_partitions(tbl)
+  expect_equal(nrow(parts), 2L)
+  expect_equal(parts$spec_id, c(0L, 0L))
+  expect_equal(parts$field_id, c(1000L, 1001L))
+  expect_equal(parts$name, c("event_part", "day_month"))
+  expect_equal(parts$transform, c("identity", "month"))
+  expect_equal(parts$source_id, c(2L, 3L))
+  # Resolved from the id through the schema, which is the part worth checking.
+  expect_equal(parts$source_name, c("event", "day"))
+
+  # The print method's "partitioned by" branch was equally unreachable.
+  expect_output(print(tbl), "partitioned by: identity(event), month(day)", fixed = TRUE)
+})
+
+test_that("appending to a partitioned table is refused before anything is written", {
+  warehouse <- withr::local_tempdir("partitioned")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  icebergr_create_table(catalog, "db.events", data.frame(
+    id = integer(), event = character(), day = as.Date(character())
+  ))
+  tbl <- partitioned_table(warehouse, "db.events", list(
+    list(source_id = 2L, field_id = 1000L, transform = "identity", name = "event_part")
+  ))
+
+  rows <- data.frame(id = 1:2L, event = c("a", "b"), day = as.Date("2024-01-01") + 0:1)
+  before <- list.files(warehouse, pattern = "\\.parquet$", recursive = TRUE)
+
+  # It used to get as far as the commit -- "Partition value is not compatible with
+  # partition type" -- with the Parquet files already in the warehouse and nothing
+  # referencing them.
+  expect_error(icebergr_append(tbl, rows), "partitioned by identity(event)", fixed = TRUE)
+  expect_error(icebergr_append(tbl, rows), "unpartitioned tables")
+
+  after <- list.files(warehouse, pattern = "\\.parquet$", recursive = TRUE)
+  expect_equal(after, before)
+
+  # Reading one is still fine; only writing is refused.
+  expect_equal(nrow(icebergr_collect(tbl)), 0L)
+})
+
 test_that("table properties are readable", {
   catalog <- local_namespace()
   tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))

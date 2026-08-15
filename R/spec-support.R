@@ -5,44 +5,46 @@
 # runtime.
 feature_matrix <- function() {
   tibble::tribble(
-    ~feature,                     ~supported, ~reason,
-    "Read table (Arrow)",         TRUE,       NA_character_,
-    "Predicate pushdown",         TRUE,       NA_character_,
-    "Projection pushdown",        TRUE,       NA_character_,
-    "Row group pruning",          TRUE,       NA_character_,
-    "Snapshot time travel",       TRUE,       NA_character_,
-    "Timestamp time travel",      TRUE,       "Resolved in R against snapshot history; iceberg-rust takes only snapshot ids",
-    "Snapshot history",           TRUE,       NA_character_,
-    "Append writes",              TRUE,       NA_character_,
-    "Create table",               TRUE,       "Unpartitioned only",
-    "Create namespace",           TRUE,       NA_character_,
-    "Register existing table",    TRUE,       NA_character_,
-    "REST catalog",               TRUE,       NA_character_,
-    "In-process memory catalog",  TRUE,       NA_character_,
-    "AWS Glue catalog",           NA,         "Requires the optional 'glue' Cargo feature",
-    "Object storage (S3)",        NA,         "Requires the optional 's3' Cargo feature",
-    "Read positional deletes",    TRUE,       "Applied by iceberg-rust during the scan",
-    "Read equality deletes",      TRUE,       "Applied by iceberg-rust during the scan",
-    "Nested types (read/write)",  TRUE,       "struct and list round trip; a struct arrives as a data frame column. A map column can be created, but writing map values needs the 'arrow' package: nanoarrow cannot build a map array on its own",
-    "Decimal predicates",         TRUE,       "Row-level selection is disabled for these scans; iceberg-rust 0.10.0 drops every row of an ordering comparison on a decimal. File and row group pruning still apply",
-    "Nanosecond timestamps",      TRUE,       "Read, written and filtered, but R's POSIXct is a double of seconds, so sub-microsecond precision is lost and nanoarrow warns on every such read",
-    "Nested field pushdown",      FALSE,      "iceberg-rust cannot plan a scan filtered or projected on a nested field; read the parent column and filter in R",
-    "Table properties (read)",    TRUE,       NA_character_,
-    "Table properties (write)",   FALSE,      "Needs an update_properties transaction; out of scope for icebergr 0.1.0",
-    "Hadoop/filesystem catalog",  FALSE,      "Not implemented in iceberg-rust; use type = 'memory'",
-    "Row limit pushdown",         FALSE,      "iceberg-rust has no row limit in its scan API; limit is applied after the scan",
-    "Row-level deletes (write)",  FALSE,      "Not implemented in iceberg-rust",
-    "MERGE / upsert",             FALSE,      "Not implemented in iceberg-rust",
-    "Overwrite writes",           FALSE,      "Out of scope for icebergr 0.1.0",
-    "Schema evolution",           FALSE,      "Out of scope for icebergr 0.1.0",
-    "Partitioned table creation", FALSE,      "Out of scope for icebergr 0.1.0",
-    "Partition evolution",        FALSE,      "Out of scope for icebergr 0.1.0",
-    "Compaction / maintenance",   FALSE,      "Out of scope for icebergr 0.1.0",
-    "dbplyr lazy verbs",          FALSE,      "Out of scope for icebergr 0.1.0",
-    "Table encryption",           FALSE,      "Not exposed in icebergr 0.1.0",
-    "Spec v1 tables",             TRUE,       NA_character_,
-    "Spec v2 tables",             TRUE,       NA_character_,
-    "Spec v3 tables",             NA,         "Metadata is parsed, but v3 features (row lineage, deletion vectors) are not exposed"
+    ~feature, ~supported, ~reason,
+    "Read table (Arrow)", TRUE, NA_character_,
+    "Predicate pushdown", TRUE, NA_character_,
+    "Projection pushdown", TRUE, NA_character_,
+    "Row group pruning", TRUE, NA_character_,
+    "Snapshot time travel", TRUE, NA_character_,
+    "Timestamp time travel", TRUE, "Resolved in R against snapshot history; iceberg-rust takes only snapshot ids",
+    "Snapshot history", TRUE, NA_character_,
+    "Append writes", TRUE, NA_character_,
+    "Create table", TRUE, "Unpartitioned only",
+    "Create namespace", TRUE, NA_character_,
+    "Register existing table", TRUE, NA_character_,
+    "REST catalog", TRUE, NA_character_,
+    "In-process memory catalog", TRUE, NA_character_,
+    "AWS Glue catalog", NA, "Requires the optional 'glue' Cargo feature",
+    "Object storage (S3)", NA, "Requires the optional 's3' Cargo feature",
+    "Read positional deletes", TRUE, "Applied by iceberg-rust during the scan",
+    "Read equality deletes", TRUE, "Applied by iceberg-rust during the scan",
+    "Nested types (read/write)", TRUE, "struct and list round trip; a struct arrives as a data frame column. A map column can be created, but writing map values needs the 'arrow' package: nanoarrow cannot build a map array on its own",
+    "Decimal predicates", TRUE, "Row-level selection is disabled for these scans; iceberg-rust 0.10.0 drops every row of an ordering comparison on a decimal. File and row group pruning still apply",
+    "Nanosecond timestamps", TRUE, "Read, written and filtered, but R's POSIXct is a double of seconds, so sub-microsecond precision is lost and nanoarrow warns on every such read",
+    "Nested field pushdown", FALSE, "iceberg-rust cannot plan a scan filtered or projected on a nested field; read the parent column and filter in R",
+    "Table properties (read)", TRUE, NA_character_,
+    "Table properties (write)", FALSE, "Needs an update_properties transaction; out of scope for icebergr 0.1.0",
+    "Hadoop/filesystem catalog", FALSE, "Not implemented in iceberg-rust; use type = 'memory'",
+    "Row limit pushdown", FALSE, "iceberg-rust has no row limit in its scan API; limit is applied after the scan",
+    "Row-level deletes (write)", FALSE, "Not implemented in iceberg-rust",
+    "MERGE / upsert", FALSE, "Not implemented in iceberg-rust",
+    "Overwrite writes", FALSE, "Out of scope for icebergr 0.1.0",
+    "Schema evolution", FALSE, "Out of scope for icebergr 0.1.0",
+    "Partitioned table creation", FALSE, "Out of scope for icebergr 0.1.0",
+    "Read a partitioned table", TRUE, "The spec is reported by icebergr_partitions() and the data reads normally",
+    "Append to a partitioned table", FALSE, "An append would have to compute a partition value per row, which this version does not do; it is refused before anything is written",
+    "Partition evolution", FALSE, "Out of scope for icebergr 0.1.0",
+    "Compaction / maintenance", FALSE, "Out of scope for icebergr 0.1.0",
+    "dbplyr lazy verbs", FALSE, "Out of scope for icebergr 0.1.0",
+    "Table encryption", FALSE, "Not exposed in icebergr 0.1.0",
+    "Spec v1 tables", TRUE, NA_character_,
+    "Spec v2 tables", TRUE, NA_character_,
+    "Spec v3 tables", NA, "Metadata is parsed, but v3 features (row lineage, deletion vectors) are not exposed"
   )
 }
 
@@ -121,16 +123,35 @@ print.icebergr_spec_support <- function(x, ...) {
   if (nrow(unavailable)) {
     cat("\n  Not in this build (", nrow(unavailable), "):\n", sep = "")
     for (i in seq_len(nrow(unavailable))) {
-      cat("    ? ", unavailable$feature[[i]], " - ", unavailable$reason[[i]], "\n", sep = "")
+      cat_feature("?", unavailable$feature[[i]], unavailable$reason[[i]])
     }
   }
 
   cat("\n  Not supported (", nrow(unsupported), "):\n", sep = "")
   for (i in seq_len(nrow(unsupported))) {
-    cat("    - ", unsupported$feature[[i]], " - ", unsupported$reason[[i]], "\n", sep = "")
+    cat_feature("-", unsupported$feature[[i]], unsupported$reason[[i]])
   }
 
   invisible(x)
+}
+
+#' One feature and its reason, wrapped to the terminal
+#'
+#' The reasons are sentences, not labels -- several run past 140 characters, which
+#' a terminal wraps wherever it happens to land, mid-word and without indent.
+#' Wrapping here keeps the continuation aligned under the feature it belongs to.
+#' @noRd
+cat_feature <- function(marker, feature, reason) {
+  entry <- if (is.na(reason) || !nzchar(reason)) {
+    paste(marker, feature)
+  } else {
+    paste0(marker, " ", feature, " - ", reason)
+  }
+  # A floor of 40 so a very narrow terminal still produces something readable
+  # rather than one word per line.
+  width <- max(40L, getOption("width", 80L))
+  writeLines(strwrap(entry, width = width, initial = "    ", prefix = "        "))
+  invisible(NULL)
 }
 
 #' @noRd

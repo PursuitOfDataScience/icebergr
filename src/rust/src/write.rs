@@ -144,6 +144,38 @@ fn rs_table_append(
     let metadata = table.metadata();
     let iceberg_schema = metadata.current_schema().clone();
 
+    // Refused here, before a byte is written. icebergr writes through a plain
+    // data-file writer and computes no partition tuples, so every file it
+    // produces for a partitioned table carries an empty one -- which iceberg-rust
+    // rejects at commit with "Partition value is not compatible with partition
+    // type", by which point the Parquet files are already in the warehouse.
+    // Nothing then references them, and this package has no maintenance operation
+    // to remove them, so a failed append would leave litter behind on every
+    // attempt as well as reporting the wrong thing.
+    let spec = metadata.default_partition_spec();
+    if !spec.fields().is_empty() {
+        let by: Vec<String> = spec
+            .fields()
+            .iter()
+            .map(|f| {
+                let source = iceberg_schema
+                    .field_by_id(f.source_id)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| f.source_id.to_string());
+                format!("{}({})", f.transform, source)
+            })
+            .collect();
+        return Err(extendr_api::Error::Other(format!(
+            "cannot append to {:?}: it is partitioned by {}, and icebergr 0.1.0 \
+             writes only to unpartitioned tables.\n\
+             An append would have to compute a partition value for every row, \
+             which this version does not do. Write to this table with an engine \
+             that supports partitioned writes; see icebergr_spec_support().",
+            table.identifier().name(),
+            by.join(", ")
+        )));
+    }
+
     // The Iceberg schema converted to Arrow carries the field-id metadata that
     // the Parquet writer needs.
     let target: SchemaRef = Arc::new(
