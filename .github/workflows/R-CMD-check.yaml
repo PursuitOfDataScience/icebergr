@@ -382,8 +382,20 @@ jobs:
       # Windows while passing everywhere else, so only one platform's R tests
       # caught it. A `cargo check --all-targets` compiles these but never runs
       # them, which is not the same thing.
+      #
+      # `cargo test` builds a *binary*, and a binary that links libR needs it on
+      # the loader path. Nothing here provides that: `R CMD ...` exports
+      # LD_LIBRARY_PATH from `etc/ldpaths`, but a bare test harness gets no such
+      # help, and setup-r installs R under /opt/R/<version>, which is not
+      # anywhere ldconfig looks. The step ran green while every unit test was a
+      # string function -- nothing referenced an R symbol, so `ld --as-needed`
+      # left libR out of the harness's dependencies entirely -- and started
+      # failing with "libR.so: cannot open shared object file" the moment a test
+      # called something returning extendr's own `RResult`.
       - name: cargo test
-        run: cargo test --manifest-path src/rust/Cargo.toml --lib
+        run: |
+          export LD_LIBRARY_PATH="$(R RHOME)/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          cargo test --manifest-path src/rust/Cargo.toml --lib
 
   # Secondary Rust checks. Slower and less urgent than the type-check above.
   cargo-extras:

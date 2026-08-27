@@ -137,7 +137,8 @@ Much faster than a full `R CMD check`, and it catches most mistakes:
 cargo fmt   --manifest-path src/rust/Cargo.toml
 cargo check --manifest-path src/rust/Cargo.toml --all-targets
 cargo clippy --manifest-path src/rust/Cargo.toml -- -D warnings
-cargo test  --manifest-path src/rust/Cargo.toml --lib
+LD_LIBRARY_PATH="$(R RHOME)/lib" \
+  cargo test --manifest-path src/rust/Cargo.toml --lib
 ```
 
 `cargo check` type-checks without linking, so it does not need libR. Run it
@@ -150,8 +151,25 @@ R — anything taking a path or a file name, in particular. It earns its place:
 append on Windows and passed on every other platform, so a single OS's R tests
 were the only thing standing between that and a release. Note that `cargo check
 --all-targets` compiles `#[cfg(test)]` code without running it, which is not the
-same thing. Keep these tests free of `extendr` calls so the test binary needs no
-R session.
+same thing.
+
+Nothing in these tests may **call into R** — there is no R session under a test
+binary — but they may use `extendr`'s own types, and `predicate.rs`'s do: `datum()`
+returns `RResult`, and what is worth pinning about it is that a bound past
+`i64::MAX` is refused rather than clamped. That is why the command above sets
+`LD_LIBRARY_PATH`. `cargo test` builds a binary, that binary links libR
+(`readelf -d` shows `NEEDED libR.so` and no RPATH), and nothing puts R's library
+directory on the loader path for a bare process the way `R CMD ...` does. Without
+it the harness dies before the first test with
+
+```
+error while loading shared libraries: libR.so: cannot open shared object file
+```
+
+It needed no such help for as long as every test was a string function, because
+`ld --as-needed` leaves libR out when nothing references an R symbol. So this is
+a wall that appears the first time a unit test touches `extendr`, on a commit
+that changed nothing about linking — which is exactly how CI met it.
 
 ## Optional features
 
