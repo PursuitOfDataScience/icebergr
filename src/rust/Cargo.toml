@@ -3,9 +3,19 @@ name = "icebergr"
 publish = false
 version = "0.1.0"
 edition = "2024"
-# Tracks iceberg-rust's MSRV, which is a rolling target. Keep this in sync with
-# SystemRequirements in ../../DESCRIPTION; tools/msrv.R reads that field.
-rust-version = "1.94"
+# The floor this package is actually built and tested against. Keep this in sync
+# with SystemRequirements in ../../DESCRIPTION; tools/msrv.R reads that field and
+# is what turns too old a toolchain into a readable error.
+#
+# It sits deliberately *below* what iceberg-rust declares. `iceberg`,
+# `iceberg-catalog-rest`, `iceberg-catalog-glue` and `fastnum` each set
+# rust-version = "1.94" under upstream's rolling-MSRV policy, but none of them
+# uses a language or library feature newer than this: the whole tree compiles,
+# and the test suite passes, on 1.92. CRAN's Windows build farm carries 1.92, so
+# src/Makevars{,.win} pass --ignore-rust-version rather than let a declared
+# floor veto a build that demonstrably works. Raise this only to a version the
+# package has actually been checked against.
+rust-version = "1.92"
 
 [lib]
 crate-type = ["staticlib"]

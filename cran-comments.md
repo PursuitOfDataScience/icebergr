@@ -1,9 +1,42 @@
 # cran-comments.md
 
+## This is a resubmission
+
+The previous submission (0.1.0, 2026-08-27) was rejected by the incoming
+pre-tests with 1 ERROR on r-devel-windows-x86_64: installation failed because
+`configure` refused a toolchain below rustc 1.94. The Debian flavour installed
+and checked cleanly, so the failure was specific to the Windows farm's rustc
+1.92.0.
+
+Thank you for running it — that was the one input I said in the previous
+submission I had been unable to measure, and it turned out that the required
+version was wrong rather than the toolchain being too old.
+
+Changes in this version:
+
+* **The declared minimum Rust version is now 1.92, and the package builds on it.**
+  `SystemRequirements` reads `rustc >= 1.92`. The 1.94 in the previous submission
+  came from four crates in the tree declaring `rust-version = "1.94"` under
+  `iceberg-rust`'s rolling-MSRV policy; none of them uses a language or library
+  feature newer than 1.92. Verified by building the full vendored tree offline
+  with rustc 1.92.0 and running the whole check suite against it — see "Rust
+  version" below. No dependency was downgraded and no functionality was dropped.
+* `src/Makevars` and `src/Makevars.win` pass `--ignore-rust-version` to cargo,
+  since cargo rejects a build outright when a *dependency* declares more than the
+  active toolchain. `tools/msrv.R` remains the gate on the real floor, so a
+  genuinely too-old toolchain still fails at `configure` with a readable message.
+* Reworded the Description to remove the three words the pre-test flagged as
+  possibly misspelled. `README` is now quoted; "schemas" and "pushdown" are gone
+  in favour of wording that is not jargon.
+
+The tarball size is unchanged, and the request about it below stands.
+
 ## Test environments
 
 - Local: CentOS Linux 8 (x86_64), R 4.6.0, rustc 1.97.1 — vendored, offline
   build, the same path a CRAN build takes.
+- Local: the same machine and R, with **rustc 1.92.0** — the version the Windows
+  farm reported — again vendored and offline. Added for this resubmission.
 - GitHub Actions: ubuntu-latest (R release and R oldrel-1), macos-latest
   (R release), windows-latest (R release), building against crates.io.
 - GitHub Actions: a separate job that vendors every dependency and then builds
@@ -39,7 +72,7 @@ implementation, via `extendr`.
 
 ### Rust is required, and the vendored sources are large
 
-`SystemRequirements` declares `Cargo (Rust's package manager), rustc >= 1.94, xz`.
+`SystemRequirements` declares `Cargo (Rust's package manager), rustc >= 1.92, xz`.
 
 The package follows "Using Rust in CRAN packages" in full:
 
@@ -114,26 +147,63 @@ to withdraw rather than press the point.
 
 ### Rust version
 
-`iceberg-rust` 0.10.0 requires rustc 1.94 and Rust edition 2024 (the edition
-itself needs only 1.85). Upstream operates a rolling MSRV.
+`SystemRequirements` declares rustc >= 1.92. That is a measured floor: the
+complete vendored tree was built offline with rustc 1.92.0 (the version
+`00install.out` reported from the Windows farm), and `R CMD check --as-cran` was
+run against the result.
 
-1.94 is the exact floor, not a padded one: it is the highest `rust-version`
-declared anywhere in the pinned lock file. Four crates set it — `iceberg`,
-`iceberg-catalog-rest`, `iceberg-catalog-glue` and `fastnum`, the last a direct
-non-optional dependency of `iceberg` — and nothing else in the tree exceeds
-1.91.1.
+What went wrong last time is worth stating precisely, because the number I
+declared was not a compiler requirement at all. Four crates in the tree declare
+`rust-version = "1.94"` — `iceberg`, `iceberg-catalog-rest`,
+`iceberg-catalog-glue` and `fastnum` — under `iceberg-rust`'s rolling-MSRV
+policy, which bumps the declaration on most releases whether or not the code
+needs it. Nothing else in the tree exceeds 1.91.1. None of those four uses a
+language or library feature newer than 1.92. Edition 2024 itself needs only 1.85.
 
-If the build farm carries an older toolchain, please say which version and I will
-try to pin accordingly. `iceberg-rust` 0.9.1 declares 1.92 and costs only
-`CatalogBuilder::with_runtime`, which this package can do without — but the
-effective floor is the maximum over the *whole* resolved tree, and since one of
-the crates pinning 1.94 today is a transitive dependency rather than
-`iceberg-rust` itself, I would need to re-resolve and re-measure before promising
-that a downgrade actually reaches 1.92.
+Two things carry that measurement over to Windows, which I have no 1.92 Windows
+machine to check directly. None of the four contains any Windows-specific code —
+no `cfg(windows)` or `cfg(target_os = "windows")` anywhere in their sources — so
+they have no platform-gated path that a Linux build would have skipped. And of
+the crates that *do* carry Windows-specific code, not one declares a floor above
+1.91.1 — the highest are `aws-config`, `aws-runtime` and `aws-smithy-http-client`
+— so nothing on the Windows-only side of the tree claims to need more than 1.92
+either.
 
-`configure` fails early with an explicit message naming both the required and the
-installed version if the toolchain is too old, rather than failing partway
-through a compile.
+Cargo, however, treats a *dependency's* `rust-version` as a hard error rather
+than a warning:
+
+    error: rustc 1.92.0 is not supported by the following packages:
+      fastnum@0.7.5 requires rustc 1.94
+      iceberg@0.10.0 requires rustc 1.94
+      iceberg-catalog-rest@0.10.0 requires rustc 1.94
+
+so the build stops at resolution, before rustc ever sees the code. `src/Makevars`
+and `src/Makevars.win` therefore pass `--ignore-rust-version`, which is cargo's
+documented opt-in for precisely this case and has been respected since Cargo
+1.56, the same release that began enforcing the field — so no toolchain can
+enforce the declaration without also accepting the flag. The declarations
+themselves are left exactly as upstream ships them: the vendored sources are
+unmodified, and `tools/vendor.R` needs no patch step.
+
+That leaves `tools/msrv.R`, run from `configure`, as the single version gate. It
+reads the floor from `SystemRequirements` so `DESCRIPTION` stays the source of
+truth, and fails early with a message naming both the required and the installed
+version rather than failing partway through a compile. The trade is deliberate:
+the gate is now a floor the package has actually been checked against instead of
+one inherited from an upstream policy, and `DEVELOPMENT.md` records that it may
+only be raised after building and testing on the new value.
+
+The optional backends were checked on the same floor, not just the default
+build: `cargo check --features glue` (which adds the AWS SDK and opendal, around
+517 crates in total, and includes the fourth 1.94-declaring crate
+`iceberg-catalog-glue`) also succeeds on 1.92.0. So the declared floor holds for
+every configuration the package can be built in, not only the one CRAN compiles.
+
+Should a future `iceberg-rust` release genuinely need a newer compiler, the
+fallback is to pin an earlier one: 0.9.1 declares 1.92 and costs only
+`CatalogBuilder::with_runtime`, which this package does not use. It was not
+needed here, so no dependency was downgraded and no functionality was traded
+away.
 
 ### Examples, tests and vignettes are fully offline
 

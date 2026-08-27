@@ -19,7 +19,16 @@ CARGOTMP = $(CURDIR)/.cargo
 VENDOR_DIR = $(CURDIR)/vendor
 
 # CRAN note: cargo and rustc versions are reported during configure by
-# tools/msrv.R.
+# tools/msrv.R, which is also the gate on the minimum version.
+#
+# --ignore-rust-version is why that gate can be the only one. Four crates in the
+# tree -- iceberg, iceberg-catalog-rest, iceberg-catalog-glue and fastnum --
+# declare rust-version = "1.94" under iceberg-rust's rolling-MSRV policy, and
+# cargo treats a dependency's declaration as a hard error rather than a warning.
+# None of them actually needs it: the tree compiles and the tests pass on 1.92,
+# which is what CRAN's Windows build farm carries. Without this flag that farm
+# cannot build the package at all. tools/msrv.R still refuses anything below the
+# floor in DESCRIPTION, so nothing is silently unchecked.
 #
 # When NOT_CRAN is unset, vendor.tar.xz (if present) is unpacked and cargo is
 # pointed at it, so the build touches the network at no point. RUSTFLAGS gains
@@ -37,7 +46,7 @@ $(STATLIB):
 	export CARGO_HOME=$(CARGOTMP) && \
 	@MACOS_EXPORT@ \
 	export PATH="$(PATH):$(HOME)/.cargo/bin" && \
-	RUSTFLAGS="$(RUSTFLAGS) --print=native-static-libs" cargo build @CRAN_FLAGS@ @FEATURES@ --lib @PROFILE@ --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR)
+	RUSTFLAGS="$(RUSTFLAGS) --print=native-static-libs" cargo build --ignore-rust-version @CRAN_FLAGS@ @FEATURES@ --lib @PROFILE@ --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR)
 
 	# CARGO_HOME is inside the build tree, so it must not be left behind.
 	rm -Rf $(CARGOTMP)

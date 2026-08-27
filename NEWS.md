@@ -64,7 +64,10 @@ imply that this is an ASF-governed client, which it is not. See `inst/NOTICE`.
 ## Distribution
 
 Installing from source compiles Apache Iceberg's Rust implementation, so a Rust
-toolchain is required: `rustc` 1.94 or newer, as `iceberg-rust` 0.10.0 demands.
+toolchain is required: `rustc` 1.92 or newer. `iceberg-rust` 0.10.0 declares
+1.94, but nothing in the tree uses a feature newer than 1.92, so cargo is passed
+`--ignore-rust-version` and `configure` gates on the version the package is
+actually tested against.
 All Rust dependencies are vendored in `src/rust/vendor.tar.xz`, so the build
 never touches the network; a default install compiles 264 crates and takes a
 while the first time. CI exercises that exact offline path on every commit.
