@@ -5,6 +5,13 @@
 #
 # The required version is read from SystemRequirements so that DESCRIPTION stays
 # the single source of truth.
+#
+# This is the *only* version gate: src/Makevars{,.win} pass
+# --ignore-rust-version to cargo, because four crates in the tree declare
+# rust-version = "1.94" under iceberg-rust's rolling-MSRV policy without needing
+# it, and cargo would otherwise refuse to build on the 1.92 toolchain CRAN's
+# Windows farm carries. So the floor in DESCRIPTION has to be a version the
+# package has really been checked against, not an aspiration.
 
 desc <- read.dcf("DESCRIPTION")
 
@@ -12,7 +19,7 @@ if (!"SystemRequirements" %in% colnames(desc)) {
   stop(paste(
     c(
       "`SystemRequirements` not found in `DESCRIPTION`.",
-      "Please specify `SystemRequirements: Cargo (Rust's package manager), rustc >= 1.94`"
+      "Please specify `SystemRequirements: Cargo (Rust's package manager), rustc >= 1.92`"
     ),
     collapse = "\n"
   ))
@@ -100,9 +107,9 @@ if (!is.na(msrv) && !is.na(current)) {
         "- Minimum supported Rust version is %s.",
         "- Installed Rust version is %s.",
         "",
-        "'icebergr' bundles Apache Iceberg's Rust implementation, which uses",
-        "Rust edition 2024 and tracks a rolling minimum version. Please run",
-        "`rustup update stable`, or install a newer toolchain from",
+        "'icebergr' bundles Apache Iceberg's Rust implementation, which is",
+        "written against Rust edition 2024. Please run `rustup update stable`,",
+        "or install a newer toolchain from",
         "https://www.rust-lang.org/tools/install.",
         "---------------------------------------------------------------------"
       ),

@@ -226,6 +226,26 @@ hostile to a repository that rebuilds old packages against fixed toolchains
 for years. Pinning an older `iceberg-rust` reduces the MSRV but forfeits the
 features and bug fixes this package exists to expose.
 
+**Resolved, 2026-08-27, by measurement.** The first submission's Windows
+pre-test answered the open question: CRAN's Windows farm runs **rustc 1.92.0**,
+and installation failed there for that reason alone. The Debian farm is new
+enough and passed.
+
+The declared floor turned out not to be a real one. Only four crates in the
+resolved tree ask for 1.94 — `iceberg`, `iceberg-catalog-rest`,
+`iceberg-catalog-glue` and `fastnum` — with nothing else above 1.91.1, and none
+of them uses a language or library feature newer than 1.92: the whole default
+tree compiles on 1.92.0 in 6m03s with no warnings, and the test suite passes.
+What actually blocked the install was cargo's own policy, not the compiler —
+cargo treats a *dependency's* `rust-version` as a hard error, so it refused to
+start before rustc ever saw the code.
+
+So `src/Makevars{,.win}` pass `--ignore-rust-version` (stable in cargo since
+well before 1.92), `DESCRIPTION` declares the tested floor of 1.92, and
+`tools/msrv.R` remains the single readable gate. The MSRV ladder in §5 stays as
+the fallback for a future upstream release that genuinely needs something newer,
+but it was not needed here, and no functionality was traded away.
+
 ### 4c. The closest precedent points away from CRAN
 
 `polars` — the nearest comparable, being a heavy Rust + Arrow binding — *was*
@@ -250,7 +270,7 @@ Restated as work rather than as a verdict:
 | Obstacle | Status | What resolves it |
 | --- | --- | --- |
 | Vendored size | 343 crates; tarball size being measured in CI | Aggressive pruning of the vendor tree, then a size exemption request built on the measured figure rather than an estimate |
-| MSRV 1.94 | Unconfirmed whether CRAN has it | Confirm CRAN's `rustc`; if short, pin `iceberg-rust` 0.9.1 for MSRV 1.92 (see §5) |
+| MSRV 1.94 | **Resolved.** CRAN Windows measured at rustc 1.92.0; the tree builds and tests clean on it | `--ignore-rust-version` in `src/Makevars{,.win}`, with the tested floor of 1.92 declared in `DESCRIPTION` (see §4b). Pinning `iceberg-rust` 0.9.1 was not needed |
 
 ## 5. Route to CRAN
 
@@ -265,9 +285,12 @@ CRAN is the destination. The sequence:
    tests, examples, benchmarks and fixtures while preserving every licence file,
    and reports the resulting size. Replace the 35–60 MB estimate in §4a with the
    measured number before deciding anything.
-3. **Confirm CRAN's Rust toolchain version.** This is the single unverified input
-   to the whole MSRV argument. If 1.94 is available, obstacle 2 evaporates.
-4. **If it is not, pin down the MSRV ladder** — measured from upstream tags:
+3. **Confirm CRAN's Rust toolchain version.** Done: the Windows farm reports
+   rustc 1.92.0, the Debian farm is newer. Since the tree builds and tests clean
+   on 1.92, obstacle 2 is discharged with `--ignore-rust-version` rather than
+   with a downgrade — see §4b.
+4. **If a future release really needs more, pin down the MSRV ladder** — measured
+   from upstream tags:
 
    | `iceberg-rust` | MSRV | Cost |
    | --- | --- | --- |
@@ -314,11 +337,11 @@ So, concretely:
   extracts of `using_rust.html` and the Repository Policy, not from fetching
   the pages.** They match the policy as I understand it, but the exact current
   wording should be re-read directly before submission.
-- **I could not check what `rustc` version CRAN's build machines actually run.**
-  §4b asserts they lag behind 1.94; that is an inference from how distributions
-  package Rust, not a measurement, and it is the single unverified input to the
-  entire MSRV objection. If CRAN has 1.94, that obstacle does not exist. Confirm
-  it before acting on the MSRV ladder in §5.
+- ~~**I could not check what `rustc` version CRAN's build machines actually
+  run.**~~ **Now measured** (2026-08-27): Windows is rustc 1.92.0, Debian is
+  newer. The inference that they lag behind 1.94 was right; the inference that
+  this forced an `iceberg-rust` downgrade was wrong, because the 1.94
+  declarations are not backed by 1.94 feature use. See §4b.
 - **The 35–60 MB vendor estimate is an estimate.** The 343/347/517 crate counts
   are exact, computed from upstream's `Cargo.lock`; the comparison table in §4a
   is exact, measured from the packages' own released sources. Only the

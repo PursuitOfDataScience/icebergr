@@ -9,7 +9,7 @@ is worth understanding before the first thing goes wrong.
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup update stable
-rustc --version   # must be >= 1.94
+rustc --version   # must be >= 1.92
 ```
 
 That is the whole toolchain. `cargo` fetches and compiles dependencies itself; it
@@ -213,13 +213,25 @@ against `Cargo.toml`, since a caret requirement can resolve higher than it reads
 The rustc MSRV does not have this problem: `tools/msrv.R` reads it from
 `SystemRequirements` in `DESCRIPTION`, which is its single source of truth.
 
-**But that value has to be the maximum over the whole resolved tree, not
-`iceberg-rust`'s own `rust-version`.** At 0.10.0 the two happen to agree at 1.94,
-and it is the exact floor — but one of the four crates setting it is `fastnum`,
-a direct non-optional dependency of `iceberg`, not `iceberg-rust` itself. So the
-documented fallback of pinning 0.9.1 to reach 1.92 may not actually drop the
-floor; re-resolve and re-measure before offering it. Compute the real floor from
-an extracted vendor tree:
+**But that value is the floor the package has been *checked* against, which is
+not the maximum `rust-version` declared in the tree.** Conflating the two is what
+broke the first CRAN submission. `iceberg`, `iceberg-catalog-rest`,
+`iceberg-catalog-glue` and `fastnum` all declare 1.94 under iceberg-rust's
+rolling-MSRV policy, nothing else in the tree exceeds 1.91.1, and none of the
+four uses a language or library feature newer than 1.92 — but CRAN's Windows
+farm carries 1.92.0, and cargo refuses a build outright when a *dependency*
+declares more than the active toolchain, so the install never reached the
+compiler. `src/Makevars{,.win}` therefore pass `--ignore-rust-version`, which
+makes `tools/msrv.R` the only gate.
+
+The consequence for maintenance: raise `SystemRequirements` only after building
+and running the test suite on the new floor, and lower it whenever a measurement
+shows an older toolchain works. Note also that `fastnum` is a direct non-optional
+dependency of `iceberg` rather than of `iceberg-rust`, so the documented fallback
+of pinning 0.9.1 would not by itself have dropped the declared maximum.
+
+That declared maximum is still worth knowing, since it is what you would have to
+satisfy if the flag were ever dropped. Compute it from an extracted vendor tree:
 
 ```sh
 tar xf src/rust/vendor.tar.xz -C /tmp && grep -rhE '^\s*rust-version\s*=' /tmp/vendor/*/Cargo.toml |

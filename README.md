@@ -34,7 +34,7 @@ pak::pak("PursuitOfDataScience/icebergr")
 ```
 
 Installing from source compiles Apache Iceberg's Rust implementation, so you need
-a Rust toolchain (`rustc` >= 1.94):
+a Rust toolchain (`rustc` >= 1.92):
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -266,16 +266,26 @@ arithmetic shown rather than asserted.
 tree — 27 MB of it — while preserving every licence file, and the CI job reports
 the resulting size on each run.
 
-**2. Minimum Rust version.** `iceberg-rust` 0.10.0 needs `rustc` 1.94 and edition
-2024, and bumps its minimum most releases. Whether CRAN's build machines have
-1.94 needs confirming against CRAN directly rather than assumed.
+**2. Minimum Rust version.** `iceberg-rust` 0.10.0 declares `rustc` 1.94 and
+edition 2024, and bumps its minimum most releases. This one is now measured
+rather than assumed: CRAN's Windows build farm carries 1.92.0, and the first
+submission failed to install there because of it.
 
-If they do not, pinning an earlier `iceberg-rust` is a real fallback, and the cost
-is small:
+The declared floor is not a real one. Four crates in the tree ask for 1.94 —
+`iceberg`, `iceberg-catalog-rest`, `iceberg-catalog-glue` and `fastnum`, with
+nothing else above 1.91.1 — and none of them uses a language or library feature
+newer than 1.92. The whole tree compiles, and the test suite passes, on 1.92.0.
+Cargo treats a dependency's `rust-version` as a hard error rather than a warning,
+so `src/Makevars{,.win}` pass `--ignore-rust-version` and `tools/msrv.R` gates on
+the floor the package is genuinely tested against, which `DESCRIPTION` states as
+1.92.
 
-| `iceberg-rust` | MSRV | Cost of pinning it |
+Pinning an earlier `iceberg-rust` stays the fallback for the day a release really
+does need something newer:
+
+| `iceberg-rust` | Declared MSRV | Cost of pinning it |
 | --- | --- | --- |
-| 0.10.0 (current) | 1.94 | — |
+| 0.10.0 (current) | 1.94, builds on 1.92 | — |
 | 0.9.1 | 1.92 | Loses `with_runtime`; the runtime is then inherited from the calling context, which is where we already are |
 | 0.8.0 | 1.88 | Predates the storage-factory refactor; needs real binding changes |
 

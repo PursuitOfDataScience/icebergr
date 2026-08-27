@@ -435,3 +435,81 @@ jobs:
       # Glue pulls in the AWS SDK and opendal, roughly 517 crates in total.
       - name: cargo check (glue feature)
         run: cargo check --manifest-path src/rust/Cargo.toml --features glue --all-targets
+
+  # The rustc floor in DESCRIPTION is a promise to CRAN, and it needs a job that
+  # keeps it honest. Nothing above tests it: every other job uses
+  # dtolnay/rust-toolchain@stable, so a floor that has quietly drifted upwards
+  # stays green here and fails on the build farm instead. That is exactly how the
+  # first submission was rejected -- SystemRequirements claimed rustc 1.94
+  # because four crates in the tree declare it under iceberg-rust's rolling-MSRV
+  # policy, none of them needs it, and CRAN's Windows machines carry 1.92.
+  #
+  # The floor is read out of DESCRIPTION rather than repeated here, so the two
+  # cannot disagree, and --ignore-rust-version matches what src/Makevars passes.
+  # If this job goes red, either the code has started using something newer --
+  # in which case raise SystemRequirements to a version that has been tested --
+  # or a dependency has, in which case pin it back.
+  msrv:
+    runs-on: ubuntu-latest
+    if: inputs.rust_only != true
+    name: rustc floor declared in DESCRIPTION
+    timeout-minutes: 60
+
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # As in the jobs above: extendr-api's build script reads R_HOME even for a
+      # cargo check, and panics with a bare VarError::NotPresent without it.
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Read the floor from SystemRequirements
+        id: floor
+        run: |
+          version=$(grep -oP 'rustc\s*>=\s*\K[0-9]+\.[0-9]+(\.[0-9]+)?' DESCRIPTION)
+          if [ -z "$version" ]; then
+            echo "::error::No 'rustc >= <version>' found in SystemRequirements."
+            exit 1
+          fi
+          # DESCRIPTION states two components by CRAN convention ("1.92"), and
+          # rustup does accept that as a channel -- but it resolves it to the
+          # *latest* patch in the series, so the job would quietly start testing
+          # 1.92.1 the day that exists. A floor means the earliest patch, which
+          # is also the stricter test, so pin it explicitly.
+          case "$version" in
+            *.*.*) ;;
+            *) version="$version.0" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "DESCRIPTION declares rustc >= $version"
+        shell: bash
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.floor.outputs.version }}
+
+      - name: Report toolchain versions
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ubuntu-msrv-${{ steps.floor.outputs.version }}-${{ hashFiles('src/rust/Cargo.lock') }}
+          restore-keys: ubuntu-msrv-${{ steps.floor.outputs.version }}-
+
+      # --all-targets so the unit tests are type-checked on the floor too, not
+      # just the library.
+      - name: cargo check on the declared floor
+        run: >
+          cargo check --manifest-path src/rust/Cargo.toml
+          --ignore-rust-version --all-targets
