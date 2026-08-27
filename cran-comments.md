@@ -42,6 +42,12 @@ The tarball size is unchanged, and the request about it below stands.
 - GitHub Actions: a separate job that vendors every dependency and then builds
   with no network access at all, reproducing the CRAN build path and measuring
   the resulting tarball.
+- GitHub Actions: a new job for this resubmission that reads the floor out of
+  `SystemRequirements` and type-checks the whole tree on exactly that toolchain,
+  so the declared minimum cannot drift again without CI going red. On this
+  submission it installed rustc 1.92.0 and processed all 264 crates of the
+  default graph with no warnings. Every job above passed on the submitted tree,
+  windows-latest included.
 
 ## R CMD check results
 
@@ -50,10 +56,15 @@ The tarball size is unchanged, and the request about it below stands.
 The note is CRAN incoming feasibility: a new submission, and the size of the
 tarball. The size is the subject of the request below.
 
-One warning appears on the local machine only, and is not a property of the
-package: `checking top-level files` reports "A complete check needs the
-'checkbashisms' script", which is not installed there. The package's own shell
-scripts are `configure` and `configure.win`, both two lines and both POSIX.
+Two warnings and two further notes appear on the local machine only, and none is
+a property of the package — each is a tool that is simply not installed there.
+`checking top-level files` wants `checkbashisms` (the package's own shell scripts
+are `configure` and `configure.win`, both two lines and both POSIX);
+`checking HTML version of manual` wants `tidy`; and with no `pdflatex` on the
+machine, `checking PDF version of manual without index` fails outright and leaves
+an `icebergr-manual.tex` behind, which then raises `non-standard things in the
+check directory`. Passing `--no-manual` removes all of the LaTeX ones. The
+GitHub Actions runners have the full set, and the numbers above are from there.
 
 Check also reports, as INFO rather than a note, an installed size of 24.0 Mb, all
 of it `libs`. That is the statically linked Rust library: Apache Iceberg's Rust
