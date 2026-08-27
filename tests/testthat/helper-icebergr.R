@@ -159,3 +159,43 @@ partitioned_table <- function(warehouse, table, fields) {
   icebergr_create_namespace(reopened, sub("[.][^.]*$", "", table))
   icebergr_register_table(reopened, table, path)
 }
+
+# Give a table a set of table properties, and hand back a handle.
+#
+# icebergr cannot write these -- that needs an update_properties transaction,
+# which is out of scope and documented as such -- so a table that has any can
+# only be met by registering one whose metadata already carries them, the way
+# another engine would leave it. Written by hand for the same reason
+# partitioned_table() is, and worth having because otherwise every table these
+# tests can build has an empty property map: iceberg-rust's TableCreation starts
+# with one and icebergr never sets it.
+#
+# The key is *inserted* rather than rewritten. iceberg-rust omits "properties"
+# from the JSON entirely when the map is empty, so there is nothing to rewrite;
+# inserting straight after the opening brace is unambiguous, and the order of
+# keys in a JSON object carries no meaning.
+with_properties <- function(warehouse, table, properties) {
+  stopifnot(is.character(properties), !is.null(names(properties)))
+  files <- list.files(warehouse,
+    pattern = "metadata\\.json$",
+    recursive = TRUE, full.names = TRUE
+  )
+  newest <- files[order(file.mtime(files))][length(files)]
+  json <- paste(readLines(newest, warn = FALSE), collapse = "")
+
+  entries <- paste0(
+    '"', names(properties), '":"', unname(properties), '"',
+    collapse = ","
+  )
+  replaced <- sub("^\\{", paste0('{"properties":{', entries, "},"), json)
+  # A silent no-op would leave the table with no properties and the test would
+  # then assert nothing, which is the very thing this helper exists to fix.
+  stopifnot(!identical(replaced, json))
+
+  path <- file.path(dirname(newest), metadata_file_name())
+  writeLines(replaced, path)
+
+  reopened <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(reopened, sub("[.][^.]*$", "", table))
+  icebergr_register_table(reopened, table, path)
+}

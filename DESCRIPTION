@@ -1,6 +1,6 @@
 Package: icebergr
 Type: Package
-Title: Read and Write Apache Iceberg Tables
+Title: Read and Write 'Apache Iceberg' Tables
 Version: 0.1.0
 Authors@R:
     c(person(given = "Youzhi",
@@ -42,9 +42,9 @@ Suggests:
     dplyr,
     knitr,
     rmarkdown,
-    testthat (>= 3.0.0),
+    testthat (>= 3.1.7),
     vctrs,
-    withr
+    withr (>= 2.3.0)
 Config/testthat/edition: 3
 VignetteBuilder: knitr
 SystemRequirements: Cargo (Rust's package manager), rustc >= 1.94, xz

@@ -1,5 +1,4 @@
-#' icebergr: Read and Write Apache Iceberg Tables
-#'
+#' @description
 #' R has been able to read Apache Iceberg tables only by routing through DuckDB,
 #' which rules out writes, snapshot management and catalog integration. icebergr
 #' talks to Iceberg directly, through `iceberg-rust`.

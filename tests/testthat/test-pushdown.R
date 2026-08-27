@@ -230,6 +230,32 @@ test_that("startsWith on a non-string column is refused, not turned into nonsens
   )
 })
 
+test_that("a bound past what a long can hold is refused, not clamped to i64::MAX", {
+  skip_if_not_installed("bit64")
+  catalog <- local_namespace()
+  events <- data.frame(id = 1:2L, big = bit64::as.integer64(c("1", "9223372036854775807")))
+  tbl <- seed_table(catalog, "db.big", events)
+
+  # 1e19 is past i64::MAX, and R sends anything past 2^53 as a plain JSON
+  # number, so the Rust side reached it as a double. Casting a double to i64
+  # *saturates*, so this used to become `big == 9223372036854775807` and return
+  # the row holding i64::MAX -- a filter that quietly answered a different
+  # question. The 32-bit column has always refused an out-of-range bound; this
+  # is the 64-bit one agreeing.
+  expect_error(
+    icebergr_collect(icebergr_scan(tbl, filter = big == 1e19)),
+    "outside the range of a 64-bit integer"
+  )
+  expect_error(
+    icebergr_collect(icebergr_scan(tbl, filter = big > -1e19)),
+    "outside the range of a 64-bit integer"
+  )
+
+  # A bound that does fit still pushes down, including one past 2^53.
+  in_range <- icebergr_collect(icebergr_scan(tbl, filter = big > 1e18))
+  expect_equal(as.character(in_range$big), "9223372036854775807")
+})
+
 test_that("projection reaches the scan plan without changing rows", {
   tbl <- split_table()
   plan <- icebergr_scan_plan(icebergr_scan(tbl, select = "id"))

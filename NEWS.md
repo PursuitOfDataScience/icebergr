@@ -63,15 +63,8 @@ imply that this is an ASF-governed client, which it is not. See `inst/NOTICE`.
 
 ## Distribution
 
-CRAN is the intended destination, and the build system is built for it:
-vendored dependencies, offline builds, `-j2`, a confined `CARGO_HOME`, and a
-per-crate `LICENSE.note`. CI exercises that exact submission path on every
-commit.
-
-Two open items before submitting, both now measured rather than estimated. A
-default install compiles 308 crates and `vendor.tar.xz` weighs 31.3 MB, against a
-largest-accepted precedent of 108 crates and 13.6 MB — so a size exemption
-request is needed, and `cran-comments.md` makes it with the arithmetic shown. And
-`iceberg-rust` 0.10.0 requires rustc 1.94 under a rolling MSRV; if CRAN's
-machines are older, pinning 0.9.1 drops the requirement to 1.92 at the cost of
-one API. See `FEASIBILITY.md` and the README's CRAN status section.
+Installing from source compiles Apache Iceberg's Rust implementation, so a Rust
+toolchain is required: `rustc` 1.94 or newer, as `iceberg-rust` 0.10.0 demands.
+All Rust dependencies are vendored in `src/rust/vendor.tar.xz`, so the build
+never touches the network; a default install compiles 264 crates and takes a
+while the first time. CI exercises that exact offline path on every commit.

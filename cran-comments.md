@@ -53,6 +53,12 @@ The package follows "Using Rust in CRAN packages" in full:
 - Authorship, repository and licence for every vendored crate are recorded in
   `LICENSE.note`, generated from the vendor tree itself so the inventory
   describes exactly what ships.
+- Every one of those 442 crates is under a permissive licence, and none states no
+  licence at all: MIT, Apache-2.0, BSD-2/3-Clause, ISC, Zlib, 0BSD, Unlicense,
+  CC0-1.0, MIT-0, BSL-1.0, Unicode-3.0, Apache-2.0 WITH LLVM-exception, and
+  CDLA-Permissive-2.0 for one crate that carries CA root *data* rather than code.
+  Nothing bundled is copyleft. Apache-2.0 is the strictest of the set, and it is
+  the reason the package is GPL (>= 3) rather than GPL (>= 2); see `inst/NOTICE`.
 - `inst/NOTICE` carries the Apache-2.0 attribution and trademark notice for the
   bundled Apache Iceberg Rust code.
 
@@ -61,7 +67,8 @@ increased limit.** Measured from the vendored offline build:
 
 | | |
 | --- | --- |
-| Crates compiled by a default install | 308 |
+| Crates a default install actually compiles | 264 |
+| Crates in the default dependency graph, all platforms | 308 |
 | Crates present in `vendor.tar.xz` | 442 |
 | `src/rust/vendor.tar.xz` | 31.3 MB |
 
@@ -73,13 +80,22 @@ them.
 
 Two things I checked before asking, in case they are the first questions:
 
-- **Why vendor 442 crates to build 308?** The extra 134 are the optional AWS Glue
-  and S3 backends, which are behind non-default Cargo features and are not
-  compiled by a default install. They still have to be *vendored*, because cargo
-  resolves the whole lock graph before it selects features, and an offline build
-  fails at resolution if any locked package is absent from the vendor directory.
-  The consolation is that a user who wants those backends can enable them from
-  the CRAN tarball without any network access at all.
+- **Why vendor 442 crates to compile 264?** Three layers, each forced by cargo
+  rather than chosen. 44 belong to other operating systems — `windows-sys`,
+  `wasi`, `redox` — and never build on any one machine, which is the difference
+  between the 264 compiled here and the 308 in the all-platform default graph.
+  Another 110 are the optional AWS Glue and S3 backends, behind non-default Cargo
+  features, taking the all-platform graph to 418. The remaining 24 are in
+  `Cargo.lock` without appearing in any resolved graph. None of the three can be
+  pruned, because cargo resolves the whole lock graph before it selects features
+  or filters targets, and an offline build fails at resolution if any locked
+  package is absent from the vendor directory. The consolation is that a user who
+  wants those backends can enable them from the CRAN tarball with no network
+  access at all.
+
+  Counts reproducible with `cargo tree -e normal,build --prefix none` (add
+  `--target all` for the all-platform figures, `--features glue` for the optional
+  backends), and the 264 by counting `Compiling` lines in a fresh offline install.
 - **Would dropping those optional backends help?** Measured: it takes the archive
   from 31.3 MB to 28 MB. The AWS and `windows-sys` trees are largely generated
   code and compress extremely well, so removing 87 MB of uncompressed sources
@@ -101,9 +117,19 @@ to withdraw rather than press the point.
 `iceberg-rust` 0.10.0 requires rustc 1.94 and Rust edition 2024 (the edition
 itself needs only 1.85). Upstream operates a rolling MSRV.
 
+1.94 is the exact floor, not a padded one: it is the highest `rust-version`
+declared anywhere in the pinned lock file. Four crates set it — `iceberg`,
+`iceberg-catalog-rest`, `iceberg-catalog-glue` and `fastnum`, the last a direct
+non-optional dependency of `iceberg` — and nothing else in the tree exceeds
+1.91.1.
+
 If the build farm carries an older toolchain, please say which version and I will
-pin accordingly: `iceberg-rust` 0.9.1 lowers the requirement to 1.92 and costs
-only `CatalogBuilder::with_runtime`, which this package can do without.
+try to pin accordingly. `iceberg-rust` 0.9.1 declares 1.92 and costs only
+`CatalogBuilder::with_runtime`, which this package can do without — but the
+effective floor is the maximum over the *whole* resolved tree, and since one of
+the crates pinning 1.94 today is a transitive dependency rather than
+`iceberg-rust` itself, I would need to re-resolve and re-measure before promising
+that a downgrade actually reaches 1.92.
 
 `configure` fails early with an explicit message naming both the required and the
 installed version if the toolchain is too old, rather than failing partway

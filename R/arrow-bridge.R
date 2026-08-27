@@ -38,6 +38,15 @@ ptr_addr <- function(x) {
 #' Arrow timestamp. Leaving it alone would therefore not produce Iceberg's
 #' zone-less `timestamp`; it would produce a schema Iceberg refuses, and one
 #' whose Iceberg type depended on where the machine happened to be.
+#'
+#' Recursive, because a `struct` is a data frame column and a `POSIXct` one level
+#' down needs this every bit as much as a top-level one -- and silently: a naive
+#' `POSIXct` inside a struct reached nanoarrow as the session's zone, so
+#' `icebergr_create_table()` failed with "Unsupported Arrow data type:
+#' Timestamp(us, \"America/Chicago\")" on the same data frame that works on a
+#' machine set to UTC. `list` and `map` are deliberately not descended into, for
+#' the same reason `rewrite_int64()` leaves them alone: their columns are not
+#' data frames, so there is no column to substitute.
 #' @noRd
 normalise_timestamps <- function(x) {
   if (!is.data.frame(x)) {
@@ -46,6 +55,8 @@ normalise_timestamps <- function(x) {
   for (nm in names(x)) {
     if (inherits(x[[nm]], "POSIXct")) {
       attr(x[[nm]], "tzone") <- "UTC"
+    } else if (is.data.frame(x[[nm]])) {
+      x[[nm]] <- normalise_timestamps(x[[nm]])
     }
   }
   x
@@ -140,6 +151,10 @@ rewrite_int64 <- function(ptype, children) {
   if (changed) ptype else NULL
 }
 
+# The zone names that mean UTC but are not the string "UTC". iceberg-rust writes
+# "+00:00"; the rest are what other engines and Arrow implementations use.
+utc_synonyms <- c("+00:00", "+0000", "Z", "z", "GMT", "Etc/UTC", "UTC+0", "utc")
+
 #' Give a UTC timestamp column R's own name for UTC
 #'
 #' `iceberg-rust` labels a `timestamptz` column `"+00:00"` rather than `"UTC"`.
@@ -149,19 +164,24 @@ rewrite_int64 <- function(ptype, children) {
 #' `"+00:00"` is not a name the platform's zone database recognises, so
 #' formatting it is at the mercy of the C library. Relabelling touches the
 #' attribute only, never the instant.
+#'
+#' Recursive for the same reason `normalise_timestamps()` is: a `struct` arrives
+#' as a data frame column, and a `timestamptz` inside one kept `"+00:00"`, so the
+#' warning this exists to prevent fired on exactly the nested columns nothing had
+#' looked at.
 #' @noRd
 canonicalise_utc <- function(x) {
   if (!is.data.frame(x)) {
     return(x)
   }
-  utc_synonyms <- c("+00:00", "+0000", "Z", "z", "GMT", "Etc/UTC", "UTC+0", "utc")
   for (nm in names(x)) {
-    if (!inherits(x[[nm]], "POSIXct")) {
-      next
-    }
-    tz <- attr(x[[nm]], "tzone")
-    if (length(tz) == 1L && !is.na(tz) && tz %in% utc_synonyms) {
-      attr(x[[nm]], "tzone") <- "UTC"
+    if (inherits(x[[nm]], "POSIXct")) {
+      tz <- attr(x[[nm]], "tzone")
+      if (length(tz) == 1L && !is.na(tz) && tz %in% utc_synonyms) {
+        attr(x[[nm]], "tzone") <- "UTC"
+      }
+    } else if (is.data.frame(x[[nm]])) {
+      x[[nm]] <- canonicalise_utc(x[[nm]])
     }
   }
   x

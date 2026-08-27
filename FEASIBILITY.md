@@ -50,8 +50,8 @@ can read as ASF ownership rather than distance from it. Mitigations applied:
   affiliation, and states that this is not one of the official clients.
 - The same disclaimer appears in `DESCRIPTION`, the README and the package
   documentation.
-- The Title uses the mark only nominatively: "Read and Write Apache Iceberg
-  Tables".
+- The Title uses the mark only nominatively, and quotes it as CRAN asks for
+  software names: "Read and Write 'Apache Iceberg' Tables".
 
 **Recommended before any public release:** email `trademarks@apache.org`
 describing the package and the name, and keep the reply. A distinct name not
@@ -414,7 +414,8 @@ to be red.
 
 | | |
 | --- | --- |
-| Crates a default install compiles | **308** |
+| Crates a default install compiles, one platform | **264** |
+| Crates in the default graph, all platforms | **308** |
 | Crates in `vendor.tar.xz` | **442** |
 | Vendor tree, uncompressed | 370.8 MB, pruned to 343.5 MB |
 | `vendor.tar.xz` | **31.3 MB** |
@@ -425,7 +426,7 @@ has to be made explicitly.
 
 Two findings that were not visible before it could be measured:
 
-- **The vendor tree carries 134 crates the default build never compiles** — the
+- **The vendor tree carries 178 crates the default build never compiles** — the
   AWS Glue and S3 backends behind the non-default Cargo features. They cannot
   simply be pruned: cargo resolves the *whole* lock graph before it selects
   features, so an offline build fails at resolution ("no matching package named

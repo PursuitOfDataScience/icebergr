@@ -54,7 +54,7 @@ a Rust toolchain (`rustc` >= 1.94):
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Expect the first build to take a while: a default install compiles 308 crates.
+Expect the first build to take a while: a default install compiles 264 crates.
 
 Optional backends are off by default because each substantially enlarges that
 tree:
@@ -117,8 +117,9 @@ history[, c("snapshot_id", "operation", "added_records")]
 # The state before the most recent append
 icebergr_collect(icebergr_scan(tbl, snapshot_id = history$snapshot_id[[1]]))
 
-# Or by time
-icebergr_collect(icebergr_scan(tbl, as_of = as.POSIXct("2024-06-01", tz = "UTC")))
+# Or by time. `as_of` is a *commit* time, not a time in the data, so take it
+# from the history: this table was written just now.
+icebergr_collect(icebergr_scan(tbl, as_of = history$timestamp[[1]]))
 ```
 
 Append new data:
@@ -169,7 +170,7 @@ against the optional features you compiled in.
 | ✅ | **Predicate pushdown** — filters prune whole files and row groups |
 | ✅ | **Projection pushdown** — only selected columns leave disk |
 | ✅ | Row group and row-level scan pruning |
-| ✅ | Merge-on-read tables — positional *and* equality deletes applied |
+| ✅ | Merge-on-read tables — positional *and* equality deletes applied. `iceberg-rust` refuses an equality delete keyed on a `list` or `map` column; every other column type is handled |
 | ✅ | Inspect the file plan before reading, with `icebergr_scan_plan()` |
 | ✅ | Nested types — `struct` and `list` read and write. A `map` column can be created, but writing map *values* from R needs the `arrow` package, since `nanoarrow` cannot build a map array alone. Note `nanoarrow::na_map()` needs its key type built non-nullable: `na_map(na_string(nullable = FALSE), …)` |
 | 🦀 | Row `limit` pushdown — `limit` bounds decoding, not planning |
@@ -252,12 +253,15 @@ minute.
 
 Two things have to clear first. Both are tractable; neither is settled.
 
-**1. Vendored size — measured, not estimated.** A default install compiles **308
-crates**; `vendor.tar.xz` carries **442** and weighs **31.3 MB**. The extra 134
-are the optional Glue and S3 backends, which a default install never builds but
-which still have to be vendored: cargo resolves the whole lock graph before it
-selects features, so an offline build fails outright if any locked package is
-missing from the vendor directory.
+**1. Vendored size — measured, not estimated.** A default install compiles **264
+crates**; `vendor.tar.xz` carries **442** and weighs **31.3 MB**. The 178-crate gap
+is three layers, each forced by cargo rather than chosen: 44 belong to other
+operating systems and never build on any one machine (taking the all-platform
+default graph to 308), 110 are the optional Glue and S3 backends behind
+non-default features (taking it to 418), and 24 are in the lock file without
+appearing in any resolved graph. None can be pruned: cargo resolves the whole
+lock graph before it selects features or filters targets, so an offline build
+fails outright if any locked package is missing from the vendor directory.
 
 `[features] default = []` is already empty — `tokio`, `reqwest`, `parquet`, eight
 `arrow-*` crates and `apache-avro` are unconditional, so feature flags cannot
@@ -269,7 +273,7 @@ for 10% is not worth it.
 For scale, the largest vendored Rust package CRAN has accepted is `arcgisgeocode`
 at 108 crates and 13.6 MB, itself an approved exception to the 10 MB guideline —
 and that guideline explicitly allows requesting more. 31.3 MB is 2.3× that, so
-the exemption request in `cran-comments.md` is a real ask, made with the
+the exemption request in [`cran-comments.md`](https://github.com/PursuitOfDataScience/icebergr/blob/main/cran-comments.md) is a real ask, made with the
 arithmetic shown rather than asserted.
 
 `tools/vendor.R` prunes tests, examples, benchmarks and fixtures from the vendor
@@ -297,7 +301,7 @@ network-fetching build that current policy disallows, and is on r-universe today
 That is a caution about *how* a heavy Rust package fails a submission, not proof
 that one must.
 
-`FEASIBILITY.md` has the full analysis, the measurements behind these numbers, and
+[`FEASIBILITY.md`](https://github.com/PursuitOfDataScience/icebergr/blob/main/FEASIBILITY.md) has the full analysis, the measurements behind these numbers, and
 what remains unverified.
 
 ## Licence

@@ -22,7 +22,7 @@ feature_matrix <- function() {
     "AWS Glue catalog", NA, "Requires the optional 'glue' Cargo feature",
     "Object storage (S3)", NA, "Requires the optional 's3' Cargo feature",
     "Read positional deletes", TRUE, "Applied by iceberg-rust during the scan",
-    "Read equality deletes", TRUE, "Applied by iceberg-rust during the scan",
+    "Read equality deletes", TRUE, "Applied by iceberg-rust during the scan, except when the equality field is a list or a map column, which it refuses",
     "Nested types (read/write)", TRUE, "struct and list round trip; a struct arrives as a data frame column. A map column can be created, but writing map values needs the 'arrow' package: nanoarrow cannot build a map array on its own",
     "Decimal predicates", TRUE, "Row-level selection is disabled for these scans; iceberg-rust 0.10.0 drops every row of an ordering comparison on a decimal. File and row group pruning still apply",
     "Nanosecond timestamps", TRUE, "Read, written and filtered, but R's POSIXct is a double of seconds, so sub-microsecond precision is lost and nanoarrow warns on every such read",
@@ -65,8 +65,10 @@ feature_matrix <- function() {
 #'     \item{`catalogs`}{Catalog types available in this build.}
 #'     \item{`cargo_features`}{Optional Cargo features compiled in.}
 #'     \item{`features`}{A tibble of `feature`, `supported` and `reason`.
-#'       `supported` is `TRUE`, `FALSE`, or `NA` when it depends on a build
-#'       option that is absent here.}
+#'       `supported` is `TRUE`, `FALSE`, or `NA` for something this build
+#'       supports only in part, with `reason` saying which part. A feature that
+#'       depends on an optional Cargo feature is resolved against this build, so
+#'       it is `TRUE` or `FALSE` here and never `NA`.}
 #'   }
 #'
 #' @examples
@@ -114,16 +116,21 @@ print.icebergr_spec_support <- function(x, ...) {
   )
 
   supported <- x$features[isTRUE_vec(x$features$supported), , drop = FALSE]
-  unavailable <- x$features[is.na(x$features$supported), , drop = FALSE]
+  # Not "not in this build": the two rows that really do depend on a build option
+  # were resolved to TRUE or FALSE above, so everything still NA by here is a
+  # feature this build has in part -- spec v3, whose metadata parses while its own
+  # features are not exposed. Filing that under "not in this build" said the
+  # opposite of what is true.
+  partial <- x$features[is.na(x$features$supported), , drop = FALSE]
   unsupported <- x$features[isFALSE_vec(x$features$supported), , drop = FALSE]
 
   cat("\n  Supported (", nrow(supported), "):\n", sep = "")
   for (f in supported$feature) cat("    + ", f, "\n", sep = "")
 
-  if (nrow(unavailable)) {
-    cat("\n  Not in this build (", nrow(unavailable), "):\n", sep = "")
-    for (i in seq_len(nrow(unavailable))) {
-      cat_feature("?", unavailable$feature[[i]], unavailable$reason[[i]])
+  if (nrow(partial)) {
+    cat("\n  Partial (", nrow(partial), "):\n", sep = "")
+    for (i in seq_len(nrow(partial))) {
+      cat_feature("~", partial$feature[[i]], partial$reason[[i]])
     }
   }
 

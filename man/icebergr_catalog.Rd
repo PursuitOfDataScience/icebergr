@@ -58,6 +58,8 @@ Credentials are read from environment variables, never from arguments:
 }
 
 Catalog properties are never printed, logged or included in error messages.
+A credential property passed through \code{...} anyway is accepted but warned
+about, since a script is the one place it should not be.
 }
 
 \examples{

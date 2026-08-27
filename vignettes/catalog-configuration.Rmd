@@ -237,6 +237,26 @@ the newest is the current state of the table.
   ```
 
   The runtime starts on first use, so this has no effect once you have connected.
+- **Parallelise with a PSOCK cluster, not with `fork`.** `icebergr` drives an
+  async runtime whose worker threads do not survive `fork()`, and R's
+  `parallel::mclapply()` forks. Once you have made any `icebergr` call in the
+  parent, a forked child that calls into `icebergr` **hangs** rather than
+  erroring. Use `parallel::makeCluster()`, which starts fresh R processes, and
+  open the catalog inside each worker:
+
+  ```r
+  cl <- parallel::makeCluster(4)
+  parallel::clusterEvalQ(cl, library(icebergr))
+  parallel::parLapply(cl, shards, function(shard) {
+    catalog <- icebergr_catalog("memory", warehouse = "/data/warehouse")
+    tbl <- icebergr_table(catalog, "db.events")
+    icebergr_collect(icebergr_scan(tbl, filter = day == shard))
+  })
+  ```
+
+  Note that the handle is opened *in* the worker. A handle cannot be sent to one:
+  it holds a pointer into the Rust side, and serialising it produces the
+  "no longer usable" error rather than a wrong answer.
 - **Reads stream.** Batches are pulled one at a time rather than collected up
   front, so memory stays bounded by batch size, not table size — until
   `icebergr_collect()` materialises the result into a tibble, which is necessarily
@@ -274,6 +294,14 @@ table shows which one — and whether a filter is pruning more than you meant, w
 **Writes to a table another engine performs deletes on.** `icebergr` only
 appends, which is always safe. It cannot delete or update rows, so a workflow
 needing that must do it elsewhere; see `icebergr_spec_support()`.
+
+**`mclapply()` never returns.** The async runtime's worker threads do not survive
+a `fork()`, so a forked child that calls into `icebergr` waits forever on threads
+that did not come across. There is no error to catch, which is what makes it
+worth knowing about. Forking *before* any `icebergr` call is fine — each child
+then starts its own runtime — but once the parent has connected, use
+`parallel::makeCluster()` instead and open the catalog inside each worker. See
+*Performance notes* above.
 
 **`cannot append to "db.events": it is partitioned by …`.** Reading a partitioned
 table works, and `icebergr_partitions()` reports its spec, but appending to one

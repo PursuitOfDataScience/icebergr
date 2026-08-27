@@ -88,3 +88,23 @@ test_that("build-dependent features resolve to TRUE or FALSE, never NA", {
 test_that("spec support prints without error", {
   expect_output(print(icebergr_spec_support()), "icebergr_spec_support")
 })
+
+test_that("the feature reasons wrap to the terminal, with a floor for narrow ones", {
+  # Several reasons run past 140 characters, so they are wrapped rather than left
+  # to the terminal to break mid-word. cat_feature() also refuses to wrap below
+  # 40 columns, since one word per line is not readable either -- a floor that
+  # nothing exercised.
+  withr::local_options(width = 200)
+  wide <- capture.output(print(icebergr_spec_support()))
+  expect_lte(max(nchar(wide)), 200L)
+  expect_gt(max(nchar(wide)), 100L)
+
+  withr::local_options(width = 40)
+  narrow <- capture.output(print(icebergr_spec_support()))
+  expect_lte(max(nchar(narrow)), 40L)
+
+  # Below the floor the output stays as it was at 40 rather than degrading.
+  withr::local_options(width = 10)
+  pinched <- capture.output(print(icebergr_spec_support()))
+  expect_equal(pinched, narrow)
+})

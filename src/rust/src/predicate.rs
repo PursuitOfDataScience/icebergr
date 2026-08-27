@@ -358,18 +358,37 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
     }
 
     let as_i64 = || -> RResult<i64> {
-        value
-            .as_i64()
-            // bit64::integer64 arrives as a digit string, because an int64 past
-            // 2^53 cannot survive as a JSON number.
-            .or_else(|| value.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
-            .or_else(|| {
-                value
-                    .as_f64()
-                    .filter(|f| f.fract() == 0.0)
-                    .map(|f| f as i64)
-            })
-            .ok_or_else(|| mismatch("a whole number"))
+        if let Some(v) = value.as_i64() {
+            return Ok(v);
+        }
+        // bit64::integer64 arrives as a digit string, because an int64 past
+        // 2^53 cannot survive as a JSON number.
+        if let Some(v) = value.as_str().and_then(|s| s.trim().parse::<i64>().ok()) {
+            return Ok(v);
+        }
+        // A whole-numbered double, which is the form R sends anything past 2^53
+        // in. The range check is not decoration: `f as i64` *saturates* in Rust,
+        // so `id == 1e19` silently became `id == 9223372036854775807` and matched
+        // whichever rows happen to hold i64::MAX -- a filter answering a
+        // different question without saying so. The 32-bit branch below already
+        // refuses an out-of-range value rather than clamping it; this is the
+        // 64-bit branch agreeing with it.
+        //
+        // Bounded against 2^63 rather than against i64::MAX, because `i64::MAX as
+        // f64` rounds *up* to 2^63: comparing against it would let the one value
+        // through that cannot be converted. The message names no width for the
+        // column, because this closure serves the timestamp and date arms too.
+        if let Some(f) = value.as_f64().filter(|f| f.fract() == 0.0) {
+            let limit = 9_223_372_036_854_775_808f64; // 2^63
+            if f >= -limit && f < limit {
+                return Ok(f as i64);
+            }
+            return Err(RError::Other(format!(
+                "cannot compare column {col:?} (Iceberg type {ty}) against {f}: \
+                 it is outside the range of a 64-bit integer."
+            )));
+        }
+        Err(mismatch("a whole number"))
     };
     let as_f64 = || -> RResult<f64> { value.as_f64().ok_or_else(|| mismatch("a number")) };
     let as_str = || -> RResult<&str> { value.as_str().ok_or_else(|| mismatch("a string")) };
@@ -582,5 +601,62 @@ fn rescale_decimal(s: &str, scale: u32, col: &str, ty: &PrimitiveType) -> RResul
         Ok(format!("{sign}{int_part}"))
     } else {
         Ok(format!("{sign}{int_part}.{frac}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn json(text: &str) -> Json {
+        serde_json::from_str(text).expect("test literal is valid JSON")
+    }
+
+    #[test]
+    fn a_long_literal_past_i64_is_refused_rather_than_clamped() {
+        // The exact text R emits for 1e19: format(1e19, digits = 17,
+        // scientific = FALSE, trim = TRUE). serde_json holds it as a u64, so
+        // as_i64() declines it and the f64 fallback used to saturate to
+        // i64::MAX -- turning `id == 1e19` into a filter that matches rows
+        // holding 9223372036854775807 and reports nothing amiss.
+        let err = datum(&json("10000000000000000000"), &PrimitiveType::Long, "id")
+            .expect_err("1e19 does not fit an i64");
+        assert!(
+            err.to_string()
+                .contains("outside the range of a 64-bit integer"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_long_literal_inside_the_range_still_converts() {
+        // Past 2^53, so it arrives as a double and takes the fallback -- the
+        // path the range check guards. It has to keep working.
+        assert_eq!(
+            datum(&json("1e18"), &PrimitiveType::Long, "id").unwrap(),
+            Datum::long(1_000_000_000_000_000_000i64)
+        );
+        // And the boundaries themselves convert rather than being refused.
+        assert_eq!(
+            datum(&json("-9223372036854775808"), &PrimitiveType::Long, "id").unwrap(),
+            Datum::long(i64::MIN)
+        );
+    }
+
+    #[test]
+    fn an_integer64_digit_string_is_still_exact() {
+        // bit64::integer64 comes over as a string precisely so that this value
+        // does not become 9007199254740992 on the way.
+        assert_eq!(
+            datum(&json("\"9007199254740993\""), &PrimitiveType::Long, "id").unwrap(),
+            Datum::long(9_007_199_254_740_993i64)
+        );
+    }
+
+    #[test]
+    fn a_fractional_long_literal_names_the_mismatch() {
+        let err =
+            datum(&json("2.5"), &PrimitiveType::Long, "id").expect_err("2.5 is not a whole number");
+        assert!(err.to_string().contains("expected a whole number"), "{err}");
     }
 }

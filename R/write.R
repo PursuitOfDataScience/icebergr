@@ -163,8 +163,8 @@ icebergr_register_table <- function(catalog, table, metadata_location) {
 #' a column the table does not have is an error rather than being dropped
 #' silently.
 #'
-#' Appending zero rows is a no-op: it returns the table unchanged rather than
-#' committing an empty snapshot.
+#' Appending zero rows is a no-op: it warns, and returns the table unchanged
+#' rather than committing an empty snapshot that records that nothing happened.
 #'
 #' The table must be unpartitioned. An append to a partitioned table would have
 #' to compute a partition value for every row, which this version does not do, so

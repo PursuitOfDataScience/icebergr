@@ -241,3 +241,31 @@ test_that("an unknown compression codec is rejected", {
   tbl <- icebergr_create_table(catalog, "db.events", events)
   expect_error(icebergr_append(tbl, events, compression = "brotli"))
 })
+
+test_that("append properties reach the snapshot summary, and only that snapshot", {
+  # `properties` exists solely to record provenance in the summary, and it was
+  # only ever tested for the shapes it *rejects* -- so nothing established that a
+  # valid one arrives at all. Same reasoning as the compression test above: an
+  # argument has to be shown to reach its destination.
+  catalog <- local_namespace()
+  events <- data.frame(id = 1:3L)
+  tbl <- icebergr_create_table(catalog, "db.events", events)
+
+  tbl <- icebergr_append(tbl, events, properties = c(
+    "icebergr.source" = "unit test",
+    "run-id" = "42",
+    # A quote and a backslash, since the summary is JSON on the way through.
+    "note" = "quote\"and\\slash"
+  ))
+  summary_1 <- icebergr_snapshots(tbl)$summary[[1L]]
+  expect_match(summary_1, '"icebergr.source":"unit test"', fixed = TRUE)
+  expect_match(summary_1, '"run-id":"42"', fixed = TRUE)
+  expect_match(summary_1, '"note":"quote\\"and\\\\slash"', fixed = TRUE)
+
+  # A later append must not inherit them: provenance belongs to one commit.
+  tbl <- icebergr_append(tbl, events)
+  history <- icebergr_snapshots(tbl)
+  expect_false(grepl("run-id", history$summary[[2L]], fixed = TRUE))
+  # The writer's own counts still parse out from alongside the custom keys.
+  expect_equal(history$added_records, c(3, 3))
+})

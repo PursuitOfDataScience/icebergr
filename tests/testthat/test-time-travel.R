@@ -102,10 +102,20 @@ test_that("as_of accepts a Date, which means that day's midnight in UTC", {
 
   # Documented as accepting a Date, and never once given one. A Date is an
   # instant, not a day: midnight UTC, which is what Iceberg's AS OF TIMESTAMP
-  # means too. So today's date is *before* a table written today, and tomorrow's
-  # is after it. Pinned because the alternative reading -- end of that day --
-  # would look like a kindness and would disagree with every other engine.
-  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, as_of = Sys.Date() + 1))), 3L)
+  # means too. So the commit's own UTC date is *before* it, and the next day is
+  # after it. Pinned because the alternative reading -- end of that day -- would
+  # look like a kindness and would disagree with every other engine.
+  #
+  # The date comes from the snapshot's own timestamp, not from Sys.Date(), so
+  # that both sides of the comparison are in UTC. Sys.Date() is the *local*
+  # date, and `as_of` resolves a Date to midnight UTC, so `Sys.Date() + 1` was
+  # already in the past for the last few hours of every day in any zone behind
+  # UTC -- 4 of them in New York, 7 in Los Angeles, 10 in Honolulu. This machine
+  # sets no timezone, which is the only reason it ever passed here.
+  committed <- icebergr_snapshots(tbl)$timestamp[[1L]]
+  utc_day <- as.Date(committed, tz = "UTC")
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, as_of = utc_day + 1))), 3L)
+  expect_error(icebergr_scan(tbl, as_of = utc_day - 1), "no snapshot at or before")
   expect_error(
     icebergr_scan(tbl, as_of = as.Date("2000-01-01")),
     "no snapshot at or before"

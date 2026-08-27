@@ -17,8 +17,10 @@ written.}
 \item{\code{catalogs}}{Catalog types available in this build.}
 \item{\code{cargo_features}}{Optional Cargo features compiled in.}
 \item{\code{features}}{A tibble of \code{feature}, \code{supported} and \code{reason}.
-\code{supported} is \code{TRUE}, \code{FALSE}, or \code{NA} when it depends on a build
-option that is absent here.}
+\code{supported} is \code{TRUE}, \code{FALSE}, or \code{NA} for something this build
+supports only in part, with \code{reason} saying which part. A feature that
+depends on an optional Cargo feature is resolved against this build, so
+it is \code{TRUE} or \code{FALSE} here and never \code{NA}.}
 }
 }
 \description{

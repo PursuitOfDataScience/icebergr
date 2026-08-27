@@ -88,6 +88,8 @@ properties_from_env <- function() {
 #' }
 #'
 #' Catalog properties are never printed, logged or included in error messages.
+#' A credential property passed through `...` anyway is accepted but warned
+#' about, since a script is the one place it should not be.
 #'
 #' @return An `icebergr_catalog` object.
 #'

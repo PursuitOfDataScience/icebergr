@@ -93,7 +93,41 @@ rather than a clear error.
 5. **Export it** — roxygen `@export`, then `devtools::document()`.
 
 Names must match exactly across steps 1–3. A typo shows up as
-`object 'wrap__rs_whatever' not found`.
+`object 'wrap__rs_whatever' not found`, and a wrong *argument count* shows up as
+`Incorrect number of arguments (n), expecting m` on every call — which is easy to
+introduce whenever `rextendr` is unavailable and step 3 is done by hand.
+
+Neither mistake needs a build to catch. This checks all three lists agree, and
+that every wrapper's arity matches its Rust signature:
+
+```sh
+python3 - <<'PY'
+import re, glob
+src = "\n".join(open(f).read() for f in sorted(glob.glob("src/rust/src/*.rs")))
+def arity(after):                      # count top-level params from just past "("
+    d, n, seen = 1, 0, False
+    for c in src[after:]:
+        if c in "([<{": d += 1
+        elif c in ")]>}":
+            d -= 1
+            if not d: break
+        elif d == 1 and c == ",": n += 1
+        if d >= 1 and not c.isspace(): seen = True
+    return n + 1 if seen else 0
+rust = {m.group(1): arity(m.end()) for m in re.finditer(
+    r"#\[extendr\][^\n]*\n(?:\s*#\[[^\]]*\]\s*\n)*\s*fn\s+(rs_[a-z_0-9]+)\s*\(", src)}
+mod = set(re.findall(r"fn\s+(rs_[a-z_0-9]+);", src))
+w = open("R/extendr-wrappers.R").read()
+rw = {m.group(1): len([a for a in m.group(2).split(",") if a.strip()])
+      for m in re.finditer(r"^(rs_[a-z_0-9]+)\s*<-\s*function\((.*?)\)\s*[\{\.]", w, re.S|re.M)}
+print("not registered:", sorted(set(rust) - mod) or "ok")
+print("no R wrapper  :", sorted(mod - set(rw)) or "ok")
+print("arity mismatch:", [(n, rust[n], rw[n]) for n in rust if n in rw and rust[n] != rw[n]] or "ok")
+PY
+```
+
+Last run: 25 functions, all three lists agreeing, every arity matching, and every
+wrapper reached from `R/` or `tests/`.
 
 ## Checking the Rust without R
 
@@ -150,6 +184,33 @@ R CMD check --as-cran icebergr_*.tar.gz
 exemption request rests on. See `FEASIBILITY.md` §8d for what it is made of and
 what does and does not reduce it.
 
+**On any `iceberg-rust` or `arrow` bump, the version is carried by hand in
+thirteen files and nothing will catch a stale one.** Two of them are reported to
+users — `rs_build_info()` in `src/rust/src/lib.rs`, which is what
+`icebergr_spec_support()` prints, and the `reason` strings in `feature_matrix()`
+that name the version a gap belongs to. The test for it compares one hardcoded
+string against another, so it passes either way. `grep -rn '0\.10\.0'` before
+tagging, and check the reported version against `src/rust/Cargo.lock` rather than
+against `Cargo.toml`, since a caret requirement can resolve higher than it reads.
+The rustc MSRV does not have this problem: `tools/msrv.R` reads it from
+`SystemRequirements` in `DESCRIPTION`, which is its single source of truth.
+
+**But that value has to be the maximum over the whole resolved tree, not
+`iceberg-rust`'s own `rust-version`.** At 0.10.0 the two happen to agree at 1.94,
+and it is the exact floor — but one of the four crates setting it is `fastnum`,
+a direct non-optional dependency of `iceberg`, not `iceberg-rust` itself. So the
+documented fallback of pinning 0.9.1 to reach 1.92 may not actually drop the
+floor; re-resolve and re-measure before offering it. Compute the real floor from
+an extracted vendor tree:
+
+```sh
+tar xf src/rust/vendor.tar.xz -C /tmp && grep -rhE '^\s*rust-version\s*=' /tmp/vendor/*/Cargo.toml |
+  sed -E 's/.*"([0-9.]+)".*/\1/' | sort -uV | tail -1
+```
+
+Measure that tree's size with `find -printf '%s\n'`, not `du`: this filesystem
+compresses, so `du -sm` reported 123 MiB for a tree whose files total 343.9 MiB.
+
 ### Pre-submission checklist
 
 Things that need a human, and cannot be done by CI:
@@ -179,6 +240,7 @@ Things that need a human, and cannot be done by CI:
 | `error: no matching package named ...` during an offline build | `vendor.tar.xz` is stale. Re-run `tools/vendor.R` |
 | Builds are mysteriously slow every time | `NOT_CRAN` is unset, so each build is a cleaned release build |
 | Tests hang | A `block_on` was reached from inside the tokio runtime. Every entry point must be called from R's thread; see `src/rust/src/runtime.rs` |
+| `mclapply()` hangs, with no error | The runtime's worker threads do not survive `fork()`. `TOKIO` is a `OnceLock`, so a forked child inherits it already initialised and `block_on` waits on threads that never came across. Measured: forking *before* any call is fine, forking after the runtime has started deadlocks. Documented in the catalog-configuration vignette as "use a PSOCK cluster". Not fixed in 0.1.0 — a fix means keying the runtime on `std::process::id()` and rebuilding it after a fork, which changes `block_on`'s return type or its `'static` lifetime and so touches every entry point. `check_live_ptr()` cannot catch it: after a fork the pointer really is valid |
 | `Failed to convert between uuid und iceberg value, invalid character: found \`x\`` | Not a data problem. A metadata file whose name is not `<version>-<uuid>.metadata.json`; the stray character is the first letter of the file name. Iceberg derives the next name from the current one. Test fixtures must use `metadata_file_name()` |
 | A `decimal` filter returns no rows | `iceberg-rust` 0.10.0's row-selection filter discards every row of an ordering comparison on a decimal. `configure()` in `scan.rs` turns that stage off when the predicate touches one; do not remove it |
 | `struct<doubledouble>` in a schema | `iceberg::spec::Type`'s own `Display` runs a struct's child types together with no names. `table.rs::type_label()` exists for this; do not replace it with `to_string()` |
@@ -228,9 +290,22 @@ Things that need a human, and cannot be done by CI:
 - **`type_label()` renders Iceberg types, not `Display`.** Upstream writes a
   struct as its children's types run together with no names or separator —
   `struct<doubledouble>` — and a list or map as a bare word.
-- **The `int64` prototype recurses.** A `long` inside a `struct` loses precision
-  exactly as a top-level one does; `rewrite_int64()` descends. `list` and `map`
-  are deliberately left alone, since their prototypes are not data frames.
+- **Every per-column helper in `arrow-bridge.R` recurses into data frame
+  columns**, because a data frame column is how a `struct` arrives. All three had
+  to learn this separately, so treat it as the rule for any new one:
+  `rewrite_int64()` (a `long` inside a struct loses precision exactly as a
+  top-level one does), `normalise_timestamps()` (a naive `POSIXct` inside a struct
+  otherwise reaches nanoarrow as the *session's* zone, and `create_table()` fails
+  with `Unsupported Arrow data type: Timestamp(us, "America/Chicago")` on a data
+  frame that works on a UTC machine), and `canonicalise_utc()` (a nested
+  `timestamptz` otherwise keeps `"+00:00"` and warns `'tzone' attributes are
+  inconsistent`). `list` and `map` are deliberately left alone, since their
+  columns are not data frames.
+- **A `long` filter literal is range-checked, not cast.** `f as i64` *saturates*
+  in Rust, so `id == 1e19` quietly became `id == 9223372036854775807` and returned
+  whichever rows hold `i64::MAX`. `as_i64()` in `predicate.rs` bounds against
+  2^63 rather than against `i64::MAX as f64`, which rounds *up* to 2^63 and would
+  let through the one value that cannot convert.
 
 ## Verifying a claim before making it
 

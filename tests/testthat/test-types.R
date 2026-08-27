@@ -182,6 +182,30 @@ test_that("integer64 stays exact inside a struct, not only at the top level", {
   expect_equal(as.character(limited$nest$big), exact)
 })
 
+test_that("without bit64 a long narrows to a double, as documented", {
+  skip_if_not_installed("bit64")
+  catalog <- local_namespace()
+  exact <- "9007199254740993"
+  events <- data.frame(id = 1:2L, big = bit64::as.integer64(c(exact, "1")))
+  tbl <- seed_table(catalog, "db.big", events)
+
+  # bit64 is only suggested, so the type-fidelity table promises that a `long`
+  # falls back to nanoarrow's own conversion when it is absent -- lossily, which
+  # is the whole reason int64_ptype() exists. Nothing covered that branch, and it
+  # cannot be reached by uninstalling a package mid-suite, so the branch point
+  # itself is mocked.
+  local_mocked_bindings(int64_ptype = function(schema) NULL)
+
+  got <- icebergr_collect(tbl)
+  got <- got[order(got$id), ]
+  expect_type(got$big, "double")
+  # 2^53 + 1 is exactly the value a double cannot hold, so it comes back even.
+  expect_equal(format(got$big[[1L]], scientific = FALSE), "9007199254740992")
+  # The limit path converts batch by batch and must degrade the same way rather
+  # than erroring on a NULL prototype.
+  expect_type(icebergr_collect(icebergr_scan(tbl, limit = 1))$big, "double")
+})
+
 test_that("a struct with no int64 in it is left as nanoarrow converts it", {
   catalog <- local_namespace()
   schema <- nanoarrow::na_struct(list(
@@ -197,6 +221,45 @@ test_that("a struct with no int64 in it is left as nanoarrow converts it", {
   expect_type(got$a, "integer")
   expect_s3_class(got$s, "data.frame")
   expect_equal(got$s$d, 1.5)
+})
+
+test_that("a POSIXct inside a struct is normalised rather than left to the session", {
+  # The write-side twin of the int64-in-a-struct bug above: normalise_timestamps()
+  # relabelled top-level columns only, so a naive POSIXct one level down reached
+  # nanoarrow as the *session's* zone and create_table died with "Unsupported
+  # Arrow data type: Timestamp(us, \"America/Chicago\")" -- on a data frame that
+  # works unchanged on a machine set to UTC.
+  withr::local_timezone("America/Chicago")
+
+  catalog <- local_namespace()
+  naive <- as.POSIXct("2024-06-15 08:00:00")
+  events <- data.frame(id = 1L)
+  events$meta <- data.frame(seen = naive)
+
+  tbl <- icebergr_create_table(catalog, "db.nested_ts", events)
+  expect_equal(icebergr_schema(tbl)$type, c("int", "struct<seen: timestamptz>"))
+
+  tbl <- icebergr_append(tbl, events)
+  got <- icebergr_collect(tbl)
+  expect_equal(as.numeric(got$meta$seen), as.numeric(naive))
+})
+
+test_that("a timestamp inside a struct comes back labelled UTC, not +00:00", {
+  # And the read-side twin: canonicalise_utc() also stopped at the top level, so
+  # a nested timestamptz kept iceberg-rust's "+00:00" and comparing it against an
+  # ordinary UTC POSIXct warned "'tzone' attributes are inconsistent" -- the very
+  # warning that function exists to prevent.
+  catalog <- local_namespace()
+  cutoff <- as.POSIXct("2024-06-15 12:00:00", tz = "UTC")
+  events <- data.frame(id = 1:2L)
+  events$meta <- data.frame(seen = cutoff + c(-3600, 3600))
+
+  tbl <- seed_table(catalog, "db.nested_ts", events)
+  got <- icebergr_collect(tbl)
+
+  expect_equal(attr(got$meta$seen, "tzone"), "UTC")
+  expect_no_warning(got$meta$seen >= cutoff)
+  expect_equal(sum(got$meta$seen >= cutoff), 1L)
 })
 
 test_that("a factor becomes character, as documented", {
@@ -309,6 +372,9 @@ test_that("a list column round trips, and a map column can be created", {
   got <- icebergr_collect(tbl)
   got <- got[order(got$id), ]
   expect_equal(nrow(got), 2L)
+  # The type-fidelity table promises it comes back *as a list_of*, not merely as
+  # something whose elements are right, so the class is part of the claim.
+  expect_s3_class(got$tags, "vctrs_list_of")
   expect_equal(as.integer(got$tags[[1L]]), c(1L, 2L))
   expect_equal(as.integer(got$tags[[2L]]), 3L)
 

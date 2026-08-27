@@ -370,7 +370,7 @@ test_that("a spec v1 table reads, filters and appends", {
   expect_output(print(tbl), "format:   v1", fixed = TRUE)
 })
 
-test_that("table properties are readable", {
+test_that("a table with no properties reports zero rows, with the right columns", {
   catalog <- local_namespace()
   tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
 
@@ -379,9 +379,38 @@ test_that("table properties are readable", {
   expect_named(props, c("name", "value"))
   expect_type(props$name, "character")
   expect_type(props$value, "character")
-  # Ordered by name, so the output is stable between calls.
-  expect_equal(props$name, sort(props$name))
+  # Stated outright, because every table icebergr can create has none:
+  # iceberg-rust's TableCreation carries an empty property map and icebergr does
+  # not expose it. That is why the ordering claim needs the fixture below --
+  # asserting sort(props$name) here compared character(0) to character(0).
+  expect_equal(nrow(props), 0L)
   expect_error(icebergr_properties("not a table"), "icebergr_table")
+})
+
+test_that("a table's properties are read, and ordered by name", {
+  warehouse <- withr::local_tempdir("props")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
+
+  # Deliberately not in name order on the way in, so the sort is doing work.
+  tbl <- with_properties(warehouse, "db.events", c(
+    "write.parquet.compression-codec" = "zstd",
+    "owner" = "analytics",
+    "commit.retry.num-retries" = "4"
+  ))
+
+  props <- icebergr_properties(tbl)
+  expect_equal(nrow(props), 3L)
+  # The documented order, asserted literally rather than against R's own
+  # sort(): the Rust side sorts bytewise, while R's sort() follows the
+  # collation locale, so comparing the two would be testing the locale.
+  expect_equal(
+    props$name,
+    c("commit.retry.num-retries", "owner", "write.parquet.compression-codec")
+  )
+  expect_equal(props$value[[which(props$name == "owner")]], "analytics")
+  expect_equal(props$value[[which(props$name == "commit.retry.num-retries")]], "4")
 })
 
 test_that("a table handle prints its identity and schema", {
@@ -392,6 +421,24 @@ test_that("a table handle prints its identity and schema", {
   expect_match(printed, "db.events")
   expect_match(printed, "icebergr_table")
   expect_match(printed, "id")
+})
+
+test_that("a wide table lists ten columns and counts the rest", {
+  # print() caps the listing at ten so a hundred-column table does not fill the
+  # console. Nothing reached that branch: every other table in these tests has
+  # five columns or fewer.
+  catalog <- local_namespace()
+  wide <- as.data.frame(
+    stats::setNames(as.list(rep(1L, 14L)), sprintf("c%02d", 1:14))
+  )
+  tbl <- icebergr_create_table(catalog, "db.wide", wide)
+
+  printed <- paste(capture.output(print(tbl)), collapse = "\n")
+  expect_match(printed, "columns:  14")
+  expect_match(printed, "c10 <int>", fixed = TRUE)
+  expect_match(printed, "... and 4 more", fixed = TRUE)
+  # The eleventh onwards are counted, not listed.
+  expect_false(grepl("c11 <int>", printed, fixed = TRUE))
 })
 
 test_that("a scan prints whether the filter was pushed down", {
