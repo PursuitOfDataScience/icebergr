@@ -68,6 +68,10 @@ toolchain is required: `rustc` 1.92 or newer. `iceberg-rust` 0.10.0 declares
 1.94, but nothing in the tree uses a feature newer than 1.92, so cargo is passed
 `--ignore-rust-version` and `configure` gates on the version the package is
 actually tested against.
-All Rust dependencies are vendored in `src/rust/vendor.tar.xz`, so the build
-never touches the network; a default install compiles 264 crates and takes a
-while the first time. CI exercises that exact offline path on every commit.
+The Rust dependencies a default install compiles are vendored in
+`src/rust/vendor.tar.xz`, so that install never touches the network; it compiles
+264 crates and takes a while the first time. CI exercises that exact offline path
+on every commit. The optional `s3` and `glue` features are the exception: they
+draw in about a hundred further crates, which would have tripled the source
+tarball, so enabling one of them resolves those from crates.io and needs network
+access.

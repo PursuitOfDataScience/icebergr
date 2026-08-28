@@ -30,17 +30,20 @@ VENDOR_DIR = $(CURDIR)/vendor
 # cannot build the package at all. tools/msrv.R still refuses anything below the
 # floor in DESCRIPTION, so nothing is silently unchecked.
 #
-# When NOT_CRAN is unset, vendor.tar.xz (if present) is unpacked and cargo is
-# pointed at it, so the build touches the network at no point. RUSTFLAGS gains
-# --print=native-static-libs so that any missing platform link flag shows up in
-# the build log rather than as an inscrutable linker error.
+# tools/config.R decides @USE_VENDOR@: true for a CRAN build that has
+# vendor.tar.xz to unpack, in which case cargo is pointed at the unpacked tree
+# and @CRAN_FLAGS@ carries --offline, so the build touches the network at no
+# point. It is false when NOT_CRAN is set, when the archive is absent, and when
+# @FEATURES@ asks for an optional backend -- the archive is pruned down to the
+# crates the default build compiles, so a feature build has to resolve from
+# crates.io. RUSTFLAGS gains --print=native-static-libs so that any missing
+# platform link flag shows up in the build log rather than as an inscrutable
+# linker error.
 $(STATLIB):
-	if [ "$(NOT_CRAN)" != "true" ]; then \
-		if [ -f ./rust/vendor.tar.xz ]; then \
-			tar xf rust/vendor.tar.xz && \
-			mkdir -p $(CARGOTMP) && \
-			cp rust/vendor-config.toml $(CARGOTMP)/config.toml; \
-		fi; \
+	if [ "@USE_VENDOR@" = "true" ]; then \
+		tar xf rust/vendor.tar.xz && \
+		mkdir -p $(CARGOTMP) && \
+		cp rust/vendor-config.toml $(CARGOTMP)/config.toml; \
 	fi
 
 	export CARGO_HOME=$(CARGOTMP) && \
