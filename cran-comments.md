@@ -71,15 +71,19 @@ this time, and it corrects a claim I made in the previous one.
   farm reported — again vendored and offline. Added for this resubmission.
 - GitHub Actions: ubuntu-latest (R release and R oldrel-1), macos-latest
   (R release), windows-latest (R release), building against crates.io.
-- GitHub Actions: a separate job that vendors every dependency and then builds
-  with no network access at all, reproducing the CRAN build path and measuring
-  the resulting tarball.
-- GitHub Actions: a new job for this resubmission that reads the floor out of
-  `SystemRequirements` and type-checks the whole tree on exactly that toolchain,
-  so the declared minimum cannot drift again without CI going red. On this
-  submission it installed rustc 1.92.0 and processed all 264 crates of the
-  default graph with no warnings. Every job above passed on the submitted tree,
-  windows-latest included.
+- GitHub Actions: one job vendors every dependency and publishes the resulting
+  `vendor.tar.xz`, and a three-platform matrix — ubuntu-latest, macos-latest and
+  windows-latest — then builds and checks **that same archive** with no network
+  access at all, reproducing the CRAN build path. Extended to macOS and Windows
+  for this resubmission, because the reductions described below prune crates
+  that only those two platforms compile and Linux alone cannot show that to be
+  safe. The vendoring job re-derives the archive from scratch on a clean runner
+  and arrives at the same 10.47 MB and the same per-stage figures quoted below.
+- GitHub Actions: a job that reads the floor out of `SystemRequirements` and
+  type-checks the whole tree on exactly that toolchain, so the declared minimum
+  cannot drift without CI going red. It installs rustc 1.92.0 and processes the
+  whole default graph with no warnings. Every job above passed on the submitted
+  tree, both windows-latest jobs included.
 
 ## R CMD check results
 
