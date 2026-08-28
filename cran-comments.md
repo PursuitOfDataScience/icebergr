@@ -210,6 +210,28 @@ depends on `tokio`, `hyper`, `reqwest`, `rustls` and `ring`. `iceberg` declares
 no feature configuration that removes any of it, and 264 of the 270 are compiled
 on a single machine — the extra six are the macOS and Windows system bindings.
 
+**On the separate-package suggestion.** You mentioned that data can go in a
+separate package that is only infrequently updated. This package ships no data at
+all — outside `vendor.tar.xz` the whole tarball is 199,606 bytes — so that route
+does not apply literally, but the analogous move does exist and I want to be
+straight about it rather than leave it unaddressed: a companion package
+containing nothing but the vendored archive and a function returning its path,
+with this package's `configure` locating it.
+
+It would not get either package under 10 MB, since the companion would be the
+same 10.46 MB and would need the same exception. What it would do is answer what
+I take to be the underlying concern. The bulk changes only when `iceberg-rust`
+does, which is a few times a year, whereas this package will see the ordinary
+rate of bug-fix releases; splitting them would mean the frequently-updated
+package is ~200 KB and your mirrors carry the 10 MB rarely instead of on every
+release.
+
+I have not done it because it makes an installation depend on a second package
+being present at *build* time, which is unusual enough that I would rather not
+invent it unilaterally, and because it is your infrastructure the trade-off is
+about. If you would prefer that shape, say so and I will restructure it; if the
+exception is simpler for you, this submission is that.
+
 One further reduction of about 0.6 MB does exist and I have not taken it.
 Parquet supports Brotli as a column codec, and `brotli` plus
 `brotli-decompressor` are 6.2 MB of source and 0.62 MB of the archive. Setting
