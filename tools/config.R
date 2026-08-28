@@ -1,6 +1,7 @@
 # Generate src/Makevars{,.win} from the .in templates.
 #
-# The substitutions decide four things:
+# The substitutions decide five things:
+#   * whether the build unpacks the vendored crates,
 #   * whether cargo may reach the network (it may not, when building for CRAN),
 #   * whether we build release or debug,
 #   * whether the target directory is cleaned afterwards,
@@ -46,12 +47,6 @@ if (!is_not_cran) {
   }
 }
 
-# Only restrict cargo when we are building for CRAN *and* we actually have the
-# vendored sources to build from. `-j 2` keeps us inside CRAN's limit on
-# parallelism, which cargo would otherwise blow past by defaulting to the
-# number of logical CPUs.
-.cran_flags <- if (!is_not_cran && vendor_exists) "-j 2 --offline" else ""
-
 # Optional backends are off by default because each substantially enlarges the
 # dependency tree. ICEBERGR_CARGO_FEATURES is what ?icebergr_catalog, the README
 # and the "not compiled in" error all tell users to set, so it has to reach
@@ -75,6 +70,37 @@ env_features <- trimws(Sys.getenv("ICEBERGR_CARGO_FEATURES"))
 } else {
   ""
 }
+
+# Whether the build reads vendor.tar.xz, which is also what decides whether
+# cargo may reach the network.
+#
+# The archive holds only the crates a *default* build compiles. Everything else
+# in Cargo.lock is in there as a manifest and nothing more, because CRAN's 10 MB
+# tarball guidance leaves no room for the ~100 additional crates -- the AWS SDK
+# and the whole of AWS-LC among them -- that s3 and glue drag in. Cargo replaces
+# the crates.io source wholesale when a directory source is configured, so it
+# cannot fetch just the missing few: a feature build has to ignore the archive
+# entirely and resolve from crates.io. Hence the third condition, without which
+# `ICEBERGR_CARGO_FEATURES=glue R CMD INSTALL` would fail deep inside a compile
+# rather than simply going to the network for what it needs.
+use_vendor <- !is_not_cran && vendor_exists && !nzchar(env_features)
+if (!is_not_cran && vendor_exists && nzchar(env_features)) {
+  message(paste(
+    c(
+      "",
+      "NOTE: the vendored sources cover the default build only, so the optional",
+      "backend(s) requested through ICEBERGR_CARGO_FEATURES will be resolved",
+      "from crates.io. This build therefore needs network access.",
+      ""
+    ),
+    collapse = "\n"
+  ))
+}
+
+# Only restrict cargo when we are actually building from the vendored sources.
+# `-j 2` keeps us inside CRAN's limit on parallelism, which cargo would
+# otherwise blow past by defaulting to the number of logical CPUs.
+.cran_flags <- if (use_vendor) "-j 2 --offline" else ""
 
 # rustls-native-certs reads the macOS system trust store through the Security
 # framework, and reqwest's proxy detection pulls in SystemConfiguration. Decided
@@ -152,6 +178,7 @@ mv_txt <- readLines(mv_fp, warn = FALSE)
 
 new_txt <- gsub("@CRAN_FLAGS@", .cran_flags, mv_txt)
 new_txt <- gsub("@FEATURES@", .features, new_txt)
+new_txt <- gsub("@USE_VENDOR@", if (use_vendor) "true" else "false", new_txt)
 new_txt <- gsub("@PKG_LIBS_EXTRA@", .pkg_libs_extra, new_txt)
 new_txt <- gsub("@MACOS_EXPORT@", .macos_export, new_txt)
 new_txt <- gsub("@PROFILE@", .profile, new_txt)

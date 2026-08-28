@@ -438,7 +438,7 @@ to be red.
 | | |
 | --- | --- |
 | Crates a default install compiles, one platform | **264** |
-| Crates in the default graph, all platforms | **308** |
+| Crates compiled on at least one platform R runs on | **270** |
 | Crates in `vendor.tar.xz` | **442** |
 | Vendor tree, uncompressed | 370.8 MB, pruned to 343.5 MB |
 | `vendor.tar.xz` | **31.3 MB** |
@@ -449,18 +449,70 @@ has to be made explicitly.
 
 Two findings that were not visible before it could be measured:
 
-- **The vendor tree carries 178 crates the default build never compiles** — the
-  AWS Glue and S3 backends behind the non-default Cargo features. They cannot
-  simply be pruned: cargo resolves the *whole* lock graph before it selects
-  features, so an offline build fails at resolution ("no matching package named
+- **The vendor tree carries 172 crates that no build on any platform R runs on
+  compiles** — the AWS Glue and S3 backends behind the non-default Cargo
+  features, plus the crates that belong to other operating systems entirely
+  (`windows-sys` 0.52 and its import libraries, `web-sys`, `js-sys`, `jni`,
+  `redox_syscall`, the wasm-bindgen subtree). They cannot simply be *deleted*:
+  cargo resolves the whole lock graph before it selects features or filters
+  targets, so an offline build fails at resolution ("no matching package named
   `aws-sdk-glue`") if any locked package is absent from the vendor directory.
   Confirmed by removing them and re-running resolution.
 - **Removing them from the manifest outright buys almost nothing.** Measured by
   vendoring from a stripped manifest: 442 crates and 31.3 MB become 347 crates
   and 28 MB. `aws-lc-sys` and `aws-sdk-glue` are 87 MB of the *uncompressed*
-  tree, but they are largely generated code and xz compresses them to almost
-  nothing. Giving up two documented backends for 10% of the archive is not a
-  trade worth making, so the features stay.
+  tree, but they are largely generated code and xz compresses them well. Giving
+  up two documented backends for 10% of the archive is not a trade worth making,
+  so the features stay.
+
+### 8d-bis. The first finding above had the wrong conclusion (2026-08-28)
+
+CRAN's response to the 0.1.0 resubmission was to ask for the tarball under 10 MB,
+with an explanation if the crates were all needed. Working through that showed
+§8d stopped one step short.
+
+Cargo needs to *find* every locked package in the directory source. It never
+reads the ones it does not select. So a crate outside the compiled set can be
+reduced to its `Cargo.toml`, its licence files and an empty `lib.rs`, and
+resolution is satisfied — 172 crates in 0.5 MB rather than 222 MB. Verified by
+`cargo metadata --offline --locked` and by a full release build, which produced a
+`libicebergr.a` byte-identical in size to one built from the unpruned tree.
+
+Two smaller stages came out of the same pass:
+
+- `windows-sys` gates every module under `src/Windows` on a cargo feature whose
+  name is the module path, and this tree enables 27 of its 246 API modules. The
+  feature set is readable from `cargo tree -f '{p} :: {f}'`, so the other 219
+  modules can go: 17.3 MB to 3.3 MB.
+- Each vendored crate ships its own `Cargo.lock` and a `Cargo.toml.orig`, neither
+  of which cargo reads, plus changelogs and unit-test modules living inside
+  `src/`. Together 11 MB.
+
+Net: 373.8 MB of vendored sources to 97.3 MB, and a 33.0 MB tarball to 11.2 MB.
+The 10 MB guidance is still not met, and the profile of what is left says why:
+compressed individually the ten largest crates are 4.45 MB of the 10.46 MB
+archive and the remaining 432 directories average 22 KB, so there is no longer a
+single item to attack.
+
+Also worth recording, because it is the residual lever: `parquet`'s Brotli codec
+is 0.62 MB of the archive, and it cannot be switched off from our own manifest.
+Our dependency on `parquet` already sets `default-features = false`, but
+`iceberg` depends on `parquet` with default features on and cargo unions features
+across the graph rather than intersecting them, so the only way to drop Brotli is
+to override a feature inside the bundled `iceberg` manifest — a modification to a
+third-party crate, in exchange for not being able to read Brotli-compressed
+Parquet.
+
+Three things that looked like levers and are not:
+
+- `iceberg` 0.10.0 declares `[features] default = []` and has no optional
+  dependencies, so no feature configuration reduces it.
+- `xz` tuning is worth ~2%: `-9e` with `pb=0` and a dictionary large enough to
+  hold the whole tree beats the default preset by 0.24 MB. Ordering tar members
+  by file extension so that similar files sit together makes it *worse* than
+  directory order.
+- Deleting `src/bin/` from a library dependency fails at manifest parse: cargo
+  validates the paths a `[[bin]]` declares even for a package it will not build.
 
 The lever that is left, if CRAN declines the size, is the dependency itself
 rather than the packaging of it.

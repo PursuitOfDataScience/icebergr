@@ -121,6 +121,9 @@ Cargo feature, which is off by default because opendal is a substantial subtree:
 ICEBERGR_CARGO_FEATURES=s3 R CMD INSTALL --preclean .
 ```
 
+That build needs network access. The crates vendored inside the CRAN tarball
+cover the default install only, so cargo fetches the `s3` subtree from crates.io.
+
 Check before relying on it:
 
 ```{r}

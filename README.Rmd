@@ -67,6 +67,11 @@ ICEBERGR_CARGO_FEATURES=s3 R CMD INSTALL --preclean .
 ICEBERGR_CARGO_FEATURES=glue R CMD INSTALL --preclean .
 ```
 
+Either of those needs network access, even from the CRAN tarball. The vendored
+crates bundled there cover the default build; the roughly one hundred extra
+crates these features pull in — the AWS SDK among them — would have tripled the
+tarball, so cargo fetches them from crates.io instead.
+
 ## Getting started
 
 Everything below runs offline against a locally generated table.
@@ -253,32 +258,37 @@ minute.
 
 Two things have to clear first. Both are tractable; neither is settled.
 
-**1. Vendored size — measured, not estimated.** A default install compiles **264
-crates**; `vendor.tar.xz` carries **442** and weighs **31.3 MB**. The 178-crate gap
-is three layers, each forced by cargo rather than chosen: 44 belong to other
-operating systems and never build on any one machine (taking the all-platform
-default graph to 308), 110 are the optional Glue and S3 backends behind
-non-default features (taking it to 418), and 24 are in the lock file without
-appearing in any resolved graph. None can be pruned: cargo resolves the whole
-lock graph before it selects features or filters targets, so an offline build
-fails outright if any locked package is missing from the vendor directory.
+**1. Vendored size — measured, not estimated.** The source tarball is **10.7 MB**,
+almost all of it `vendor.tar.xz`. That is over CRAN's 10 MB guideline, which
+explicitly allows requesting more; the request is in
+[`cran-comments.md`](https://github.com/PursuitOfDataScience/icebergr/blob/main/cran-comments.md),
+made with the arithmetic shown rather than asserted.
 
-`[features] default = []` is already empty — `tokio`, `reqwest`, `parquet`, eight
-`arrow-*` crates and `apache-avro` are unconditional, so feature flags cannot
-trim the core. Dropping the optional backends entirely was measured too: it takes
-the archive from 31.3 MB to 28 MB, because the AWS and `windows-sys` trees are
-generated code that compresses extremely well. Trading documented functionality
-for 10% is not worth it.
+It was 31.5 MB until `tools/vendor.R` learned to reduce the vendor tree rather
+than just compress it. `cargo vendor` writes every entry in `Cargo.lock`, and a
+lockfile is a union over every platform and every optional feature, so most of
+what it writes is never compiled: of 442 crates, **270** are compiled on at least
+one platform R runs on and **264** on any single machine. The other 172 — the
+optional Glue and S3 backends, and the crates belonging to operating systems R
+does not run on — cannot be *deleted*, because cargo resolves the whole lock graph
+before it filters targets or selects features and fails outright on a missing
+package. But it never reads the ones it does not select, so they ship as their
+manifest and their licence rather than as source. With that plus four smaller
+sweeps (test corpora, files cargo ignores, `#[cfg(test)]` modules inside `src/`,
+and the 219 of 246 `windows-sys` API modules behind disabled features), 373.8 MB
+of vendored sources become 97.3 MB.
 
-For scale, the largest vendored Rust package CRAN has accepted is `arcgisgeocode`
-at 108 crates and 13.6 MB, itself an approved exception to the 10 MB guideline —
-and that guideline explicitly allows requesting more. 31.3 MB is 2.3× that, so
-the exemption request in [`cran-comments.md`](https://github.com/PursuitOfDataScience/icebergr/blob/main/cran-comments.md) is a real ask, made with the
-arithmetic shown rather than asserted.
+What is left is not reducible without giving something up. `iceberg` declares
+`[features] default = []` and has no optional dependencies, so `tokio`, `reqwest`,
+`parquet`, twelve `arrow-*` crates and `apache-avro` are unconditional. Compressed
+individually the ten largest crates are 4.45 MB of the 10.46 MB archive and the
+remaining 432 directories average 22 KB, so there is no longer a single item to
+attack.
 
-`tools/vendor.R` prunes tests, examples, benchmarks and fixtures from the vendor
-tree — 27 MB of it — while preserving every licence file, and the CI job reports
-the resulting size on each run.
+One consequence for anyone enabling an optional backend: `ICEBERGR_CARGO_FEATURES`
+builds fetch their extra crates from crates.io, because the bundled archive covers
+the default build. A default install still touches the network at no point, and CI
+runs that offline path on every commit.
 
 **2. Minimum Rust version.** `iceberg-rust` 0.10.0 declares `rustc` 1.94 and
 edition 2024, and bumps its minimum most releases. This one is now measured

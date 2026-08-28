@@ -2,7 +2,38 @@
 
 ## This is a resubmission
 
-The previous submission (0.1.0, 2026-08-27) was rejected by the incoming
+The previous submission (0.1.0, 2026-08-27) passed the pre-tests and was returned
+with one request: the 33,048,416-byte tarball had to come under 10 MB, with an
+explanation if the Rust crates were all genuinely needed.
+
+**The tarball is now 11,170,566 bytes, a 2.96x reduction, and nothing was
+dropped from what a default install can do.** The reduction and the explanation
+are together under "The size request" below. In short: `cargo vendor` writes
+every entry in `Cargo.lock`, which is a union over all platforms and all optional
+features, and 172 of the 442 crates it wrote are never compiled on any platform R
+runs on — including the 63 MB of BoringSSL that only the opt-in AWS Glue backend
+reaches. Those now ship as a manifest and a licence rather than as source, which
+is 222 MB of the 274 MB removed. No dependency was changed, added or removed.
+
+Changes in this version:
+
+* `tools/vendor.R` reduces the vendor tree before compressing it, in five
+  stages, each driven by what `cargo tree` reports rather than by a
+  hand-written list, and each verified afterwards by `cargo metadata --offline
+  --locked` and by an `include_str!` scan.
+* `tools/config.R` and `src/Makevars{,.win}.in` gained one condition: the
+  archive is unpacked, and `--offline` passed, only when no optional Cargo
+  feature has been requested. The pruned archive covers the default build, so a
+  feature build resolves from crates.io instead of failing inside a compile.
+* `LICENSE.note` now records, per crate, whether it is compiled or shipped as a
+  manifest only. All 442 are still inventoried and credited.
+
+Nothing else changed: no R code, no Rust code, no documentation beyond the notes
+on those two points, and no dependency versions.
+
+## The submission before that
+
+The submission of 0.1.0 on 2026-08-27 was rejected by the incoming
 pre-tests with 1 ERROR on r-devel-windows-x86_64: installation failed because
 `configure` refused a toolchain below rustc 1.94. The Debian flavour installed
 and checked cleanly, so the failure was specific to the Windows farm's rustc
@@ -29,7 +60,8 @@ Changes in this version:
   possibly misspelled. `README` is now quoted; "schemas" and "pushdown" are gone
   in favour of wording that is not jargon.
 
-The tarball size is unchanged, and the request about it below stands.
+The size request below has been rewritten around what was actually measured
+this time, and it corrects a claim I made in the previous one.
 
 ## Test environments
 
@@ -39,15 +71,19 @@ The tarball size is unchanged, and the request about it below stands.
   farm reported — again vendored and offline. Added for this resubmission.
 - GitHub Actions: ubuntu-latest (R release and R oldrel-1), macos-latest
   (R release), windows-latest (R release), building against crates.io.
-- GitHub Actions: a separate job that vendors every dependency and then builds
-  with no network access at all, reproducing the CRAN build path and measuring
-  the resulting tarball.
-- GitHub Actions: a new job for this resubmission that reads the floor out of
-  `SystemRequirements` and type-checks the whole tree on exactly that toolchain,
-  so the declared minimum cannot drift again without CI going red. On this
-  submission it installed rustc 1.92.0 and processed all 264 crates of the
-  default graph with no warnings. Every job above passed on the submitted tree,
-  windows-latest included.
+- GitHub Actions: one job vendors every dependency and publishes the resulting
+  `vendor.tar.xz`, and a three-platform matrix — ubuntu-latest, macos-latest and
+  windows-latest — then builds and checks **that same archive** with no network
+  access at all, reproducing the CRAN build path. Extended to macOS and Windows
+  for this resubmission, because the reductions described below prune crates
+  that only those two platforms compile and Linux alone cannot show that to be
+  safe. The vendoring job re-derives the archive from scratch on a clean runner
+  and arrives at the same 10.47 MB and the same per-stage figures quoted below.
+- GitHub Actions: a job that reads the floor out of `SystemRequirements` and
+  type-checks the whole tree on exactly that toolchain, so the declared minimum
+  cannot drift without CI going red. It installs rustc 1.92.0 and processes the
+  whole default graph with no warnings. Every job above passed on the submitted
+  tree, both windows-latest jobs included.
 
 ## R CMD check results
 
@@ -90,7 +126,9 @@ The package follows "Using Rust in CRAN packages" in full:
 - All Rust dependencies are vendored in `src/rust/vendor.tar.xz`, compressed with
   xz.
 - The build never accesses the network. `configure` passes `--offline` to cargo
-  whenever the vendored archive is present and `NOT_CRAN` is unset.
+  whenever the vendored archive is present, `NOT_CRAN` is unset and no optional
+  Cargo feature has been requested — see the size request below for why the last
+  condition is now there.
 - Cargo's parallelism is pinned with `-j 2`, since it would otherwise default to
   the number of logical CPUs.
 - `CARGO_HOME` is confined to the build directory and removed afterwards.
@@ -106,55 +144,88 @@ The package follows "Using Rust in CRAN packages" in full:
 - `inst/NOTICE` carries the Apache-2.0 attribution and trademark notice for the
   bundled Apache Iceberg Rust code.
 
-**The tarball exceeds the 10 MB guidance, and I would like to request an
-increased limit.** Measured from the vendored offline build:
+#### The size request
 
-| | |
+You asked me to bring the tarball under 10 MB, and to explain the Rust crates if
+they really are all needed. Both, in that order.
+
+**The tarball is now 11,170,566 bytes, down from 33,048,416 — a 2.96x
+reduction.** All of it came out of `tools/vendor.R`, which now reduces the vendor
+tree before compressing it rather than only compressing it. Uncompressed, stage
+by stage:
+
+| | uncompressed |
 | --- | --- |
-| Crates a default install actually compiles | 264 |
-| Crates in the default dependency graph, all platforms | 308 |
-| Crates present in `vendor.tar.xz` | 442 |
-| `src/rust/vendor.tar.xz` | 31.3 MB |
+| what `cargo vendor` writes | 442 crates, 373.8 MB |
+| less tests, examples, benchmarks, fuzz targets, CI config, fixtures | -27.4 MB |
+| less changelogs, each crate's own `Cargo.lock`, the `Cargo.toml.orig` copy | -9.7 MB |
+| less `#[cfg(test)]` modules inside `src/`, `cargo-public-api` snapshots | -1.3 MB |
+| less `windows-sys` bindings behind features nothing enables (219 of its 246 API modules) | -14.1 MB |
+| less the 172 crates that no build on any platform R runs on compiles | -221.5 MB |
+| shipped | 442 crates, 97.3 MB, compressing to 10.46 MB (10,970,960 bytes) |
 
-The reason is not incidental. Apache Iceberg's data path is Arrow and Parquet, so
-the `iceberg` crate depends unconditionally on eight `arrow-*` crates, `parquet`,
-`apache-avro` (Iceberg manifests are Avro), `tokio` and `reqwest`. Its
-`[features] default = []` is already empty, so no feature configuration removes
-them.
+That last row corrects something I got wrong in the previous submission. I wrote
+there that the crates cargo vendors but never compiles "cannot be pruned,
+because cargo resolves the whole lock graph before it selects features or
+filters targets". The premise is right — an offline build really does fail with
+`no matching package named ...` if a locked package is absent from the directory
+source — but the conclusion was not. Cargo needs to *find* those packages; it
+never reads them. They now ship as their `Cargo.toml`, their licence files and
+an empty `lib.rs`: 172 crates in 0.5 MB rather than 222 MB. `aws-lc-sys` is the
+clearest case. It is 63 MB of BoringSSL, it was the largest single item in the
+previous tarball, and it is reachable only through the opt-in `glue` Cargo
+feature, so no CRAN build has ever compiled a line of it.
 
-Two things I checked before asking, in case they are the first questions:
+Two consequences worth stating plainly:
 
-- **Why vendor 442 crates to compile 264?** Three layers, each forced by cargo
-  rather than chosen. 44 belong to other operating systems — `windows-sys`,
-  `wasi`, `redox` — and never build on any one machine, which is the difference
-  between the 264 compiled here and the 308 in the all-platform default graph.
-  Another 110 are the optional AWS Glue and S3 backends, behind non-default Cargo
-  features, taking the all-platform graph to 418. The remaining 24 are in
-  `Cargo.lock` without appearing in any resolved graph. None of the three can be
-  pruned, because cargo resolves the whole lock graph before it selects features
-  or filters targets, and an offline build fails at resolution if any locked
-  package is absent from the vendor directory. The consolation is that a user who
-  wants those backends can enable them from the CRAN tarball with no network
-  access at all.
+- The archive now covers the **default** build only. A user who opts into the S3
+  or AWS Glue backend with `ICEBERGR_CARGO_FEATURES` gets those roughly hundred
+  extra crates from crates.io instead, because cargo replaces the crates.io
+  source wholesale when a directory source is configured and so cannot fetch
+  just the missing few. `tools/config.R` detects that case, does not unpack the
+  archive, does not pass `--offline`, and says so. A default install — the only
+  kind CRAN performs — still touches the network at no point.
+- Every stage is derived from what cargo itself reports rather than from a
+  hand-maintained list: `cargo tree --target ... -e normal,build` for the
+  compiled set, `cargo tree -f "{p} :: {f}"` for which `windows-sys` features
+  are on. A dependency update therefore cannot silently make the pruning wrong.
+  `tools/vendor.R` also checks the result twice before writing the archive, with
+  `cargo metadata --offline --locked` against the pruned tree and with a scan
+  for markdown that a compiled crate pulls into its rustdoc via `include_str!`.
+  Both checks exist because both caught a real mistake while I was writing this.
 
-  Counts reproducible with `cargo tree -e normal,build --prefix none` (add
-  `--target all` for the all-platform figures, `--features glue` for the optional
-  backends), and the 264 by counting `Compiling` lines in a fresh offline install.
-- **Would dropping those optional backends help?** Measured: it takes the archive
-  from 31.3 MB to 28 MB. The AWS and `windows-sys` trees are largely generated
-  code and compress extremely well, so removing 87 MB of uncompressed sources
-  buys 3 MB of tarball. It is not the lever it looks like, so I have kept the
-  functionality rather than trade it for 10%.
+**On whether the remaining 10.46 MB is all needed: it is 270 crates of source,
+every one of which is compiled into the shared object, and there is no longer
+anything in it that dominates.** Compressed individually, the ten largest are
+`ring` 0.89 MB, `parquet` 0.51, `brotli` 0.48, `tokio` 0.44, `zstd-sys` 0.43,
+`regex-automata` 0.38, `iceberg` 0.37, `libc` 0.37, `windows-sys` 0.35 and
+`rustls` 0.25 — 4.45 MB in total. The other 432 directories average 22 KB each.
 
-To keep the archive as small as possible, `tools/vendor.R` strips tests,
-examples, benchmarks, fuzz targets, CI configuration and test fixtures from the
-vendor tree before compressing (27 MB of the uncompressed tree), while preserving
-every licence and notice file so attribution remains complete.
+The shape of that list is the explanation. Apache Iceberg's data path is Arrow
+and Parquet and its metadata path is Avro, so the `iceberg` crate depends
+unconditionally on twelve `arrow-*` crates, `parquet`, `apache-avro` and the
+compression codecs those two require; a REST catalog is HTTPS, so it also
+depends on `tokio`, `hyper`, `reqwest`, `rustls` and `ring`. `iceberg` declares
+`[features] default = []` and has no optional dependencies at all, so there is
+no feature configuration that removes any of it, and 264 of the 270 are compiled
+on a single machine — the extra six are the macOS and Windows system bindings.
 
-I recognise this is well beyond what is usual, and beyond the largest exception I
-am aware of having been granted. I would rather ask than ship something that does
-not comply. If the size is not acceptable I am happy to hear what would be, and
-to withdraw rather than press the point.
+One further reduction of about 0.6 MB does exist and I have not taken it.
+Parquet supports Brotli as a column codec, and `brotli` plus
+`brotli-decompressor` are 6.2 MB of source and 0.62 MB of the archive. Setting
+`default-features = false` on our own `parquet` dependency does not remove it:
+`iceberg` depends on it with default features on, and cargo unions features
+across the graph rather than intersecting them, so the only way to drop Brotli
+is to override a feature inside the bundled `iceberg` manifest — a modification
+to a third-party crate, in exchange for not being able to read
+Brotli-compressed Parquet data files. That seemed the wrong trade to make
+silently, but it is available if you would rather have the 0.6 MB than the
+codec.
+
+So the request is for 10.7 MB rather than the 31.5 MB of the previous
+submission. I recognise that is still over the guidance. If it is not acceptable
+I would value knowing what number is, and I will either find it or withdraw
+rather than press the point.
 
 ### Rust version
 
