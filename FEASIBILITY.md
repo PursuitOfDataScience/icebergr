@@ -210,7 +210,12 @@ the tree is composed of much heavier crates than any in the table above:
 A defensible estimate for `vendor.tar.xz` is **35–60 MB**, i.e. three to five
 times the largest exception CRAN has ever granted. I could not measure this
 exactly — see §6 — but the crate count is exact and the direction is not in
-doubt.
+doubt. (Both halves of that turned out to matter: the archive measured 31.3 MB,
+below the estimate, and is now 10.46 MB — see §8d-bis. The comparator is
+verified, not remembered: CRAN's `src/contrib/` listing shows
+`arcgisgeocode_0.4.0.tar.gz` at 13M, uploaded 2025-10-07, with the same
+Cargo/rustc/xz `SystemRequirements` and no data, and `prqlr_0.10.1.tar.gz` at
+9.0M behind it.)
 
 ### 4b. Rolling MSRV
 

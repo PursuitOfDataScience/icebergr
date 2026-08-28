@@ -210,6 +210,14 @@ depends on `tokio`, `hyper`, `reqwest`, `rustls` and `ring`. `iceberg` declares
 no feature configuration that removes any of it, and 264 of the 270 are compiled
 on a single machine — the extra six are the macOS and Windows system bindings.
 
+**For scale.** `arcgisgeocode` is on CRAN today at **13 MB**, with the same
+`SystemRequirements` profile as this package — `Cargo (Rust's package manager),
+rustc, xz` — and no data in it, so its size is vendored Rust and nothing else.
+Checked against the current listing in `src/contrib/` rather than remembered:
+`arcgisgeocode_0.4.0.tar.gz`, 13M, and `prqlr_0.10.1.tar.gz` at 9.0M is the next
+one down. At 10.7 MB this package would be smaller than an exception already
+granted for exactly this reason, which is the main ground on which I am asking.
+
 **On the separate-package suggestion.** You mentioned that data can go in a
 separate package that is only infrequently updated. This package ships no data at
 all — outside `vendor.tar.xz` the whole tarball is 199,606 bytes — so that route
