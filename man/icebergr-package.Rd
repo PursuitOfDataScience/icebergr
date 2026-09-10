@@ -44,6 +44,7 @@ sponsored by or endorsed by the ASF.
 \seealso{
 Useful links:
 \itemize{
+  \item \url{https://pursuitofdatascience.github.io/icebergr/}
   \item \url{https://github.com/PursuitOfDataScience/icebergr}
   \item Report bugs at \url{https://github.com/PursuitOfDataScience/icebergr/issues}
 }
