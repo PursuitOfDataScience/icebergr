@@ -86,8 +86,8 @@ reports the matrix below for your own build.
 | **Metadata** | schema · partition spec · properties · [`icebergr_reload()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_reload.md) for another session’s commits | 🚧 setting properties |
 
 ⚙️ needs a Cargo feature at build time  ·  🦀 missing upstream in
-`iceberg-rust`  ·  🚧 out of scope for 0.1.0, along with schema and
-partition evolution, snapshot expiry, `dbplyr` verbs and encryption
+`iceberg-rust`  ·  🚧 out of scope for this release, along with schema
+and partition evolution, snapshot expiry, `dbplyr` verbs and encryption
 
 A correct narrow surface beats a broad buggy one: everything above
 raises an informative error rather than failing obscurely.

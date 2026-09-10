@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">icebergr</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -122,8 +122,8 @@ misled by either; any id listed here can still be read directly with
 <span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 2 × 4</span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   snapshot_id         operation added_records total_records</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>             <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>         <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">1</span> 8564266966800391431 append               10            10</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">2</span> 6129411186049883315 append               10            20</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">1</span> 7988564441019616177 append               10            10</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">2</span> 2507994990863045107 append               10            20</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Read the table as it was at its first snapshot.</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="icebergr_collect.html">icebergr_collect</a></span><span class="op">(</span><span class="fu"><a href="icebergr_scan.html">icebergr_scan</a></span><span class="op">(</span><span class="va">tbl</span>, snapshot_id <span class="op">=</span> <span class="va">history</span><span class="op">$</span><span class="va">snapshot_id</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span><span class="op">)</span><span class="op">)</span></span></span>

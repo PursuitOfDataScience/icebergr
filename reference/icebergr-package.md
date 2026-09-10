@@ -44,6 +44,8 @@ sponsored by or endorsed by the ASF.
 
 Useful links:
 
+- <https://pursuitofdatascience.github.io/icebergr/>
+
 - <https://github.com/PursuitOfDataScience/icebergr>
 
 - Report bugs at

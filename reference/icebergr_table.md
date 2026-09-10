@@ -43,7 +43,7 @@ icebergr_create_namespace(catalog, "db")
 icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: /tmp/RtmpVsEjfo/warehouse286f7af21f44/db/events
+#>   location: /tmp/RtmpATkEDd/warehouse299658ba41d9/db/events
 #>   format:   v2
 #>   snapshot: <none>
 #>   columns:  1

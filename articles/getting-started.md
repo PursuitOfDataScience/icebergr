@@ -37,12 +37,12 @@ file for a filter to prune.
 ``` r
 
 tbl <- icebergr_example_table(rows = 200)
-tbl
+show(tbl)
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: /tmp/Rtmp1GMVnc/icebergr-warehouse2aeb59d5e902/db/events
+#>   location: <tempdir>/icebergr-warehouse2c111414f1cf/db/events
 #>   format:   v2
-#>   snapshot: 5737811459077650899
+#>   snapshot: 2683927372698898404
 #>   columns:  5
 #>     id <int>
 #>     event <string>
@@ -240,8 +240,8 @@ history[, c("snapshot_id", "operation", "added_records", "total_records")]
 #> # A tibble: 2 × 4
 #>   snapshot_id         operation added_records total_records
 #>   <chr>               <chr>             <dbl>         <dbl>
-#> 1 8116272855984563485 append              200           200
-#> 2 5737811459077650899 append              200           400
+#> 1 3691036262025784826 append              200           200
+#> 2 2683927372698898404 append              200           400
 ```
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as
@@ -380,8 +380,8 @@ vapply(icebergr_collect(type_tbl), function(x) class(x)[[1]], character(1))
 
 ### Knowing what is not supported
 
-`icebergr` 0.1.0 is deliberately narrow. Rather than discovering a gap
-at runtime, ask:
+`icebergr` is deliberately narrow. Rather than discovering a gap at
+runtime, ask:
 
 ``` r
 

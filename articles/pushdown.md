@@ -206,8 +206,8 @@ icebergr_collect(icebergr_scan(tbl,
 #> # A tibble: 2 × 1
 #>      id
 #>   <int>
-#> 1     1
-#> 2     2
+#> 1  1001
+#> 2  1002
 ```
 
 ### Reading a plan for cost, not just count

@@ -14,11 +14,11 @@ warehouse <- file.path(tempdir(), "icebergr-writing")
 dir.create(warehouse, showWarnings = FALSE)
 
 catalog <- icebergr_catalog("memory", warehouse = warehouse)
-catalog
+show(catalog)
 #> <icebergr_catalog>
 #>   type:      memory
 #>   name:      icebergr
-#>   warehouse: /tmp/RtmpPNLA5c/icebergr-writing
+#>   warehouse: <tempdir>/icebergr-writing
 ```
 
 The `memory` catalog keeps its table pointers in the R session and its
@@ -51,10 +51,10 @@ template <- data.frame(
 )
 
 orders <- icebergr_create_table(catalog, "shop.orders", template)
-orders
+show(orders)
 #> <icebergr_table>
 #>   table:    shop.orders
-#>   location: /tmp/RtmpPNLA5c/icebergr-writing/shop/orders
+#>   location: <tempdir>/icebergr-writing/shop/orders
 #>   format:   v2
 #>   snapshot: <none>
 #>   columns:  4

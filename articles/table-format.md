@@ -78,8 +78,8 @@ icebergr_snapshots(tbl)[, c("snapshot_id", "operation", "added_records")]
 #> # A tibble: 2 × 3
 #>   snapshot_id         operation added_records
 #>   <chr>               <chr>             <dbl>
-#> 1 5512085191850747819 append              200
-#> 2 1653688740296792971 append              200
+#> 1 5201937101700714395 append              200
+#> 2 835403283548768110  append              200
 ```
 
 And the manifests are what makes a scan plan possible without opening
@@ -89,12 +89,16 @@ reads bounds out of the manifest, not out of Parquet:
 
 ``` r
 
-icebergr_scan_plan(icebergr_scan(tbl))[, c("data_file_path", "record_count")]
+plan <- icebergr_scan_plan(icebergr_scan(tbl))
+
+# `data_file_path` is elided: it is an absolute path in a temporary
+# warehouse, so it would differ on every machine.
+plan[, c("record_count", "file_size_in_bytes")]
 #> # A tibble: 2 × 2
-#>   data_file_path                                                    record_count
-#>   <chr>                                                                    <dbl>
-#> 1 /tmp/RtmpyBY8Nt/icebergr-warehouse2b616e078cbe/db/events/data/ic…          200
-#> 2 /tmp/RtmpyBY8Nt/icebergr-warehouse2b616e078cbe/db/events/data/ic…          200
+#>   record_count file_size_in_bytes
+#>          <dbl>              <dbl>
+#> 1          200               4901
+#> 2          200               4998
 ```
 
 ### Why the column statistics matter so much
