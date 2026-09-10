@@ -39,8 +39,18 @@ Closing the review findings tracked in
 * `ICEBERGR_WORKER_THREADS` is clamped to 64. It had no upper bound, so a typo
   spawned threads until the allocator gave up.
 
-Still open in #2: no interrupt handling during a blocking call, and the
-unbounded task list in `icebergr_scan_plan()`.
+* `icebergr_scan_plan()` drains the plan into its five output columns as tasks
+  arrive, rather than collecting every `FileScanTask` and then walking the
+  collection five times. One row per task is inherent, but a task carries its
+  schema, its predicate and its delete-file list -- none of which this function
+  returns -- so holding all of them alongside the columns was avoidable.
+
+One item stays open, as
+[#12](https://github.com/PursuitOfDataScience/icebergr/issues/12): Ctrl-C still
+does nothing during a blocking call. The timeout above turns an unkillable hang
+into an error, which is most of the value, but real interrupt handling needs R's
+`R_interrupts_pending` (`UserBreak` on Windows) and `extendr` 0.9 exposes no
+interrupt API to reach it.
 
 ## Documentation
 
