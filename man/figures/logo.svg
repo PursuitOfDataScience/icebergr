@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1386" viewBox="0 0 1200 1385.6406" role="img" aria-label="icebergr">
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="620.0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#030D18"/><stop offset="1" stop-color="#14476F"/></linearGradient>
+<linearGradient id="sea" x1="0" y1="620.0" x2="0" y2="1385.6406" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0A3453"/><stop offset="1" stop-color="#01080F"/></linearGradient>
+<clipPath id="hex"><polygon points="600.0,0.0 1200.0,346.4 1200.0,1039.2 600.0,1385.6 0.0,1039.2 0.0,346.4"/></clipPath>
+<clipPath id="keel"><polygon points="428.0,620.0 300.0,672.0 238.0,760.0 252.0,868.0 348.0,960.0 500.0,1000.0 668.0,1000.0 806.0,952.0 884.0,858.0 896.0,742.0 800.0,620.0"/></clipPath>
+</defs>
+<g clip-path="url(#hex)">
+<rect x="0" y="0" width="1200" height="620.0" fill="url(#sky)"/>
+<rect x="0" y="620.0" width="1200" height="765.6406" fill="url(#sea)"/>
+<circle cx="206" cy="268" r="6.5" fill="#F4FBFF" opacity="0.85"/><circle cx="322" cy="176" r="4.5" fill="#F4FBFF" opacity="0.55"/><circle cx="268" cy="402" r="5.5" fill="#F4FBFF" opacity="0.70"/><circle cx="438" cy="118" r="4.0" fill="#F4FBFF" opacity="0.45"/><circle cx="966" cy="214" r="6.0" fill="#F4FBFF" opacity="0.80"/><circle cx="892" cy="372" r="5.0" fill="#F4FBFF" opacity="0.60"/><circle cx="1024" cy="452" r="4.5" fill="#F4FBFF" opacity="0.50"/><circle cx="812" cy="156" r="4.0" fill="#F4FBFF" opacity="0.45"/><circle cx="700" cy="96" r="5.5" fill="#F4FBFF" opacity="0.65"/><circle cx="156" cy="452" r="4.0" fill="#F4FBFF" opacity="0.40"/><circle cx="392" cy="288" r="3.5" fill="#F4FBFF" opacity="0.40"/><circle cx="944" cy="118" r="3.0" fill="#F4FBFF" opacity="0.35"/><circle cx="520" cy="210" r="4.0" fill="#F4FBFF" opacity="0.50"/><circle cx="1080" cy="300" r="5.0" fill="#F4FBFF" opacity="0.55"/>
+<g opacity="0.62"><polygon points="596.0,620.0 800.0,620.0 896.0,742.0 884.0,858.0 806.0,952.0 668.0,1000.0 560.0,1000.0" fill="#6FD4F0"/><polygon points="596.0,620.0 560.0,1000.0 500.0,1000.0 348.0,960.0 252.0,868.0 238.0,760.0 300.0,672.0 428.0,620.0" fill="#3E9FCB"/></g>
+<g clip-path="url(#keel)" stroke="#F4FBFF" stroke-width="7" opacity="0.3"><line x1="0" y1="690" x2="1200" y2="690"/><line x1="0" y1="760" x2="1200" y2="760"/><line x1="0" y1="830" x2="1200" y2="830"/><line x1="0" y1="900" x2="1200" y2="900"/><line x1="0" y1="962" x2="1200" y2="962"/></g>
+<polygon points="596.0,352.0 478.0,470.0 428.0,620.0 596.0,620.0" fill="#A9D3EE"/>
+<polygon points="596.0,352.0 690.0,478.0 596.0,620.0" fill="#D8EFFC"/>
+<polygon points="596.0,352.0 690.0,478.0 748.0,432.0 800.0,620.0 596.0,620.0" fill="#F4FBFF"/>
+<line x1="0" y1="620.0" x2="1200" y2="620.0" stroke="#8FE3FF" stroke-width="6" opacity="0.8"/>
+<text x="600" y="1158" fill="#F4FBFF" font-family="Space Grotesk, DejaVu Sans, sans-serif" font-size="126" font-weight="700" letter-spacing="8" text-anchor="middle">icebergr</text>
+</g>
+<polygon points="600.0,0.0 1200.0,346.4 1200.0,1039.2 600.0,1385.6 0.0,1039.2 0.0,346.4" fill="none" stroke="#8FE3FF" stroke-width="22"/>
+</svg>
