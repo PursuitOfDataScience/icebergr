@@ -14,6 +14,12 @@ knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
 )
+# Handles and catalogs print their `location:` / `warehouse:`, which is a
+# temporary directory unique to whichever machine built this page. Printing it
+# would bake that path into the shipped HTML, so it is replaced here.
+show <- function(x) {
+  writeLines(gsub(tempdir(), "<tempdir>", capture.output(print(x)), fixed = TRUE))
+}
 ```
 
 Every example here runs offline against a table built on your own machine. No
@@ -46,7 +52,7 @@ data file for a filter to prune.
 
 ```{r}
 tbl <- icebergr_example_table(rows = 200)
-tbl
+show(tbl)
 ```
 
 It is generated rather than shipped because Iceberg records absolute paths in its
