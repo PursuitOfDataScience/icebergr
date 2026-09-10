@@ -1,8 +1,58 @@
 # icebergr 0.2.0
 
-Documentation only. No user-facing function gained, lost or changed behaviour,
-and the Rust dependency is unmoved at `iceberg-rust` 0.10.0, so code written
-against 0.1.0 needs no revision.
+`iceberg-rust` is unmoved at 0.10.0, and no function was gained or lost. Three
+behaviour changes, all about not handing a credential to something that should
+not have it -- see "Credentials and robustness" below.
+
+## Credentials and robustness
+
+Closing the review findings tracked in
+[#2](https://github.com/PursuitOfDataScience/icebergr/issues/2).
+
+* **A credential is no longer sent over an unencrypted connection.** An
+  `http://` `uri`, or OAuth2 endpoint, is now an error when any credential
+  property is populated, rather than putting `Authorization: Bearer ...` on the
+  wire in the clear. A loopback address is exempt; set
+  `ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true` to override.
+* **Ambient `AWS_*` credentials are forwarded only to object storage.** They
+  were previously added to every catalog regardless of type, so a third-party
+  REST catalog -- which controls each table's `location` and can return its own
+  `s3.endpoint` -- could have the client sign requests to a host it chose using
+  the user's keys. They now require `storage = "s3"`, `type = "glue"`, or an
+  `s3://` warehouse. The explicit `ICEBERGR_S3_*` variables are unaffected.
+* **`icebergr_register_table()` gains `confine`, defaulting to `TRUE`.** A
+  metadata file names absolute paths for its `location`, manifests and data
+  files, so registering one from an untrusted source read whatever it nominated
+  -- and with the `s3` feature compiled in, could make an outbound request from
+  a nominally offline `memory` catalog. The file must now sit inside the
+  catalog's warehouse; pass `confine = FALSE` for the previous behaviour.
+* An error carrying an upstream message no longer leaks a credential the
+  upstream echoed: `user:password@` in a URL, and the value of a secret query
+  or form parameter such as `client_secret` or `X-Amz-Signature`, are redacted.
+  The module already promised this and only delivered it for the key list.
+* `print()` on a catalog redacts `user:password@` in its `uri`.
+* **Every await now has a five-minute ceiling.** A catalog that accepted the
+  connection and never answered used to wedge the session permanently, since
+  `block_on` parks R's thread and Ctrl-C is only checked between evaluations.
+  `ICEBERGR_TIMEOUT_SECONDS` changes it; `0` disables it. The ceiling is per
+  request or per record batch, so a long scan is not truncated.
+* `ICEBERGR_WORKER_THREADS` is clamped to 64. It had no upper bound, so a typo
+  spawned threads until the allocator gave up.
+
+* `icebergr_scan_plan()` drains the plan into its five output columns as tasks
+  arrive, rather than collecting every `FileScanTask` and then walking the
+  collection five times. One row per task is inherent, but a task carries its
+  schema, its predicate and its delete-file list -- none of which this function
+  returns -- so holding all of them alongside the columns was avoidable.
+
+One item stays open, as
+[#12](https://github.com/PursuitOfDataScience/icebergr/issues/12): Ctrl-C still
+does nothing during a blocking call. The timeout above turns an unkillable hang
+into an error, which is most of the value, but real interrupt handling needs R's
+`R_interrupts_pending` (`UserBreak` on Windows) and `extendr` 0.9 exposes no
+interrupt API to reach it.
+
+## Documentation
 
 * Seven vignettes, up from two. `table-format` explains what a table format is
   as distinct from a file format, and what the Hive directory convention could

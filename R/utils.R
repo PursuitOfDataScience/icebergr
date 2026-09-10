@@ -174,6 +174,38 @@ as_iceberg_location <- function(path, windows = .Platform$OS.type == "windows") 
   if (windows) gsub("\\", "/", path, fixed = TRUE) else path
 }
 
+#' Is `x` a path on this machine, rather than a remote location or a bare name?
+#'
+#' A warehouse can be a directory, an `s3://` URL, or -- for a REST catalog --
+#' a name the server resolves. Only the first can be compared against a local
+#' file path. A Windows drive letter is `C:/`, never `C://`, so requiring the
+#' double slash does not misread one as a scheme.
+#' @noRd
+is_local_dir <- function(x) {
+  !grepl("^[A-Za-z][A-Za-z0-9+.-]*://", x)
+}
+
+#' Is `path` inside `root`?
+#'
+#' Both are expected to have been through `normalizePath()` and
+#' `as_iceberg_location()` already, so `..` and symlinks are resolved and the
+#' separators are forward slashes.
+#'
+#' The trailing separator is load-bearing: a plain `startsWith()` says
+#' `/warehouse-old/x` is inside `/warehouse`, which is exactly the kind of
+#' near-miss a confinement check exists to catch. Windows path comparison is
+#' case-insensitive, and `windows` is an argument so both branches are testable
+#' from either platform.
+#' @noRd
+is_inside <- function(path, root, windows = .Platform$OS.type == "windows") {
+  if (windows) {
+    path <- tolower(path)
+    root <- tolower(root)
+  }
+  root <- sub("/+$", "", root)
+  identical(path, root) || startsWith(path, paste0(root, "/"))
+}
+
 #' The index in `columns` of the column `name` refers to, or NA for none
 #'
 #' An exact match always wins, even when matching case-insensitively. Iceberg

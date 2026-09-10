@@ -183,26 +183,36 @@ fn rs_scan_plan(
         true,
     )?;
 
-    let tasks = block_on(async {
-        let stream = scan.plan_files().await?;
-        stream.try_collect::<Vec<_>>().await
-    })
-    .map_err(|e| ctx("could not plan the scan", e))?;
-
-    let paths: Vec<String> = tasks.iter().map(|t| t.data_file_path.clone()).collect();
-    let records: Vec<Rfloat> = tasks
-        .iter()
-        .map(|t| match t.record_count {
+    // Drained into the five output columns as it arrives, rather than collected
+    // into a Vec<FileScanTask> that is then walked five times. R needs one row
+    // per task either way, so the row count is inherent -- but a FileScanTask
+    // carries its schema, its predicate and its delete-file list, all of which
+    // this function throws away, so holding every one of them alongside the
+    // columns was the avoidable half of the peak. Each task is dropped as soon
+    // as its five scalars are copied out.
+    let (paths, records, sizes, starts, lengths) = block_on(async {
+        let mut stream = scan.plan_files().await?;
+        let mut paths: Vec<String> = Vec::new();
+        let mut records: Vec<Rfloat> = Vec::new();
+        let mut sizes: Vec<f64> = Vec::new();
+        let mut starts: Vec<f64> = Vec::new();
+        let mut lengths: Vec<f64> = Vec::new();
+        while let Some(task) = stream.try_next().await? {
             // Only populated when the whole file is being read; a split task
             // legitimately has no record count, and NA says so honestly rather
             // than pretending it is zero.
-            Some(n) => Rfloat::from(n as f64),
-            None => Rfloat::na(),
-        })
-        .collect();
-    let sizes: Vec<f64> = tasks.iter().map(|t| t.file_size_in_bytes as f64).collect();
-    let starts: Vec<f64> = tasks.iter().map(|t| t.start as f64).collect();
-    let lengths: Vec<f64> = tasks.iter().map(|t| t.length as f64).collect();
+            records.push(match task.record_count {
+                Some(n) => Rfloat::from(n as f64),
+                None => Rfloat::na(),
+            });
+            sizes.push(task.file_size_in_bytes as f64);
+            starts.push(task.start as f64);
+            lengths.push(task.length as f64);
+            paths.push(task.data_file_path);
+        }
+        Ok::<_, iceberg::Error>((paths, records, sizes, starts, lengths))
+    })
+    .map_err(|e| ctx("could not plan the scan", e))?;
 
     Ok(list!(
         data_file_path = paths,

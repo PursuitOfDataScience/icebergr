@@ -4,7 +4,7 @@
 \alias{icebergr_register_table}
 \title{Register an existing table with a catalog}
 \usage{
-icebergr_register_table(catalog, table, metadata_location)
+icebergr_register_table(catalog, table, metadata_location, confine = TRUE)
 }
 \arguments{
 \item{catalog}{An \code{icebergr_catalog} from \code{\link[=icebergr_catalog]{icebergr_catalog()}}.}
@@ -12,6 +12,11 @@ icebergr_register_table(catalog, table, metadata_location)
 \item{table}{A table identifier, \code{"namespace.table"}, to register it under.}
 
 \item{metadata_location}{Path to the table's \code{metadata.json}.}
+
+\item{confine}{Whether to require \code{metadata_location} to sit inside the
+catalog's own \code{warehouse}. \code{TRUE} (the default) refuses anything outside
+it; \code{FALSE} allows any path. Ignored when the catalog has no warehouse
+location to confine against, such as a REST catalog identified by name.}
 }
 \value{
 An \code{icebergr_table} handle.
@@ -21,6 +26,22 @@ Points a catalog at a table that already exists on disk, by giving it the
 table's metadata file. This is how a warehouse directory becomes visible to an
 in-process \code{memory} catalog, which keeps no persistent registry of its own.
 }
+\section{Registering a metadata file you did not write}{
+
+A metadata file names its table's \code{location}, its manifest list and every
+data file, all as absolute paths, and registering it makes this package read
+them. Those paths are not constrained by where the metadata file itself sits,
+so a file from a shared drive or an issue attachment can point anywhere on
+disk -- and, with the \code{s3} feature compiled in, at an \verb{s3://} or \verb{https://}
+location, which turns opening a nominally offline \code{memory}-catalog table into
+an outbound request to a host of its author's choosing.
+
+\code{confine = TRUE} is the guard: the metadata file has to be inside the
+catalog's warehouse, which is the directory you nominated. It does not vet
+the paths \emph{within} the file, so treat \code{confine = FALSE} as equivalent to
+running the file's author's code against your filesystem.
+}
+
 \examples{
 # Build a table, then re-attach it from a second catalog, as you would in a
 # new session: a memory catalog keeps no registry between sessions.
