@@ -95,6 +95,24 @@ icebergr_create_table <- function(catalog, table, data, location = NULL) {
 #' @param catalog An `icebergr_catalog` from [icebergr_catalog()].
 #' @param table A table identifier, `"namespace.table"`, to register it under.
 #' @param metadata_location Path to the table's `metadata.json`.
+#' @param confine Whether to require `metadata_location` to sit inside the
+#'   catalog's own `warehouse`. `TRUE` (the default) refuses anything outside
+#'   it; `FALSE` allows any path. Ignored when the catalog has no warehouse
+#'   location to confine against, such as a REST catalog identified by name.
+#'
+#' @section Registering a metadata file you did not write:
+#' A metadata file names its table's `location`, its manifest list and every
+#' data file, all as absolute paths, and registering it makes this package read
+#' them. Those paths are not constrained by where the metadata file itself sits,
+#' so a file from a shared drive or an issue attachment can point anywhere on
+#' disk -- and, with the `s3` feature compiled in, at an `s3://` or `https://`
+#' location, which turns opening a nominally offline `memory`-catalog table into
+#' an outbound request to a host of its author's choosing.
+#'
+#' `confine = TRUE` is the guard: the metadata file has to be inside the
+#' catalog's warehouse, which is the directory you nominated. It does not vet
+#' the paths *within* the file, so treat `confine = FALSE` as equivalent to
+#' running the file's author's code against your filesystem.
 #'
 #' @return An `icebergr_table` handle.
 #'
@@ -121,9 +139,11 @@ icebergr_create_table <- function(catalog, table, data, location = NULL) {
 #' again <- icebergr_register_table(reopened, "db.events", newest)
 #' icebergr_collect(again)
 #' @export
-icebergr_register_table <- function(catalog, table, metadata_location) {
+icebergr_register_table <- function(catalog, table, metadata_location,
+                                    confine = TRUE) {
   check_catalog(catalog)
   check_string(metadata_location, "metadata_location", allow_null = FALSE)
+  check_bool(confine, "confine")
   ident <- parse_identifier(table)
 
   if (!file.exists(metadata_location)) {
@@ -132,10 +152,34 @@ icebergr_register_table <- function(catalog, table, metadata_location) {
     ))
   }
 
-  ptr <- rs_register_table(
-    catalog$ptr, ident$namespace, ident$name,
-    as_iceberg_location(normalizePath(metadata_location, mustWork = TRUE))
-  )
+  # Resolved before the comparison: ".." and a symlink both make a path that
+  # looks confined and is not.
+  location <- as_iceberg_location(normalizePath(metadata_location, mustWork = TRUE))
+
+  if (confine && !is.null(catalog$warehouse) && !is_local_dir(catalog$warehouse)) {
+    # Nothing to compare against -- the warehouse is a name or a remote
+    # location, not a directory on this machine.
+    confine <- FALSE
+  }
+  if (confine && !is.null(catalog$warehouse)) {
+    root <- as_iceberg_location(normalizePath(catalog$warehouse, mustWork = FALSE))
+    if (!is_inside(location, root)) {
+      abort(c(
+        paste0(
+          "The metadata file is outside the catalog's warehouse: ",
+          encodeString(location, quote = "\""), "."
+        ),
+        i = paste0("The warehouse is ", encodeString(root, quote = "\""), "."),
+        i = paste0(
+          "A metadata file names absolute paths for its data, so registering ",
+          "one from an untrusted source reads files of its author's choosing."
+        ),
+        i = "Pass `confine = FALSE` if the file is trusted."
+      ))
+    }
+  }
+
+  ptr <- rs_register_table(catalog$ptr, ident$namespace, ident$name, location)
   new_icebergr_table(ptr, catalog)
 }
 

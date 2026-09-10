@@ -53,13 +53,27 @@ Credentials are read from environment variables, never from arguments:
 \item{\code{ICEBERGR_REST_OAUTH2_SERVER_URI}}{OAuth2 token endpoint.}
 \item{\code{ICEBERGR_REST_SCOPE}}{OAuth2 scope.}
 \item{\code{ICEBERGR_S3_ACCESS_KEY_ID}, \code{ICEBERGR_S3_SECRET_ACCESS_KEY},
-\code{ICEBERGR_S3_SESSION_TOKEN}}{Object storage credentials. The standard
-\verb{AWS_*} variables are used as a fallback.}
+\code{ICEBERGR_S3_SESSION_TOKEN}}{Object storage credentials.}
 }
 
-Catalog properties are never printed, logged or included in error messages.
-A credential property passed through \code{...} anyway is accepted but warned
-about, since a script is the one place it should not be.
+The standard \verb{AWS_*} variables are a fallback for the \verb{ICEBERGR_S3_*} ones,
+but only for a connection that addresses object storage: \code{storage = "s3"},
+\code{type = "glue"}, or an \verb{s3://} \code{warehouse}. They are \emph{not} forwarded to a
+catalog that has no object storage in sight, because a third-party REST
+catalog controls each table's \code{location} and may answer with its own
+\code{s3.endpoint} -- at which point ambient keys would sign requests to a host it
+chose. Set \code{storage = "s3"} if a REST catalog identified by name needs them.
+
+A credential is never sent over an unencrypted connection: an \verb{http://}
+\code{uri} or OAuth2 endpoint is an error whenever any credential property is
+populated. A loopback address is exempt, since developing against a local
+catalog is ordinary, and \code{ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true} overrides
+the check.
+
+Catalog properties are never printed, logged or included in error messages,
+and \verb{user:password@} in a \code{uri} is redacted when a catalog is printed. A
+credential property passed through \code{...} anyway is accepted but warned about,
+since a script is the one place it should not be.
 }
 
 \examples{

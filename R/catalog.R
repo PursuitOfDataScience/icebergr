@@ -35,8 +35,36 @@ secret_props <- c(
   "adls.connection-string"
 )
 
+# Does this connection actually address object storage?
+#
+# `storage = "s3"` says so outright, Glue implies it, and an `s3://` warehouse
+# is the "auto" case. A REST catalog whose warehouse is a *name* rather than a
+# location cannot be classified from here, which is what `storage = "s3"` is
+# for.
 #' @noRd
-properties_from_env <- function() {
+uses_object_storage <- function(type, storage, warehouse) {
+  if (identical(storage, "s3")) {
+    return(TRUE)
+  }
+  if (identical(storage, "local")) {
+    return(FALSE)
+  }
+  if (identical(type, "glue")) {
+    return(TRUE)
+  }
+  !is.null(warehouse) && grepl("^s3a?://", warehouse, ignore.case = TRUE)
+}
+
+# The ICEBERGR_* variables are an explicit instruction and are always honoured.
+# The ambient AWS_* ones are not: they are whatever the machine happens to have
+# configured, and forwarding them to a catalog that is not object storage hands
+# the user's keys to a party with no use for them. Worse, a third-party REST
+# catalog controls the table `location` and can answer with its own
+# `s3.endpoint`, so the client would then sign SigV4 requests to a
+# server-nominated host using those keys. Scoped to the connections that can
+# actually need them.
+#' @noRd
+properties_from_env <- function(type = "rest", storage = "auto", warehouse = NULL) {
   out <- list()
 
   for (var in names(credential_vars)) {
@@ -44,14 +72,84 @@ properties_from_env <- function() {
     if (nzchar(value)) out[[credential_vars[[var]]]] <- value
   }
 
-  for (var in names(aws_fallbacks)) {
-    prop <- aws_fallbacks[[var]]
-    if (!is.null(out[[prop]])) next
-    value <- Sys.getenv(var, unset = "")
-    if (nzchar(value)) out[[prop]] <- value
+  if (uses_object_storage(type, storage, warehouse)) {
+    for (var in names(aws_fallbacks)) {
+      prop <- aws_fallbacks[[var]]
+      if (!is.null(out[[prop]])) next
+      value <- Sys.getenv(var, unset = "")
+      if (nzchar(value)) out[[prop]] <- value
+    }
   }
 
   out
+}
+
+# The host part of a URI, with any userinfo and port removed.
+#' @noRd
+uri_host <- function(x) {
+  authority <- sub("[/?#].*$", "", sub("^[^:]*://", "", x))
+  authority <- sub("^.*@", "", authority)
+  sub(":[0-9]+$", "", authority)
+}
+
+# A URI that would carry a credential in the clear.
+#
+# No scheme at all is not this function's business -- iceberg-rust will reject
+# it -- and loopback over http is the ordinary development case.
+#' @noRd
+sends_in_cleartext <- function(x) {
+  if (is.null(x) || !nzchar(x) || !grepl("://", x, fixed = TRUE)) {
+    return(FALSE)
+  }
+  scheme <- tolower(sub("://.*$", "", x))
+  if (scheme %in% c("https", "wss")) {
+    return(FALSE)
+  }
+  !(uri_host(x) %in% c("localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"))
+}
+
+# Refuse to put a credential on the wire unencrypted.
+#
+# `properties_from_env()` has already loaded whatever the environment holds, so
+# by this point a bearer token is one `block_on` away from an `Authorization`
+# header. Over `http://` that header, and the OAuth2 exchange's
+# `client_id:client_secret` body, are readable by anything on the path. An error
+# rather than a warning, because a warning does not stop the request; the escape
+# hatch is one environment variable, and loopback is exempt already.
+#' @noRd
+check_credential_transport <- function(props, call = rlang::caller_env()) {
+  supplied <- intersect(names(props), secret_props)
+  if (!length(supplied)) {
+    return(invisible(NULL))
+  }
+  if (isTRUE(as.logical(Sys.getenv("ICEBERGR_ALLOW_INSECURE_CREDENTIALS", "false")))) {
+    return(invisible(NULL))
+  }
+
+  endpoints <- c(uri = props[["uri"]], `oauth2-server-uri` = props[["oauth2-server-uri"]])
+  bad <- endpoints[vapply(endpoints, sends_in_cleartext, logical(1))]
+  if (!length(bad)) {
+    return(invisible(NULL))
+  }
+
+  abort(
+    c(
+      paste0(
+        "Refusing to send a credential to ",
+        encodeString(unname(bad)[[1]]), " over an unencrypted connection."
+      ),
+      i = paste0(
+        "These credential properties are set: ",
+        paste(sort(supplied), collapse = ", "), "."
+      ),
+      i = "Use an https:// endpoint, or unset the credential.",
+      i = paste0(
+        "To proceed anyway, set ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true. ",
+        "A loopback address needs no exemption."
+      )
+    ),
+    call = call
+  )
 }
 
 #' Connect to an Iceberg catalog
@@ -83,13 +181,27 @@ properties_from_env <- function() {
 #'   \item{`ICEBERGR_REST_OAUTH2_SERVER_URI`}{OAuth2 token endpoint.}
 #'   \item{`ICEBERGR_REST_SCOPE`}{OAuth2 scope.}
 #'   \item{`ICEBERGR_S3_ACCESS_KEY_ID`, `ICEBERGR_S3_SECRET_ACCESS_KEY`,
-#'     `ICEBERGR_S3_SESSION_TOKEN`}{Object storage credentials. The standard
-#'     `AWS_*` variables are used as a fallback.}
+#'     `ICEBERGR_S3_SESSION_TOKEN`}{Object storage credentials.}
 #' }
 #'
-#' Catalog properties are never printed, logged or included in error messages.
-#' A credential property passed through `...` anyway is accepted but warned
-#' about, since a script is the one place it should not be.
+#' The standard `AWS_*` variables are a fallback for the `ICEBERGR_S3_*` ones,
+#' but only for a connection that addresses object storage: `storage = "s3"`,
+#' `type = "glue"`, or an `s3://` `warehouse`. They are *not* forwarded to a
+#' catalog that has no object storage in sight, because a third-party REST
+#' catalog controls each table's `location` and may answer with its own
+#' `s3.endpoint` -- at which point ambient keys would sign requests to a host it
+#' chose. Set `storage = "s3"` if a REST catalog identified by name needs them.
+#'
+#' A credential is never sent over an unencrypted connection: an `http://`
+#' `uri` or OAuth2 endpoint is an error whenever any credential property is
+#' populated. A loopback address is exempt, since developing against a local
+#' catalog is ordinary, and `ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true` overrides
+#' the check.
+#'
+#' Catalog properties are never printed, logged or included in error messages,
+#' and `user:password@` in a `uri` is redacted when a catalog is printed. A
+#' credential property passed through `...` anyway is accepted but warned about,
+#' since a script is the one place it should not be.
 #'
 #' @return An `icebergr_catalog` object.
 #'
@@ -157,7 +269,7 @@ icebergr_catalog <- function(type = c("rest", "memory", "glue"),
     }
   }
 
-  props <- properties_from_env()
+  props <- properties_from_env(type, storage, warehouse)
   if (!is.null(uri)) props[["uri"]] <- uri
   if (!is.null(warehouse)) props[["warehouse"]] <- warehouse
 
@@ -180,6 +292,9 @@ icebergr_catalog <- function(type = c("rest", "memory", "glue"),
     }
     props[[key]] <- as.character(value)
   }
+
+  # After `...`, so that a credential passed there is covered too.
+  check_credential_transport(props)
 
   # A catalog with no properties at all is legitimate (a REST catalog whose
   # server is configured elsewhere). names() and unlist() both give NULL for an
@@ -286,12 +401,20 @@ icebergr_list_tables <- function(catalog, namespace) {
   rs_list_tables(catalog$ptr, as_namespace(namespace))
 }
 
+# `user:password@host` in a URI is a credential, and `uri` is a property like
+# any other -- so printing it verbatim contradicted the line below and put the
+# password one `saveRDS()` or knitr cache away.
+#' @noRd
+redact_userinfo <- function(x) {
+  sub("^([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@", "\\1<redacted>@", x)
+}
+
 #' @export
 print.icebergr_catalog <- function(x, ...) {
   cat("<icebergr_catalog>\n")
   cat("  type:      ", x$type, "\n", sep = "")
   cat("  name:      ", x$name, "\n", sep = "")
-  if (!is.null(x$uri)) cat("  uri:       ", x$uri, "\n", sep = "")
+  if (!is.null(x$uri)) cat("  uri:       ", redact_userinfo(x$uri), "\n", sep = "")
   if (!is.null(x$warehouse)) cat("  warehouse: ", x$warehouse, "\n", sep = "")
   # Properties are deliberately not shown: they routinely hold credentials.
   invisible(x)
