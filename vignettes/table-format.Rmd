@@ -83,7 +83,11 @@ file — `icebergr_scan_plan()` reads bounds out of the manifest, not out of
 Parquet:
 
 ```{r}
-icebergr_scan_plan(icebergr_scan(tbl))[, c("data_file_path", "record_count")]
+plan <- icebergr_scan_plan(icebergr_scan(tbl))
+
+# `data_file_path` is elided: it is an absolute path in a temporary
+# warehouse, so it would differ on every machine.
+plan[, c("record_count", "file_size_in_bytes")]
 ```
 
 ## Why the column statistics matter so much

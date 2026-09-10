@@ -15,6 +15,12 @@ knitr::opts_chunk$set(
   comment = "#>"
 )
 library(icebergr)
+# Handles and catalogs print their `location:` / `warehouse:`, which is a
+# temporary directory unique to whichever machine built this page. Printing it
+# would bake that path into the shipped HTML, so it is replaced here.
+show <- function(x) {
+  writeLines(gsub(tempdir(), "<tempdir>", capture.output(print(x)), fixed = TRUE))
+}
 ```
 
 Writing is the capability that routing through a query engine does not give you
@@ -29,7 +35,7 @@ warehouse <- file.path(tempdir(), "icebergr-writing")
 dir.create(warehouse, showWarnings = FALSE)
 
 catalog <- icebergr_catalog("memory", warehouse = warehouse)
-catalog
+show(catalog)
 ```
 
 The `memory` catalog keeps its table pointers in the R session and its data on
@@ -56,7 +62,7 @@ template <- data.frame(
 )
 
 orders <- icebergr_create_table(catalog, "shop.orders", template)
-orders
+show(orders)
 ```
 
 `snapshot: <none>` is the tell. An Iceberg table with no commits is a legitimate
