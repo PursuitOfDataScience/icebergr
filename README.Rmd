@@ -17,6 +17,10 @@ knitr::opts_chunk$set(
 
 # icebergr
 
+<!-- badges: start -->
+[![CRAN status](https://www.r-pkg.org/badges/version/icebergr)](https://CRAN.R-project.org/package=icebergr)
+<!-- badges: end -->
+
 When an organisation's data moves into Apache Iceberg, R stops being a
 first-class citizen and becomes the thing you export CSVs to.
 
@@ -38,23 +42,27 @@ serialisation round trip.
 
 ## Installation
 
-CRAN is the intended destination; `icebergr` is not there yet. See
-[CRAN status](#cran-status) for what has to clear first. Until then, install from
-GitHub.
+```{r}
+install.packages("icebergr")
+```
+
+Or the development version:
 
 ```{r}
 # install.packages("pak")
 pak::pak("PursuitOfDataScience/icebergr")
 ```
 
-Installing from source compiles Apache Iceberg's Rust implementation, so you need
-a Rust toolchain (`rustc` >= 1.92):
+A CRAN binary needs no Rust toolchain. A source install — which is what a GitHub
+install always is, and what CRAN falls back to on a platform it has no binary for
+— compiles Apache Iceberg's Rust implementation, so it needs one
+(`rustc` >= 1.92):
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Expect the first build to take a while: a default install compiles 264 crates.
+Expect that first build to take a while: a default install compiles 264 crates.
 
 Optional backends are off by default because each substantially enlarges that
 tree:
@@ -246,17 +254,18 @@ Snapshot ids are **character**, not numeric. Iceberg assigns them as random
 64-bit integers and an R numeric holds only 53 bits, so a double round trip would
 silently select the wrong snapshot.
 
-## CRAN status
+## CRAN
 
-**CRAN is the target.** The package is built to submit: `configure` and
-`configure.win`, `Makevars.in` templates, vendored dependencies via
-`tools/vendor.R`, an offline `--offline` build, `-j2` to stay inside CRAN's
+**`icebergr` 0.1.0 is on CRAN.** The package is built to be submitted from:
+`configure` and `configure.win`, `Makevars.in` templates, vendored dependencies
+via `tools/vendor.R`, an offline `--offline` build, `-j2` to stay inside CRAN's
 parallelism limit, a `CARGO_HOME` confined to the build tree, and a per-crate
 `LICENSE.note` inventory. CI runs that exact path on every commit, so the
 submission build is exercised continuously rather than assembled at the last
 minute.
 
-Two things have to clear first. Both are tractable; neither is settled.
+Two things had to clear first, and both are recorded here because they are why
+the package is built the way it is.
 
 **1. Vendored size — measured, not estimated.** The source tarball is **10.7 MB**,
 almost all of it `vendor.tar.xz`. That is over CRAN's 10 MB guideline, which
@@ -315,11 +324,6 @@ does need something newer:
 
 Edition 2024 itself only needs 1.85, which is early 2025, so the edition is not
 the constraint — the rolling minimum is.
-
-**Precedent worth knowing.** `polars` was on CRAN in 2023 with a non-vendored,
-network-fetching build that current policy disallows, and is on r-universe today.
-That is a caution about *how* a heavy Rust package fails a submission, not proof
-that one must.
 
 [`FEASIBILITY.md`](https://github.com/PursuitOfDataScience/icebergr/blob/main/FEASIBILITY.md) has the full analysis, the measurements behind these numbers, and
 what remains unverified.
