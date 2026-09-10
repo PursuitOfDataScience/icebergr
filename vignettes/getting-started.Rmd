@@ -1,5 +1,7 @@
 ---
 title: "Getting started with icebergr"
+author: "Youzhi Yu<br><span style='font-size:85%;'>University of Chicago</span>"
+bibliography: vignette_reference.bib
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{Getting started with icebergr}
@@ -23,14 +25,18 @@ library(icebergr)
 
 ## What this package is for
 
-Iceberg is the open table format that Snowflake, Databricks, BigQuery, AWS and
-Dremio have all standardised on. Apache maintains clients for Java, Python, Rust
-and Go — but not R, which has been able to read Iceberg tables only by routing
-through DuckDB. That rules out writes, snapshot management, schema access and
-catalog integration.
+Iceberg [@icebergspec] is the open table format that Snowflake, Databricks,
+BigQuery, AWS and Dremio have all standardised on. Apache maintains clients for
+Java, Python, Rust and Go — but not R, which has been able to read Iceberg tables
+only by routing through DuckDB [@raasveldt2019duckdb]. That rules out writes,
+snapshot management, schema access and catalog integration.
 
-`icebergr` binds `iceberg-rust` directly. Arrow is the interchange layer, so
-scan results arrive in R without a serialisation round trip.
+`icebergr` binds `iceberg-rust` [@icebergrust] directly through extendr
+[@extendr]. Arrow is the interchange layer, so scan results arrive in R over the
+C stream interface [@arrowcdata] without a serialisation round trip.
+
+`vignette("table-format")` explains the format itself, and why a client rather
+than an exporter is the thing worth having.
 
 ## A table to work with
 
@@ -266,5 +272,14 @@ the `reason` column says which.
 
 ## Where next
 
-`vignette("catalog-configuration")` covers connecting to REST catalogs, AWS Glue
-and object storage, and how credentials are handled.
+Five vignettes go deeper on one theme each:
+
+* `vignette("table-format")` — what Iceberg is, and what it fixes
+* `vignette("pushdown")` — how a filter prunes files and row groups
+* `vignette("time-travel")` — snapshots, timestamps and rollbacks
+* `vignette("writing")` — appends, table creation, and what is refused
+* `vignette("types")` — the R, Arrow and Iceberg type correspondence
+* `vignette("catalog-configuration")` — REST, AWS Glue, object storage,
+  and how credentials are handled
+
+# References
