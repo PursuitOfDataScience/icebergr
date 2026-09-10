@@ -1,0 +1,348 @@
+# Catalog configuration
+
+Connection recipes for the catalogs `icebergr` supports, how credentials
+are handled, and what to do when a connection does not work. Code in
+this vignette is shown but not run.
+
+``` r
+
+library(icebergr)
+```
+
+### Credentials are never arguments
+
+`icebergr` reads credentials from environment variables and provides no
+argument to pass one. This is deliberate. A token passed as an argument
+ends up in the script that called it, in `.Rhistory`, in any knitr cache
+of the chunk that ran it, and in the
+[`traceback()`](https://rdrr.io/r/base/traceback.html) of any error
+raised nearby.
+
+| Variable | Iceberg property | Used for |
+|----|----|----|
+| `ICEBERGR_REST_TOKEN` | `token` | Bearer token for a REST catalog |
+| `ICEBERGR_REST_CREDENTIAL` | `credential` | OAuth2 client credential |
+| `ICEBERGR_REST_OAUTH2_SERVER_URI` | `oauth2-server-uri` | OAuth2 token endpoint |
+| `ICEBERGR_REST_SCOPE` | `scope` | OAuth2 scope |
+| `ICEBERGR_S3_ACCESS_KEY_ID` | `s3.access-key-id` | Object storage access key |
+| `ICEBERGR_S3_SECRET_ACCESS_KEY` | `s3.secret-access-key` | Object storage secret |
+| `ICEBERGR_S3_SESSION_TOKEN` | `s3.session-token` | Temporary session token |
+| `ICEBERGR_S3_REGION` | `s3.region` | Object storage region |
+| `ICEBERGR_S3_ENDPOINT` | `s3.endpoint` | Custom or S3-compatible endpoint |
+
+The standard `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`AWS_SESSION_TOKEN` and `AWS_REGION` variables are consulted as a
+fallback, so an environment already configured for AWS works without
+further setup.
+
+Set them outside your scripts — in `~/.Renviron`, in your shell profile,
+or from your platform’s secret manager:
+
+    # ~/.Renviron
+    ICEBERGR_REST_TOKEN=eyJhbGciOi...
+    ICEBERGR_S3_REGION=us-east-1
+
+Two guarantees worth relying on:
+
+- [`print()`](https://rdrr.io/r/base/print.html) on a catalog never
+  shows its properties.
+- Errors raised while connecting list property *keys* only, never
+  values.
+
+You can still pass a credential through `...` if you must, but
+`icebergr` warns when you do, because it is nearly always a mistake.
+
+### Iceberg REST catalog
+
+The common case: Polaris, Lakekeeper, Nessie, Unity Catalog’s Iceberg
+endpoint, Tabular-style services, or a self-hosted REST catalog.
+
+``` r
+
+Sys.setenv(ICEBERGR_REST_TOKEN = "...") # better: set this in ~/.Renviron
+
+catalog <- icebergr_catalog(
+  "rest",
+  uri = "https://catalog.example.com/api/catalog",
+  warehouse = "analytics"
+)
+
+icebergr_list_namespaces(catalog)
+icebergr_list_tables(catalog, "analytics")
+```
+
+`warehouse` is whatever the server expects to identify the warehouse —
+often a name rather than a path.
+
+#### With OAuth2 client credentials
+
+``` r
+
+Sys.setenv(
+  ICEBERGR_REST_CREDENTIAL = "client_id:client_secret",
+  ICEBERGR_REST_OAUTH2_SERVER_URI = "https://auth.example.com/oauth/token",
+  ICEBERGR_REST_SCOPE = "catalog"
+)
+
+catalog <- icebergr_catalog("rest", uri = "https://catalog.example.com")
+```
+
+#### Extra, non-secret properties
+
+Anything `iceberg-rust` accepts can be passed through `...`:
+
+``` r
+
+catalog <- icebergr_catalog(
+  "rest",
+  uri = "https://catalog.example.com",
+  `rest.signing-region` = "us-east-1",
+  `rest.sigv4-enabled` = "true"
+)
+```
+
+### Object storage
+
+REST catalogs usually serve tables that live in S3. That needs the
+optional `s3` Cargo feature, which is off by default because opendal is
+a substantial subtree:
+
+``` sh
+ICEBERGR_CARGO_FEATURES=s3 R CMD INSTALL --preclean .
+```
+
+That build needs network access. The crates vendored inside the CRAN
+tarball cover the default install only, so cargo fetches the `s3`
+subtree from crates.io.
+
+Check before relying on it:
+
+``` r
+
+"s3" %in% icebergr_spec_support()$cargo_features
+```
+
+``` r
+
+Sys.setenv(
+  ICEBERGR_S3_ACCESS_KEY_ID = "...",
+  ICEBERGR_S3_SECRET_ACCESS_KEY = "...",
+  ICEBERGR_S3_REGION = "us-east-1"
+)
+
+catalog <- icebergr_catalog(
+  "rest",
+  uri = "https://catalog.example.com",
+  storage = "s3"
+)
+```
+
+#### S3-compatible storage (MinIO, R2, Ceph)
+
+``` r
+
+Sys.setenv(
+  ICEBERGR_S3_ENDPOINT = "https://minio.internal:9000",
+  ICEBERGR_S3_ACCESS_KEY_ID = "...",
+  ICEBERGR_S3_SECRET_ACCESS_KEY = "..."
+)
+
+catalog <- icebergr_catalog(
+  "rest",
+  uri = "https://catalog.internal/api/catalog",
+  storage = "s3",
+  `s3.path-style-access` = "true"
+)
+```
+
+Most S3-compatible services need path-style access.
+
+### AWS Glue
+
+Needs the `glue` Cargo feature, which implies `s3`:
+
+``` sh
+ICEBERGR_CARGO_FEATURES=glue R CMD INSTALL --preclean .
+```
+
+``` r
+
+catalog <- icebergr_catalog(
+  "glue",
+  warehouse = "s3://my-bucket/warehouse",
+  `glue.region` = "us-east-1"
+)
+
+icebergr_list_namespaces(catalog)
+```
+
+Glue uses the AWS SDK’s own credential chain, so instance roles, IRSA,
+SSO profiles and `AWS_PROFILE` all work as they do elsewhere.
+
+If the feature is not compiled in, the error says so and how to get it,
+rather than failing at link time.
+
+### Local warehouses
+
+For local files, testing, or a warehouse on a mounted filesystem, use
+the in-process `memory` catalog. This needs no server and no
+credentials, and is what this package’s own tests run against.
+
+``` r
+
+warehouse <- "/data/warehouse"
+catalog <- icebergr_catalog("memory", warehouse = warehouse)
+
+icebergr_create_namespace(catalog, "db")
+tbl <- icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
+```
+
+There is deliberately no `"hadoop"` catalog type: **`iceberg-rust` does
+not implement a Hadoop or filesystem catalog.** `memory` is the local
+equivalent.
+
+Its one real limitation is that the table registry lives in memory, so
+it does not persist between sessions. Tables already on disk are
+re-attached with
+[`icebergr_register_table()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_register_table.md):
+
+``` r
+
+catalog <- icebergr_catalog("memory", warehouse = "/data/warehouse")
+icebergr_create_namespace(catalog, "db")
+
+tbl <- icebergr_register_table(
+  catalog, "db.events",
+  "/data/warehouse/db/events/metadata/00003-....metadata.json"
+)
+```
+
+Point it at the *newest* metadata file: Iceberg writes a new one per
+commit, and the newest is the current state of the table.
+
+### Performance notes
+
+- **Push filters down.** `filter` and `select` are the difference
+  between reading a table and reading the part of it you want. Confirm
+  with
+  [`icebergr_scan_plan()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_scan_plan.md).
+
+- **`limit` is not pushdown.** `iceberg-rust` has no row limit in its
+  scan API, so `limit` bounds decoding, not planning. To read less,
+  filter.
+
+- **Batch size trades memory for call overhead.** `batch_size` controls
+  rows per Arrow batch; the default is usually right.
+
+- **Worker threads.** The tokio runtime uses 2 worker threads, which
+  keeps parallelism within CRAN’s limits for checks. For large scans
+  over object storage, raise it before loading the package:
+
+  ``` r
+
+  Sys.setenv(ICEBERGR_WORKER_THREADS = "8")
+  library(icebergr)
+  ```
+
+  The runtime starts on first use, so this has no effect once you have
+  connected.
+
+- **Parallelise with a PSOCK cluster, not with `fork`.** `icebergr`
+  drives an async runtime whose worker threads do not survive `fork()`,
+  and R’s
+  [`parallel::mclapply()`](https://rdrr.io/r/parallel/mclapply.html)
+  forks. Once you have made any `icebergr` call in the parent, a forked
+  child that calls into `icebergr` **hangs** rather than erroring. Use
+  [`parallel::makeCluster()`](https://rdrr.io/r/parallel/makeCluster.html),
+  which starts fresh R processes, and open the catalog inside each
+  worker:
+
+  ``` r
+
+  cl <- parallel::makeCluster(4)
+  parallel::clusterEvalQ(cl, library(icebergr))
+  parallel::parLapply(cl, shards, function(shard) {
+    catalog <- icebergr_catalog("memory", warehouse = "/data/warehouse")
+    tbl <- icebergr_table(catalog, "db.events")
+    icebergr_collect(icebergr_scan(tbl, filter = day == shard))
+  })
+  ```
+
+  Note that the handle is opened *in* the worker. A handle cannot be
+  sent to one: it holds a pointer into the Rust side, and serialising it
+  produces the “no longer usable” error rather than a wrong answer.
+
+- **Reads stream.** Batches are pulled one at a time rather than
+  collected up front, so memory stays bounded by batch size, not table
+  size — until
+  [`icebergr_collect()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_collect.md)
+  materialises the result into a tibble, which is necessarily all of it.
+  To process a table larger than memory, scan it in filtered pieces.
+
+### Troubleshooting
+
+**`could not connect to the REST catalog`, with a list of property
+keys.** The keys tell you what the catalog was given. A missing `token`
+usually means the environment variable is not visible to R — check
+`Sys.getenv("ICEBERGR_REST_TOKEN")`, and remember that `~/.Renviron` is
+read only at startup.
+
+**TLS failures behind a corporate proxy.** `icebergr` uses rustls with
+the platform trust store, so a CA installed in the system store is
+honoured. A CA present only in R’s own bundle is not.
+
+**`is not available in this build of icebergr`.** An optional Cargo
+feature is missing. The message names the feature and gives the install
+command.
+
+**`The compiled Rust component of icebergr is not available.`** The
+package loaded but its native routines did not. This is a half-finished
+source install; reinstall and read the build log for cargo errors.
+
+**Reads succeed, writes fail with a permissions error.** Iceberg commits
+write both data files and new metadata. Write access to the table’s
+`metadata/` prefix is required, not just to `data/`.
+
+**A table shows fewer rows than expected.** Reading a merge-on-read
+table is supported: `iceberg-rust` applies positional and equality
+deletes during the scan, so rows another engine deleted will correctly
+be absent. If the count still looks wrong, check whether you are reading
+an older snapshot — [`print()`](https://rdrr.io/r/base/print.html) on a
+table shows which one — and whether a filter is pruning more than you
+meant, with
+[`icebergr_scan_plan()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_scan_plan.md).
+
+**Writes to a table another engine performs deletes on.** `icebergr`
+only appends, which is always safe. It cannot delete or update rows, so
+a workflow needing that must do it elsewhere; see
+[`icebergr_spec_support()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_spec_support.md).
+
+**`mclapply()` never returns.** The async runtime’s worker threads do
+not survive a `fork()`, so a forked child that calls into `icebergr`
+waits forever on threads that did not come across. There is no error to
+catch, which is what makes it worth knowing about. Forking *before* any
+`icebergr` call is fine — each child then starts its own runtime — but
+once the parent has connected, use
+[`parallel::makeCluster()`](https://rdrr.io/r/parallel/makeCluster.html)
+instead and open the catalog inside each worker. See *Performance notes*
+above.
+
+**`cannot append to "db.events": it is partitioned by …`.** Reading a
+partitioned table works, and
+[`icebergr_partitions()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_partitions.md)
+reports its spec, but appending to one would have to compute a partition
+value for every row, which this version does not do. The append is
+refused before any data file is written, so nothing is left behind in
+the warehouse. Write to such a table with an engine that supports
+partitioned writes.
+
+Writing to a partitioned table is one of several operations Iceberg’s
+spec defines (The Apache Software Foundation 2026) that `iceberg-rust`
+0.10.0 does not yet implement;
+[`vignette("writing")`](https://pursuitofdatascience.github.io/icebergr/articles/writing.md)
+lists the rest and says which side each gap is on.
+
+## References
+
+The Apache Software Foundation. 2026. *Apache Iceberg Table Spec*.
+Apache Iceberg documentation. <https://iceberg.apache.org/spec/>.
