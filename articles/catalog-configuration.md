@@ -33,7 +33,20 @@ raised nearby.
 The standard `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 `AWS_SESSION_TOKEN` and `AWS_REGION` variables are consulted as a
 fallback, so an environment already configured for AWS works without
-further setup.
+further setup — but **only for a connection that addresses object
+storage**: `storage = "s3"`, `type = "glue"`, or an `s3://` warehouse.
+They are not forwarded to a catalog with no object storage in sight,
+because a REST catalog controls each table’s `location` and may answer
+with its own `s3.endpoint`, at which point ambient keys would sign
+requests to a host it chose. If a REST catalog identified by name needs
+them, say `storage = "s3"`.
+
+Nothing goes out unencrypted, either. Whenever any credential property
+is populated, an `http://` `uri` or OAuth2 endpoint is an error rather
+than a request carrying `Authorization: Bearer …` in the clear. A
+loopback address is exempt, since developing against a catalog on your
+own machine is ordinary, and `ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true`
+overrides the check for the case where you know the network is trusted.
 
 Set them outside your scripts — in `~/.Renviron`, in your shell profile,
 or from your platform’s secret manager:
@@ -219,6 +232,15 @@ tbl <- icebergr_register_table(
 
 Point it at the *newest* metadata file: Iceberg writes a new one per
 commit, and the newest is the current state of the table.
+
+The file has to be inside the catalog’s own warehouse. That is
+`confine = TRUE`, the default, and it matters because a metadata file
+names absolute paths for its `location`, its manifests and every data
+file — so registering one from a shared drive or an issue attachment
+reads whatever its author nominated, and with the `s3` feature compiled
+in can make an outbound request from a catalog you opened offline.
+`confine = FALSE` lifts the restriction for a file you trust; it does
+not vet the paths *inside* the file, which nothing can.
 
 ### Performance notes
 

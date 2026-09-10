@@ -117,13 +117,25 @@ requires the package to have been compiled with the <code>s3</code> Cargo featur
 
 <dt><code>ICEBERGR_S3_ACCESS_KEY_ID</code>, <code>ICEBERGR_S3_SECRET_ACCESS_KEY</code>,
 <code>ICEBERGR_S3_SESSION_TOKEN</code></dt>
-<dd><p>Object storage credentials. The standard
-<code>AWS_*</code> variables are used as a fallback.</p></dd>
+<dd><p>Object storage credentials.</p></dd>
 
 
-</dl><p>Catalog properties are never printed, logged or included in error messages.
-A credential property passed through <code>...</code> anyway is accepted but warned
-about, since a script is the one place it should not be.</p>
+</dl><p>The standard <code>AWS_*</code> variables are a fallback for the <code>ICEBERGR_S3_*</code> ones,
+but only for a connection that addresses object storage: <code>storage = "s3"</code>,
+<code>type = "glue"</code>, or an <code>s3://</code> <code>warehouse</code>. They are <em>not</em> forwarded to a
+catalog that has no object storage in sight, because a third-party REST
+catalog controls each table's <code>location</code> and may answer with its own
+<code>s3.endpoint</code> – at which point ambient keys would sign requests to a host it
+chose. Set <code>storage = "s3"</code> if a REST catalog identified by name needs them.</p>
+<p>A credential is never sent over an unencrypted connection: an <code>http://</code>
+<code>uri</code> or OAuth2 endpoint is an error whenever any credential property is
+populated. A loopback address is exempt, since developing against a local
+catalog is ordinary, and <code>ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true</code> overrides
+the check.</p>
+<p>Catalog properties are never printed, logged or included in error messages,
+and <code>user:password@</code> in a <code>uri</code> is redacted when a catalog is printed. A
+credential property passed through <code>...</code> anyway is accepted but warned about,
+since a script is the one place it should not be.</p>
     </div>
 
     <div class="section level2">
@@ -136,7 +148,7 @@ about, since a script is the one place it should not be.</p>
 <span class="r-out co"><span class="r-pr">#&gt;</span> &lt;icebergr_catalog&gt;</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   type:      memory</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   name:      icebergr</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   warehouse: /tmp/RtmpATkEDd/warehouse29967be31ecc</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   warehouse: /tmp/RtmpmjDSA9/warehouse2869236c6591</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
 <span class="r-in"><span><span class="co"># A REST catalog. The token comes from the environment, not from here.</span></span></span>

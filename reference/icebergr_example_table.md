@@ -41,9 +41,9 @@ tbl <- icebergr_example_table(rows = 50)
 tbl
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: /tmp/RtmpATkEDd/icebergr-warehouse29966ccc25e1/db/events
+#>   location: /tmp/RtmpmjDSA9/icebergr-warehouse2869d50228d/db/events
 #>   format:   v2
-#>   snapshot: 2479938676666101688
+#>   snapshot: 8794590840257000496
 #>   columns:  5
 #>     id <int>
 #>     event <string>
@@ -72,6 +72,6 @@ icebergr_snapshots(tbl)[, c("snapshot_id", "operation", "added_records")]
 #> # A tibble: 2 × 3
 #>   snapshot_id         operation added_records
 #>   <chr>               <chr>             <dbl>
-#> 1 7928477174353060530 append               50
-#> 2 2479938676666101688 append               50
+#> 1 2478619517129090613 append               50
+#> 2 8794590840257000496 append               50
 ```

@@ -79,11 +79,26 @@ Credentials are read from environment variables, never from arguments:
 - `ICEBERGR_S3_ACCESS_KEY_ID`, `ICEBERGR_S3_SECRET_ACCESS_KEY`,
   `ICEBERGR_S3_SESSION_TOKEN`:
 
-  Object storage credentials. The standard `AWS_*` variables are used as
-  a fallback.
+  Object storage credentials.
+
+The standard `AWS_*` variables are a fallback for the `ICEBERGR_S3_*`
+ones, but only for a connection that addresses object storage:
+`storage = "s3"`, `type = "glue"`, or an `s3://` `warehouse`. They are
+*not* forwarded to a catalog that has no object storage in sight,
+because a third-party REST catalog controls each table's `location` and
+may answer with its own `s3.endpoint` – at which point ambient keys
+would sign requests to a host it chose. Set `storage = "s3"` if a REST
+catalog identified by name needs them.
+
+A credential is never sent over an unencrypted connection: an `http://`
+`uri` or OAuth2 endpoint is an error whenever any credential property is
+populated. A loopback address is exempt, since developing against a
+local catalog is ordinary, and
+`ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true` overrides the check.
 
 Catalog properties are never printed, logged or included in error
-messages. A credential property passed through `...` anyway is accepted
+messages, and `user:password@` in a `uri` is redacted when a catalog is
+printed. A credential property passed through `...` anyway is accepted
 but warned about, since a script is the one place it should not be.
 
 ## Examples
@@ -97,7 +112,7 @@ catalog
 #> <icebergr_catalog>
 #>   type:      memory
 #>   name:      icebergr
-#>   warehouse: /tmp/RtmpATkEDd/warehouse29967be31ecc
+#>   warehouse: /tmp/RtmpmjDSA9/warehouse2869236c6591
 
 if (FALSE) { # \dontrun{
 # A REST catalog. The token comes from the environment, not from here.

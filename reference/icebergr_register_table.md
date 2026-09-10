@@ -8,7 +8,7 @@ registry of its own.
 ## Usage
 
 ``` r
-icebergr_register_table(catalog, table, metadata_location)
+icebergr_register_table(catalog, table, metadata_location, confine = TRUE)
 ```
 
 ## Arguments
@@ -26,9 +26,32 @@ icebergr_register_table(catalog, table, metadata_location)
 
   Path to the table's `metadata.json`.
 
+- confine:
+
+  Whether to require `metadata_location` to sit inside the catalog's own
+  `warehouse`. `TRUE` (the default) refuses anything outside it; `FALSE`
+  allows any path. Ignored when the catalog has no warehouse location to
+  confine against, such as a REST catalog identified by name.
+
 ## Value
 
 An `icebergr_table` handle.
+
+## Registering a metadata file you did not write
+
+A metadata file names its table's `location`, its manifest list and
+every data file, all as absolute paths, and registering it makes this
+package read them. Those paths are not constrained by where the metadata
+file itself sits, so a file from a shared drive or an issue attachment
+can point anywhere on disk – and, with the `s3` feature compiled in, at
+an `s3://` or `https://` location, which turns opening a nominally
+offline `memory`-catalog table into an outbound request to a host of its
+author's choosing.
+
+`confine = TRUE` is the guard: the metadata file has to be inside the
+catalog's warehouse, which is the directory you nominated. It does not
+vet the paths *within* the file, so treat `confine = FALSE` as
+equivalent to running the file's author's code against your filesystem.
 
 ## Examples
 

@@ -211,6 +211,11 @@ catalog from its metadata file, without moving or rewriting data:</p>
 reads, but cannot be appended to, because the next version number is
 derived from that name. The check happens at registration rather than at
 the first failed append.</p>
+<p>It also has to sit inside the catalog’s warehouse, which is what
+<code>confine = TRUE</code> — the default — requires. A metadata file
+names absolute paths for its data, so one from an untrusted source reads
+whatever its author chose; pass <code>confine = FALSE</code> only for a
+file you trust.</p>
 </div>
 <div class="section level3">
 <h3 id="what-is-refused-and-why-that-is-the-design">What is refused, and why that is the design<a class="anchor" aria-label="anchor" href="#what-is-refused-and-why-that-is-the-design"></a>

@@ -52,7 +52,7 @@ in-process <code>memory</code> catalog, which keeps no persistent registry of it
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">icebergr_register_table</span><span class="op">(</span><span class="va">catalog</span>, <span class="va">table</span>, <span class="va">metadata_location</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">icebergr_register_table</span><span class="op">(</span><span class="va">catalog</span>, <span class="va">table</span>, <span class="va">metadata_location</span>, confine <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -70,10 +70,33 @@ in-process <code>memory</code> catalog, which keeps no persistent registry of it
 <dt id="arg-metadata-location">metadata_location<a class="anchor" aria-label="anchor" href="#arg-metadata-location"></a></dt>
 <dd><p>Path to the table's <code>metadata.json</code>.</p></dd>
 
+
+<dt id="arg-confine">confine<a class="anchor" aria-label="anchor" href="#arg-confine"></a></dt>
+<dd><p>Whether to require <code>metadata_location</code> to sit inside the
+catalog's own <code>warehouse</code>. <code>TRUE</code> (the default) refuses anything outside
+it; <code>FALSE</code> allows any path. Ignored when the catalog has no warehouse
+location to confine against, such as a REST catalog identified by name.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>An <code>icebergr_table</code> handle.</p>
+    </div>
+    <div class="section level2">
+    <h2 id="registering-a-metadata-file-you-did-not-write">Registering a metadata file you did not write<a class="anchor" aria-label="anchor" href="#registering-a-metadata-file-you-did-not-write"></a></h2>
+
+
+<p>A metadata file names its table's <code>location</code>, its manifest list and every
+data file, all as absolute paths, and registering it makes this package read
+them. Those paths are not constrained by where the metadata file itself sits,
+so a file from a shared drive or an issue attachment can point anywhere on
+disk – and, with the <code>s3</code> feature compiled in, at an <code>s3://</code> or <code>https://</code>
+location, which turns opening a nominally offline <code>memory</code>-catalog table into
+an outbound request to a host of its author's choosing.</p>
+<p><code>confine = TRUE</code> is the guard: the metadata file has to be inside the
+catalog's warehouse, which is the directory you nominated. It does not vet
+the paths <em>within</em> the file, so treat <code>confine = FALSE</code> as equivalent to
+running the file's author's code against your filesystem.</p>
     </div>
 
     <div class="section level2">

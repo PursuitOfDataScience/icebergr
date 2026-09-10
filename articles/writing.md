@@ -167,6 +167,12 @@ appended to, because the next version number is derived from that name.
 The check happens at registration rather than at the first failed
 append.
 
+It also has to sit inside the catalog’s warehouse, which is what
+`confine = TRUE` — the default — requires. A metadata file names
+absolute paths for its data, so one from an untrusted source reads
+whatever its author chose; pass `confine = FALSE` only for a file you
+trust.
+
 ### What is refused, and why that is the design
 
 Three write operations are unavailable, and each fails before touching

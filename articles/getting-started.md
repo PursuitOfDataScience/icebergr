@@ -40,9 +40,9 @@ tbl <- icebergr_example_table(rows = 200)
 show(tbl)
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: <tempdir>/icebergr-warehouse2c111414f1cf/db/events
+#>   location: <tempdir>/icebergr-warehouse2b226488bcff/db/events
 #>   format:   v2
-#>   snapshot: 2683927372698898404
+#>   snapshot: 8183190700905976539
 #>   columns:  5
 #>     id <int>
 #>     event <string>
@@ -240,8 +240,8 @@ history[, c("snapshot_id", "operation", "added_records", "total_records")]
 #> # A tibble: 2 × 4
 #>   snapshot_id         operation added_records total_records
 #>   <chr>               <chr>             <dbl>         <dbl>
-#> 1 3691036262025784826 append              200           200
-#> 2 2683927372698898404 append              200           400
+#> 1 5807927327002716758 append              200           200
+#> 2 8183190700905976539 append              200           400
 ```
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as

@@ -145,7 +145,23 @@ in the <code><a href="https://rdrr.io/r/base/traceback.html" class="external-lin
 <p>The standard <code>AWS_ACCESS_KEY_ID</code>,
 <code>AWS_SECRET_ACCESS_KEY</code>, <code>AWS_SESSION_TOKEN</code> and
 <code>AWS_REGION</code> variables are consulted as a fallback, so an
-environment already configured for AWS works without further setup.</p>
+environment already configured for AWS works without further setup — but
+<strong>only for a connection that addresses object storage</strong>:
+<code>storage = "s3"</code>, <code>type = "glue"</code>, or an
+<code>s3://</code> warehouse. They are not forwarded to a catalog with
+no object storage in sight, because a REST catalog controls each table’s
+<code>location</code> and may answer with its own
+<code>s3.endpoint</code>, at which point ambient keys would sign
+requests to a host it chose. If a REST catalog identified by name needs
+them, say <code>storage = "s3"</code>.</p>
+<p>Nothing goes out unencrypted, either. Whenever any credential
+property is populated, an <code>http://</code> <code>uri</code> or
+OAuth2 endpoint is an error rather than a request carrying
+<code>Authorization: Bearer …</code> in the clear. A loopback address is
+exempt, since developing against a catalog on your own machine is
+ordinary, and <code>ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true</code>
+overrides the check for the case where you know the network is
+trusted.</p>
 <p>Set them outside your scripts — in <code>~/.Renviron</code>, in your
 shell profile, or from your platform’s secret manager:</p>
 <pre><code><span><span class="co"># ~/.Renviron</span></span>
@@ -299,6 +315,15 @@ re-attached with <code><a href="../reference/icebergr_register_table.html">icebe
 <span><span class="op">)</span></span></code></pre></div>
 <p>Point it at the <em>newest</em> metadata file: Iceberg writes a new
 one per commit, and the newest is the current state of the table.</p>
+<p>The file has to be inside the catalog’s own warehouse. That is
+<code>confine = TRUE</code>, the default, and it matters because a
+metadata file names absolute paths for its <code>location</code>, its
+manifests and every data file — so registering one from a shared drive
+or an issue attachment reads whatever its author nominated, and with the
+<code>s3</code> feature compiled in can make an outbound request from a
+catalog you opened offline. <code>confine = FALSE</code> lifts the
+restriction for a file you trust; it does not vet the paths
+<em>inside</em> the file, which nothing can.</p>
 </div>
 <div class="section level3">
 <h3 id="performance-notes">Performance notes<a class="anchor" aria-label="anchor" href="#performance-notes"></a>
