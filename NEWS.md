@@ -1,3 +1,11 @@
+# icebergr (development version)
+
+* Seven vignettes, up from two: `table-format`, `pushdown`, `time-travel`,
+  `writing` and `types` join `getting-started` and `catalog-configuration`, each
+  with a bibliography.
+* A `pkgdown` site at <https://pursuitofdatascience.github.io/icebergr/>.
+* A package logo.
+
 # icebergr 0.1.0
 
 First release. A deliberately narrow but correct subset of Apache Iceberg for R,
