@@ -12,7 +12,7 @@ export — R was the last major data language without an Iceberg client.
 
 ```r
 install.packages("icebergr")
-pak::pak("PursuitOfDataScience/icebergr")   # development version
+pak::pak("PursuitOfDataScience/icebergr") # development version
 ```
 
 ## Read
@@ -32,14 +32,14 @@ Worth checking rather than assuming: `icebergr_scan_plan()` lists the surviving
 files before a byte is read.
 
 ```r
-nrow(icebergr_scan_plan(icebergr_scan(tbl)))                      #> 2
-nrow(icebergr_scan_plan(icebergr_scan(tbl, filter = id > 1000)))  #> 1
+nrow(icebergr_scan_plan(icebergr_scan(tbl))) #> 2
+nrow(icebergr_scan_plan(icebergr_scan(tbl, filter = id > 1000))) #> 1
 ```
 
 ## Time travel
 
 ```r
-h <- icebergr_snapshots(tbl)                               # snapshot_id, operation, ...
+h <- icebergr_snapshots(tbl) # snapshot_id, operation, ...
 
 icebergr_collect(icebergr_scan(tbl, snapshot_id = h$snapshot_id[[1]]))
 icebergr_collect(icebergr_scan(tbl, as_of = h$timestamp[[1]]))
