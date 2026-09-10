@@ -80,7 +80,7 @@ reports the matrix below for your own build.
 | **Metadata** | schema · partition spec · properties · `icebergr_reload()` for another session's commits | 🚧 setting properties |
 
 ⚙️ needs a Cargo feature at build time &nbsp;·&nbsp; 🦀 missing upstream in
-`iceberg-rust` &nbsp;·&nbsp; 🚧 out of scope for 0.1.0, along with schema and
+`iceberg-rust` &nbsp;·&nbsp; 🚧 out of scope for this release, along with schema and
 partition evolution, snapshot expiry, `dbplyr` verbs and encryption
 
 A correct narrow surface beats a broad buggy one: everything above raises an

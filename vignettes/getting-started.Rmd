@@ -253,7 +253,7 @@ vapply(icebergr_collect(type_tbl), function(x) class(x)[[1]], character(1))
 
 ## Knowing what is not supported
 
-`icebergr` 0.1.0 is deliberately narrow. Rather than discovering a gap at
+`icebergr` is deliberately narrow. Rather than discovering a gap at
 runtime, ask:
 
 ```{r}
