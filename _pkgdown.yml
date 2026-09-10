@@ -1,0 +1,110 @@
+url: https://pursuitofdatascience.github.io/icebergr/
+template:
+  bootstrap: 5
+
+authors:
+  Youzhi Yu:
+    href: https://youzhi.netlify.app/
+  footer:
+    text: "Crafted by"
+  sidebar:
+    roles: [aut, cre]
+
+home:
+  sidebar:
+    structure: [links, license, community, citation, authors, dev]
+
+navbar:
+  type: default
+  left:
+  - text: Reference
+    href: reference/index.html
+  - text: Vignettes
+    menu:
+    - text: Getting started with icebergr
+      href: articles/getting-started.html
+    - text: What Iceberg is, and what it fixes
+      href: articles/table-format.html
+    - text: Predicate and projection pushdown
+      href: articles/pushdown.html
+    - text: 'Time travel: snapshots, timestamps and rollbacks'
+      href: articles/time-travel.html
+    - text: 'Writing: appends, tables and what is refused'
+      href: articles/writing.html
+    - text: 'Types: the R, Arrow and Iceberg correspondence'
+      href: articles/types.html
+    - text: Catalog configuration
+      href: articles/catalog-configuration.html
+  - text: News
+    href: news/index.html
+  right:
+  - icon: fa-github fa-lg
+    href: https://github.com/PursuitOfDataScience/icebergr
+    aria-label: GitHub repository
+
+articles:
+- title: Vignettes
+  desc: >
+    In reading order. Start with getting started; each of the others goes
+    deeper on a single theme.
+  contents:
+  - getting-started
+  - table-format
+  - pushdown
+  - time-travel
+  - writing
+  - types
+  - catalog-configuration
+
+reference:
+- title: Connecting
+  desc: >
+    A catalog is the thing that knows where tables are. Credentials come from
+    the environment, never from arguments.
+  contents:
+  - icebergr_catalog
+  - icebergr_list_namespaces
+  - icebergr_list_tables
+  - icebergr_create_namespace
+- title: Table handles
+  desc: >
+    A handle is bound to one snapshot, which is what makes two scans off it
+    agree. `icebergr_reload()` is how you opt in to newer commits.
+  contents:
+  - icebergr_table
+  - icebergr_table_exists
+  - icebergr_reload
+- title: Reading
+  desc: >
+    `icebergr_scan()` pushes the filter and the column list down into
+    `iceberg-rust`; `icebergr_scan_plan()` shows what survived before any
+    data file is opened.
+  contents:
+  - icebergr_scan
+  - icebergr_scan_plan
+  - icebergr_collect
+- title: Metadata
+  contents:
+  - icebergr_schema
+  - icebergr_partitions
+  - icebergr_properties
+  - icebergr_snapshots
+- title: Writing
+  desc: >
+    Appends, table and namespace creation, and registering a table another
+    engine wrote. What this version will not write, it refuses before
+    anything reaches the warehouse.
+  contents:
+  - icebergr_append
+  - icebergr_create_table
+  - icebergr_register_table
+- title: Knowing the boundary
+  desc: >
+    Which parts of the Iceberg spec this build supports, and for each gap,
+    whether it is missing here or missing in `iceberg-rust`.
+  contents:
+  - icebergr_spec_support
+- title: Examples and package overview
+  contents:
+  - icebergr_example_table
+  - icebergr-package

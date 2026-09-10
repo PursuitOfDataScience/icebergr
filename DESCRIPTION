@@ -1,7 +1,7 @@
 Package: icebergr
 Type: Package
 Title: Read and Write 'Apache Iceberg' Tables
-Version: 0.1.0
+Version: 0.1.0.9000
 Authors@R:
     c(person(given = "Youzhi",
              family = "Yu",
@@ -27,7 +27,8 @@ Description: A native client for 'Apache Iceberg', the open table format used by
     'Apache Iceberg' and 'Iceberg' are trademarks of The Apache Software
     Foundation.
 License: GPL (>= 3)
-URL: https://github.com/PursuitOfDataScience/icebergr
+URL: https://pursuitofdatascience.github.io/icebergr/,
+    https://github.com/PursuitOfDataScience/icebergr
 BugReports: https://github.com/PursuitOfDataScience/icebergr/issues
 Encoding: UTF-8
 Language: en-GB
@@ -47,6 +48,7 @@ Suggests:
     vctrs,
     withr (>= 2.3.0)
 Config/testthat/edition: 3
+Config/Needs/website: rmarkdown
 VignetteBuilder: knitr
 SystemRequirements: Cargo (Rust's package manager), rustc >= 1.92, xz
 NeedsCompilation: yes

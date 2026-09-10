@@ -1,0 +1,203 @@
+---
+title: "Types: The R, Arrow and Iceberg Correspondence"
+author: "Youzhi Yu<br><span style='font-size:85%;'>University of Chicago</span>"
+bibliography: vignette_reference.bib
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Types: The R, Arrow and Iceberg Correspondence}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(icebergr)
+
+# bit64 and vctrs are in Suggests; guard the chunks that need them so this
+# vignette builds on any installation.
+has_bit64 <- requireNamespace("bit64", quietly = TRUE)
+has_vctrs <- requireNamespace("vctrs", quietly = TRUE)
+```
+
+Data crosses between R and Iceberg over the Arrow C stream interface
+[@arrowcdata]: `iceberg-rust` writes Arrow arrays, `nanoarrow` [@nanoarrow]
+reads the same memory, and nothing is serialised in between. Two type systems
+still have to be reconciled at each end, and this vignette is about where that
+reconciliation is exact and where it is not.
+
+```{r}
+warehouse <- file.path(tempdir(), "icebergr-types")
+dir.create(warehouse, showWarnings = FALSE)
+catalog <- icebergr_catalog("memory", warehouse = warehouse)
+icebergr_create_namespace(catalog, "t")
+```
+
+## What survives unchanged
+
+```{r}
+plain <- data.frame(
+  i = 1L,
+  d = 1.5,
+  s = "text",
+  b = TRUE,
+  day = as.Date("2026-07-01"),
+  ts = as.POSIXct("2026-07-01 09:00:00", tz = "UTC")
+)
+
+tbl <- icebergr_create_table(catalog, "t.plain", plain)
+icebergr_schema(tbl)[, c("name", "type")]
+```
+
+`integer`, `double`, `character`, `logical`, `Date` and `POSIXct` map onto `int`,
+`double`, `string`, `boolean`, `date` and `timestamptz`, and come back as
+themselves:
+
+```{r}
+tbl <- icebergr_append(tbl, plain)
+back <- icebergr_collect(tbl)
+vapply(back, function(x) class(x)[[1]], character(1))
+identical(back$s, plain$s)
+identical(back$day, plain$day)
+```
+
+A `POSIXct` is normalised to UTC — the instant is preserved, the printed time zone
+is not. That is Iceberg's `timestamptz` semantics, not a lossy conversion.
+
+## The five that need care
+
+### `NaN` comes back as `NA`
+
+```{r}
+nan_tbl <- icebergr_create_table(catalog, "t.nan", data.frame(x = 1.5))
+nan_tbl <- icebergr_append(nan_tbl, data.frame(x = c(1.5, NaN, NA)))
+icebergr_collect(nan_tbl)$x
+```
+
+R's `is.na(NaN)` is `TRUE`, so `NaN` is written as a null and reads back as `NA`.
+Nothing in the stack distinguishes them on the way out. If the difference matters,
+encode it in another column.
+
+### `factor` comes back as `character`
+
+```{r}
+fac_tbl <- icebergr_create_table(
+  catalog, "t.fac",
+  data.frame(g = factor("a", levels = c("a", "b")))
+)
+fac_tbl <- icebergr_append(fac_tbl, data.frame(g = factor(c("a", "b", "a"))))
+str(icebergr_collect(fac_tbl)$g)
+```
+
+Iceberg has no dictionary type, so the levels have nowhere to live. Restore them
+in R with `factor()` and your own level order — which is the honest outcome,
+because a round trip that invented a level order would be worse.
+
+### `long` needs `bit64`
+
+Iceberg's `long` is 64-bit. An R double holds 53 bits of mantissa, so a value past
+$2^{53}$ cannot survive as a `numeric`. With `bit64` installed it comes back
+exact, at any depth — including inside a `struct`:
+
+```{r, eval = has_bit64}
+big <- bit64::as.integer64("9007199254740993") # 2^53 + 1
+long_tbl <- icebergr_create_table(catalog, "t.long", data.frame(n = big))
+long_tbl <- icebergr_append(long_tbl, data.frame(n = big))
+
+got <- icebergr_collect(long_tbl)$n
+class(got)
+as.character(got)
+```
+
+```{r, eval = has_bit64}
+identical(as.character(got), "9007199254740993")
+```
+
+Without `bit64`, Arrow's `int64` narrows to a `double` and that value reads back
+as 9007199254740992. The package does not error on this — it is Arrow's
+documented fallback — so if you handle 64-bit keys, put `bit64` in your own
+`Imports`.
+
+### `timestamp_ns` loses sub-microsecond precision
+
+A nanosecond timestamp is readable, writable and filterable, but a `POSIXct` is a
+double of *seconds*, so the bottom digits cannot be represented. `nanoarrow`
+warns on every such read: the warning triggers on the nanosecond count exceeding
+$2^{53}$, which any present-day instant does, so it appears even when nothing was
+actually lost.
+
+### Snapshot ids are `character`
+
+Not a column type, but the same arithmetic. See `vignette("time-travel")`.
+
+## Nested types
+
+`struct` arrives as a data frame column, which is the natural R shape for it:
+
+```{r}
+nested <- data.frame(id = 1L)
+nested$geo <- data.frame(lat = 41.79, lon = -87.6)
+
+nest_tbl <- icebergr_create_table(catalog, "t.nested", nested)
+icebergr_schema(nest_tbl)[, c("name", "type")]
+```
+
+```{r}
+nest_tbl <- icebergr_append(nest_tbl, nested)
+got <- icebergr_collect(nest_tbl)
+class(got$geo)
+got$geo$lat
+```
+
+A `list` column round-trips as a `vctrs::list_of`:
+
+```{r, eval = has_vctrs}
+lst <- data.frame(id = 1L)
+lst$tags <- vctrs::list_of(c("a", "b"))
+
+lst_tbl <- icebergr_create_table(catalog, "t.lst", lst)
+lst_tbl <- icebergr_append(lst_tbl, lst)
+icebergr_collect(lst_tbl)$tags
+```
+
+That nesting survives a columnar layout at all because of Dremel's repetition and
+definition levels [@melnik2010dremel], which is how Parquet stores a repeated or
+optional field one column at a time.
+
+**Iceberg cannot push a filter or a projection *onto* a nested field.** Read the
+parent column and subset in R:
+
+```{r}
+subset(icebergr_collect(nest_tbl), geo$lat > 41)
+```
+
+A `map` column can be created, but writing map *values* from R needs the `arrow`
+package, because `nanoarrow` cannot build a map array on its own. If you do,
+`nanoarrow::na_map()` needs its key type built non-nullable —
+`na_map(na_string(nullable = FALSE), …)`.
+
+## Reading the schema rather than guessing it
+
+`icebergr_schema()` reports Iceberg's own types, with the field ids that make
+schema evolution possible in the format:
+
+```{r}
+icebergr_schema(nest_tbl)
+```
+
+Field ids, not names, are what a manifest refers to — which is why Iceberg can
+rename a column without rewriting data, and why the Hive convention could not
+[@icebergspec; @thusoo2009hive].
+
+## Why the bridge is an Arrow bridge
+
+Handing R a pointer to Arrow memory that Rust allocated, with no copy and no
+serialisation, is the concrete benefit of the composable-systems design
+[@pedreira2023composable]: the interchange format is the contract, so neither side
+needs to know the other's internals. The R half is `nanoarrow` [@nanoarrow]; the
+binding itself is `extendr` [@extendr]; and the type correspondence above is the
+whole of what this package has to get right at the boundary.
+
+# References

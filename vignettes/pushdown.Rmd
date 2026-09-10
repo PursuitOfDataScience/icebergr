@@ -1,0 +1,183 @@
+---
+title: "Predicate and Projection Pushdown"
+author: "Youzhi Yu<br><span style='font-size:85%;'>University of Chicago</span>"
+bibliography: vignette_reference.bib
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Predicate and Projection Pushdown}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(icebergr)
+```
+
+Pushdown is the reason to read an Iceberg table through a client rather than
+collect it and subset in R. `filter` and `select` travel with the scan into
+`iceberg-rust`, which uses them to decide what to open — so the saving is in
+bytes never read, not in rows discarded afterwards.
+
+This vignette shows the three levels at which that happens, and how to verify
+each of them rather than assume it.
+
+```{r}
+tbl <- icebergr_example_table(rows = 200)
+```
+
+## The three levels
+
+| Level | Uses | Effect |
+| --- | --- | --- |
+| File | per-column bounds in the Iceberg manifest | a file is never opened |
+| Row group | statistics in the Parquet footer | a block within a file is skipped |
+| Row | the filter, re-applied during decode | non-matching rows are dropped |
+
+The first two are *pruning* and cost nothing: the bounds were written at commit
+time. Only the third touches the data. The equivalent measurements for column
+stores in general are in @abadi2008column, and for Parquet and ORC specifically,
+with their present-day encodings, in @zeng2023columnar.
+
+## File pruning, measured
+
+`icebergr_scan_plan()` returns the file tasks a scan would execute, without
+executing them. Comparing two plans is how you confirm a predicate was actually
+pushed down:
+
+```{r}
+all_files <- icebergr_scan_plan(icebergr_scan(tbl))
+hot_files <- icebergr_scan_plan(icebergr_scan(tbl, filter = id > 1000))
+
+nrow(all_files)
+nrow(hot_files)
+```
+
+The example table is built with two appends, so there are two data files and the
+second holds the higher ids. A filter that only the second can satisfy plans one
+file instead of two:
+
+```{r}
+all_files[, c("record_count", "file_size_in_bytes")]
+hot_files[, c("record_count", "file_size_in_bytes")]
+```
+
+`record_count` is the count *before* filtering — it is what the manifest recorded
+when the file was written. A plan is a statement about what will be opened, not
+about what will come back.
+
+A predicate no file can satisfy prunes everything:
+
+```{r}
+nrow(icebergr_scan_plan(icebergr_scan(tbl, filter = id > 10^6)))
+```
+
+## Projection pushdown
+
+`select` never reaches the row level at all, because a columnar file lets the
+reader seek to the columns it wants and ignore the rest. This is Dremel's layout
+[@melnik2010dremel], and it is why the column list matters as much as the
+predicate:
+
+```{r}
+narrow <- icebergr_collect(
+  icebergr_scan(tbl, select = c("id", "amount"), limit = 3)
+)
+narrow
+```
+
+The other columns are not decoded, not converted, and not allocated in R.
+
+## Which predicates push down
+
+`filter` is an R expression, translated into an Iceberg predicate. What is
+translatable is a closed list — `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `|`, `!`,
+`%in%`, `is.na()`, `is.nan()` and `startsWith()`:
+
+```{r}
+icebergr_collect(
+  icebergr_scan(tbl,
+    filter = event %in% c("purchase", "refund") & amount > 900,
+    select = c("event", "amount"), limit = 5
+  )
+)
+```
+
+A bare name is read as a column when the table has one of that name, and
+otherwise evaluated in the calling environment — so a local variable works
+without any quoting ceremony:
+
+```{r}
+threshold <- 950
+icebergr_collect(
+  icebergr_scan(tbl, filter = amount > threshold, select = "amount", limit = 3)
+)
+```
+
+Anything outside that list belongs in R, after collecting. There is no partial
+credit: an expression the translator does not recognise is an error rather than a
+silently unpushed filter, because a filter that quietly stopped pruning would look
+like nothing more than a slow scan.
+
+## Three things that do not push down
+
+**`limit` bounds decoding, not planning.** `iceberg-rust` 0.10.0 has no row limit
+in its scan API, so every file the predicate admits is still planned:
+
+```{r}
+nrow(icebergr_scan_plan(icebergr_scan(tbl, limit = 1)))
+```
+
+The rows are counted as batches arrive, which does save conversion into R, but not
+I/O. Use a predicate to reduce I/O.
+
+**A filter on a nested field.** Iceberg cannot push a predicate onto a field
+inside a `struct`; read the parent column and subset it in R.
+
+**A `decimal` ordering comparison, at the row level only.** It is pushed down, but
+with `iceberg-rust`'s row-level selection turned off for that scan, because in
+0.10.0 that stage drops every row of an ordering comparison against a decimal.
+File and row-group pruning still apply, so the scan is slightly less selective and
+still correct. `icebergr_spec_support()` records this as a known upstream
+limitation rather than leaving it to be discovered:
+
+```{r}
+features <- icebergr_spec_support()$features
+features[
+  grepl("decimal|limit", features$feature, ignore.case = TRUE),
+  c("feature", "supported", "reason")
+]
+```
+
+## Case sensitivity
+
+Iceberg column names are case-sensitive, and `case_sensitive = FALSE` prefers an
+exact match rather than taking the first hit. A table holding both `id` and `ID`
+resolves each to itself; a name that matches two columns and neither exactly is an
+error rather than a silent choice.
+
+```{r}
+icebergr_collect(icebergr_scan(tbl,
+  select = "ID", case_sensitive = FALSE,
+  limit = 2
+))
+```
+
+## Reading a plan for cost, not just count
+
+`file_size_in_bytes` is what the manifest recorded, so a plan gives an I/O
+estimate before any read:
+
+```{r}
+sum(all_files$file_size_in_bytes)
+sum(hot_files$file_size_in_bytes)
+```
+
+On object storage that ratio is the one that matters, and it is available without
+a single `GET` against the data. Query engines built around this format use the
+same metadata for the same purpose [@behm2022photon].
+
+# References

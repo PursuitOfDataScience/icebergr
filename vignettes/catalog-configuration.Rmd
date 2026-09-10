@@ -1,5 +1,7 @@
 ---
 title: "Catalog configuration"
+author: "Youzhi Yu<br><span style='font-size:85%;'>University of Chicago</span>"
+bibliography: vignette_reference.bib
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{Catalog configuration}
@@ -312,3 +314,9 @@ would have to compute a partition value for every row, which this version does
 not do. The append is refused before any data file is written, so nothing is left
 behind in the warehouse. Write to such a table with an engine that supports
 partitioned writes.
+
+Writing to a partitioned table is one of several operations Iceberg's spec
+defines [@icebergspec] that `iceberg-rust` 0.10.0 does not yet implement;
+`vignette("writing")` lists the rest and says which side each gap is on.
+
+# References

@@ -1,0 +1,195 @@
+---
+title: "Writing: Appends, Tables and What Is Refused"
+author: "Youzhi Yu<br><span style='font-size:85%;'>University of Chicago</span>"
+bibliography: vignette_reference.bib
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Writing: Appends, Tables and What Is Refused}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(icebergr)
+```
+
+Writing is the capability that routing through a query engine does not give you
+[@raasveldt2019duckdb]: a commit is a table-format operation, not a query. This
+version writes appends, creates tables and namespaces, and registers existing
+tables. Everything it will not do, it refuses before writing anything.
+
+Every example here runs against a local warehouse on your own machine.
+
+```{r}
+warehouse <- file.path(tempdir(), "icebergr-writing")
+dir.create(warehouse, showWarnings = FALSE)
+
+catalog <- icebergr_catalog("memory", warehouse = warehouse)
+catalog
+```
+
+The `memory` catalog keeps its table pointers in the R session and its data on
+disk. It needs no server, which makes it the right thing for tests and for
+scratch work; `vignette("catalog-configuration")` covers REST and AWS Glue, which
+are what you use when the table has to outlive the session.
+
+## A namespace, then a table
+
+```{r}
+icebergr_create_namespace(catalog, "shop")
+icebergr_list_namespaces(catalog)
+```
+
+`icebergr_create_table()` takes a data frame, but **only to read its schema off —
+no rows are written**. The new table is empty, with no snapshot at all:
+
+```{r}
+template <- data.frame(
+  id = integer(),
+  item = character(),
+  amount = double(),
+  day = as.Date(character())
+)
+
+orders <- icebergr_create_table(catalog, "shop.orders", template)
+orders
+```
+
+`snapshot: <none>` is the tell. An Iceberg table with no commits is a legitimate
+state — schema and no data — and it is what you get here. The rows come next.
+
+## Appending
+
+```{r}
+orders <- icebergr_append(orders, data.frame(
+  id = 1:3,
+  item = c("mug", "kettle", "mug"),
+  amount = c(9.5, 42, 9.5),
+  day = as.Date("2026-07-01") + 0:2
+))
+
+icebergr_collect(orders)
+```
+
+`icebergr_append()` returns a *new* handle, pointing at the snapshot the append
+created. Reassigning is not optional bookkeeping — the old handle still reads the
+old snapshot, by design:
+
+```{r}
+orders <- icebergr_append(orders, data.frame(
+  id = 4L, item = "cafetiere", amount = 24.5, day = as.Date("2026-07-04")
+))
+
+icebergr_snapshots(orders)[, c("operation", "added_records", "total_records")]
+```
+
+Two appends, two snapshots, and `vignette("time-travel")` can read either.
+
+### Compression
+
+`compression` picks the Parquet codec, defaulting to `zstd`:
+
+```{r}
+orders <- icebergr_append(
+  orders,
+  data.frame(id = 5L, item = "grinder", amount = 60, day = as.Date("2026-07-05")),
+  compression = "snappy"
+)
+
+nrow(icebergr_collect(orders))
+```
+
+Which codec to prefer is a decode-speed against file-size trade, and it is
+measured across the open formats in @zeng2023columnar: dictionary encoding does
+most of the work, and block compression on top of it buys less than it used to.
+`zstd` is a reasonable default for cold data; `snappy` decodes faster.
+
+## Commits are atomic, and optimistic
+
+An append writes its Parquet, writes new manifests, and then swaps the table
+pointer — one atomic step, whose failure mode is that nothing happened rather than
+that half of it did. If another writer committed in between, the swap is rejected
+and retried against the new state, which is how all three lakehouse formats
+handle concurrency [@armbrust2020delta; @jain2023lakehouse].
+
+For a reader this is the property that matters: a scan never sees a partial
+append. That guarantee is the format's, not this package's, and it is the reason
+the Hive directory convention had to be replaced [@thusoo2009hive;
+@armbrust2021lakehouse].
+
+## Registering a table someone else wrote
+
+`icebergr_register_table()` adds an existing table to a catalog from its metadata
+file, without moving or rewriting data:
+
+```{r, eval = FALSE}
+icebergr_register_table(
+  catalog, "shop.archive",
+  "s3://warehouse/shop/archive/metadata/00007-8b1c….metadata.json"
+)
+```
+
+The file has to be named the way every Iceberg engine names them —
+`<version>-<uuid>.metadata.json`. A renamed file reads, but cannot be appended
+to, because the next version number is derived from that name. The check happens
+at registration rather than at the first failed append.
+
+## What is refused, and why that is the design
+
+Three write operations are unavailable, and each fails before touching the
+warehouse:
+
+```{r}
+features <- icebergr_spec_support()$features
+writes <- grepl("append|delete|merge|overwrite|partition|propert",
+  features$feature,
+  ignore.case = TRUE
+)
+features[
+  writes & !is.na(features$supported) & !features$supported,
+  c("feature", "reason")
+]
+```
+
+**Appending to a partitioned table.** Iceberg only discovers a missing partition
+value at commit time, which would leave orphan Parquet in the warehouse and
+report the cause in terms of neither the table nor the file. So the partition spec
+is checked first, and the append is refused with nothing written. Reading a
+partitioned table works, and `icebergr_partitions()` reports its spec.
+
+**Row-level deletes and `MERGE`.** `iceberg-rust` 0.10.0 can write an equality
+delete file but has no transaction action that commits one. Reading merge-on-read
+tables another engine wrote works — both positional and equality deletes are
+applied.
+
+**Overwrites.** `fast_append` is the only way 0.10.0 can add files to a table.
+
+That split — refuse loudly here, read whatever anyone else wrote — is deliberate.
+A narrow surface that is correct is worth more than a broad one that commits
+something subtly wrong, and the format is designed so that a client which does
+not implement a feature can still read tables that use it [@icebergspec].
+
+## Checking before you write
+
+```{r}
+icebergr_table_exists(catalog, "shop.orders")
+icebergr_table_exists(catalog, "shop.nothing_here")
+
+icebergr_list_tables(catalog, "shop")
+```
+
+`icebergr_properties()` reads the table's properties, and returns a zero-row
+tibble when it has none — as a freshly created table does:
+
+```{r}
+icebergr_properties(orders)
+```
+
+Setting them needs an `update_properties` transaction, which is also out of scope
+for this version.
+
+# References
