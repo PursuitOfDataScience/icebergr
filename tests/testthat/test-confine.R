@@ -66,3 +66,41 @@ test_that("confine rejects a non-logical value", {
     "TRUE or FALSE"
   )
 })
+
+test_that("a renamed metadata file reads, and its append is refused before writing", {
+  # writing.Rmd states this, and nothing pinned it end to end: the Rust unit
+  # tests cover the name helper, not the register -> read -> refuse path. The
+  # orphan check is the part that matters -- Iceberg itself only inspects the
+  # name when the commit is attempted, by which point the Parquet is already in
+  # the warehouse and this package has no maintenance operation to clear it.
+  warehouse <- withr::local_tempdir("warehouse")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  tbl <- icebergr_create_table(catalog, "db.events", data.frame(id = 1:3))
+  tbl <- icebergr_append(tbl, data.frame(id = 1:3))
+
+  files <- list.files(warehouse,
+    pattern = "metadata\\.json$", recursive = TRUE,
+    full.names = TRUE
+  )
+  newest <- files[order(file.mtime(files))][length(files)]
+  renamed <- file.path(dirname(newest), "renamed.metadata.json")
+  expect_true(file.copy(newest, renamed))
+
+  reopened <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(reopened, "db")
+
+  # Registering and reading are both fine; only the append cannot work.
+  from_renamed <- icebergr_register_table(reopened, "db.events", renamed)
+  expect_equal(nrow(icebergr_collect(from_renamed)), 3L)
+
+  parquet <- function() {
+    length(list.files(warehouse, pattern = "\\.parquet$", recursive = TRUE))
+  }
+  before <- parquet()
+  expect_error(
+    icebergr_append(from_renamed, data.frame(id = 9L)),
+    "renamed\\.metadata\\.json"
+  )
+  expect_equal(parquet(), before)
+})

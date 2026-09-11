@@ -97,10 +97,24 @@ if (!is_not_cran && vendor_exists && nzchar(env_features)) {
   ))
 }
 
-# Only restrict cargo when we are actually building from the vendored sources.
+# Two separate decisions, previously made by one condition.
+#
 # `-j 2` keeps us inside CRAN's limit on parallelism, which cargo would
-# otherwise blow past by defaulting to the number of logical CPUs.
-.cran_flags <- if (use_vendor) "-j 2 --offline" else ""
+# otherwise blow past by defaulting to the number of logical CPUs. That limit
+# applies to any build CRAN runs, whether or not it happens to be using the
+# vendored archive -- so it is tied to NOT_CRAN, not to `use_vendor`. Tying it
+# to `use_vendor` meant a CRAN build that asked for an optional backend, or one
+# where the archive was missing, silently ran cargo at full width.
+#
+# `--offline` is the vendoring half: it can only be passed when there is an
+# unpacked tree for cargo to resolve against, so it stays on `use_vendor`.
+.cran_flags <- paste(
+  c(
+    if (!is_not_cran) "-j 2",
+    if (use_vendor) "--offline"
+  ),
+  collapse = " "
+)
 
 # rustls-native-certs reads the macOS system trust store through the Security
 # framework, and reqwest's proxy detection pulls in SystemConfiguration. Decided
