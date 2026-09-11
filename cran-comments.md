@@ -1,83 +1,61 @@
 # cran-comments.md
 
-## This is a resubmission
+## This is an update
 
-The previous submission (0.1.0, 2026-08-27) passed the pre-tests and was returned
-with one request: the 33,048,416-byte tarball had to come under 10 MB, with an
-explanation if the Rust crates were all genuinely needed.
+`icebergr` 0.1.0 has been on CRAN since 2026-09-10. This is 0.2.0.
 
-**The tarball is now 11,170,566 bytes, a 2.96x reduction, and nothing was
-dropped from what a default install can do.** The reduction and the explanation
-are together under "The size request" below. In short: `cargo vendor` writes
-every entry in `Cargo.lock`, which is a union over all platforms and all optional
-features, and 172 of the 442 crates it wrote are never compiled on any platform R
-runs on — including the 63 MB of BoringSSL that only the opt-in AWS Glue backend
-reaches. Those now ship as a manifest and a licence rather than as source, which
-is 222 MB of the 274 MB removed. No dependency was changed, added or removed.
+**It changes no user-facing behaviour except three credential-handling
+decisions, and adds no dependency.** `iceberg-rust` is unmoved at 0.10.0, and
+code written against 0.1.0 needs no revision. The three exceptions, each with a
+documented escape hatch and each in `NEWS.md`:
 
-Changes in this version:
+* A credential is no longer sent to an `http://` endpoint. A loopback address is
+  exempt; `ICEBERGR_ALLOW_INSECURE_CREDENTIALS` overrides.
+* Ambient `AWS_*` credentials now reach only a connection that addresses object
+  storage, rather than every catalog regardless of type.
+* `icebergr_register_table()` gained `confine = TRUE`, requiring the metadata
+  file to sit inside the catalog's own warehouse.
 
-* `tools/vendor.R` reduces the vendor tree before compressing it, in five
-  stages, each driven by what `cargo tree` reports rather than by a
-  hand-written list, and each verified afterwards by `cargo metadata --offline
-  --locked` and by an `include_str!` scan.
-* `tools/config.R` and `src/Makevars{,.win}.in` gained one condition: the
-  archive is unpacked, and `--offline` passed, only when no optional Cargo
-  feature has been requested. The pruned archive covers the default build, so a
-  feature build resolves from crates.io instead of failing inside a compile.
-* `LICENSE.note` now records, per crate, whether it is compiled or shipped as a
-  manifest only. All 442 are still inventoried and credited.
+Everything else is documentation: five further vignettes (seven in total, each
+with a bibliography), a `pkgdown` site, and a package logo.
 
-Nothing else changed: no R code, no Rust code, no documentation beyond the notes
-on those two points, and no dependency versions.
+### On the timing of this submission
 
-## The submission before that
+CRAN policy asks that updates not be submitted more often than every one to two
+months. 0.1.0 was published very recently, and nothing in 0.2.0 fixes a problem
+that affects users of 0.1.0 — the credential changes are hardening, not repairs
+of a reported fault. **Unless the reviewer would rather have the hardening
+sooner, this is content to hold and submit with whatever comes next.** It is
+described here so the decision is the reviewer's rather than mine to assume.
 
-The submission of 0.1.0 on 2026-08-27 was rejected by the incoming
-pre-tests with 1 ERROR on r-devel-windows-x86_64: installation failed because
-`configure` refused a toolchain below rustc 1.94. The Debian flavour installed
-and checked cleanly, so the failure was specific to the Windows farm's rustc
-1.92.0.
+### Size
 
-Thank you for running it — that was the one input I said in the previous
-submission I had been unable to measure, and it turned out that the required
-version was wrong rather than the toolchain being too old.
+The tarball is 11,393,963 bytes, against 11,170,566 for 0.1.0: **223,397 bytes
+larger, and every byte of that is the built vignettes.** `vendor.tar.xz` is
+byte-identical, because no dependency changed.
 
-Changes in this version:
-
-* **The declared minimum Rust version is now 1.92, and the package builds on it.**
-  `SystemRequirements` reads `rustc >= 1.92`. The 1.94 in the previous submission
-  came from four crates in the tree declaring `rust-version = "1.94"` under
-  `iceberg-rust`'s rolling-MSRV policy; none of them uses a language or library
-  feature newer than 1.92. Verified by building the full vendored tree offline
-  with rustc 1.92.0 and running the whole check suite against it — see "Rust
-  version" below. No dependency was downgraded and no functionality was dropped.
-* `src/Makevars` and `src/Makevars.win` pass `--ignore-rust-version` to cargo,
-  since cargo rejects a build outright when a *dependency* declares more than the
-  active toolchain. `tools/msrv.R` remains the gate on the real floor, so a
-  genuinely too-old toolchain still fails at `configure` with a readable message.
-* Reworded the Description to remove the three words the pre-test flagged as
-  possibly misspelled. `README` is now quoted; "schemas" and "pushdown" are gone
-  in favour of wording that is not jargon.
-
-The size request below has been rewritten around what was actually measured
-this time, and it corrects a claim I made in the previous one.
+This remains above CRAN's 10 MB guideline, for the reasons accepted at 0.1.0 and
+restated under "The size request" below. Nothing further can be pruned without
+giving up function: the one feature-shaped lever left is Parquet's Brotli codec,
+worth roughly 0.6 MB, and dropping it would make a Brotli-compressed data file
+written by another engine unreadable. CI now fails the build if the tarball grows
+past a ceiling, and reports the delta against 0.1.0 on every run, so this figure
+cannot drift unnoticed.
 
 ## Test environments
 
 - Local: CentOS Linux 8 (x86_64), R 4.6.0, rustc 1.97.1 — vendored, offline
   build, the same path a CRAN build takes.
 - Local: the same machine and R, with **rustc 1.92.0** — the version the Windows
-  farm reported — again vendored and offline. Added for this resubmission.
+  farm reported — again vendored and offline.
 - GitHub Actions: ubuntu-latest (R release and R oldrel-1), macos-latest
   (R release), windows-latest (R release), building against crates.io.
 - GitHub Actions: one job vendors every dependency and publishes the resulting
   `vendor.tar.xz`, and a three-platform matrix — ubuntu-latest, macos-latest and
   windows-latest — then builds and checks **that same archive** with no network
   access at all, reproducing the CRAN build path. Extended to macOS and Windows
-  for this resubmission, because the reductions described below prune crates
-  that only those two platforms compile and Linux alone cannot show that to be
-  safe. The vendoring job re-derives the archive from scratch on a clean runner
+  because the reductions described below prune crates that only those two
+  platforms compile, and Linux alone cannot show that to be safe. The vendoring job re-derives the archive from scratch on a clean runner
   and arrives at the same 10.47 MB and the same per-stage figures quoted below.
 - GitHub Actions: a job that reads the floor out of `SystemRequirements` and
   type-checks the whole tree on exactly that toolchain, so the declared minimum
@@ -89,8 +67,8 @@ this time, and it corrects a claim I made in the previous one.
 
 0 errors | 0 warnings | 1 note
 
-The note is CRAN incoming feasibility: a new submission, and the size of the
-tarball. The size is the subject of the request below.
+The note is CRAN incoming feasibility: the size of the tarball, and the number of
+days since the last update. Both are addressed in the preamble above.
 
 Two warnings and two further notes appear on the local machine only, and none is
 a property of the package — each is a tool that is simply not installed there.
@@ -107,10 +85,10 @@ of it `libs`. That is the statically linked Rust library: Apache Iceberg's Rust
 implementation, the Arrow and Parquet columnar readers, and an Avro reader for
 Iceberg manifests.
 
-## This is a new submission
+## What the package is
 
-`icebergr` is a client for Apache Iceberg, the open table format. R has
-previously been able to read Iceberg tables only by routing through DuckDB as an
+`icebergr` is a client for Apache Iceberg, the open table format. R has otherwise
+been able to read Iceberg tables only by routing through DuckDB as an
 intermediary, which precludes writes, schema access, snapshot management and
 catalog integration. The package binds `iceberg-rust`, the Apache-governed Rust
 implementation, via `extendr`.
@@ -149,7 +127,7 @@ The package follows "Using Rust in CRAN packages" in full:
 You asked me to bring the tarball under 10 MB, and to explain the Rust crates if
 they really are all needed. Both, in that order.
 
-**The tarball is now 11,170,566 bytes, down from 33,048,416 — a 2.96x
+**At 0.1.0 the tarball came to 11,170,566 bytes, down from 33,048,416 — a 2.96x
 reduction.** All of it came out of `tools/vendor.R`, which now reduces the vendor
 tree before compressing it rather than only compressing it. Uncompressed, stage
 by stage:
@@ -345,4 +323,5 @@ and writes.
 
 ## Downstream dependencies
 
-None; this is a new package.
+None. `icebergr` has been on CRAN since 2026-09-10 and nothing depends on it
+yet, so this update cannot break a reverse dependency.
