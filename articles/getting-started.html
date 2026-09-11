@@ -103,9 +103,9 @@ travel through and more than one data file for a filter to prune.</p>
 <span><span class="fu">show</span><span class="op">(</span><span class="va">tbl</span><span class="op">)</span></span>
 <span><span class="co">#&gt; &lt;icebergr_table&gt;</span></span>
 <span><span class="co">#&gt;   table:    db.events</span></span>
-<span><span class="co">#&gt;   location: &lt;tempdir&gt;/icebergr-warehouse2acba5693ff/db/events</span></span>
+<span><span class="co">#&gt;   location: &lt;tempdir&gt;/icebergr-warehouse2ab67057a03/db/events</span></span>
 <span><span class="co">#&gt;   format:   v2</span></span>
-<span><span class="co">#&gt;   snapshot: 2752999124793746994</span></span>
+<span><span class="co">#&gt;   snapshot: 4788003530667186681</span></span>
 <span><span class="co">#&gt;   columns:  5</span></span>
 <span><span class="co">#&gt;     id &lt;int&gt;</span></span>
 <span><span class="co">#&gt;     event &lt;string&gt;</span></span>
@@ -270,8 +270,8 @@ so:</p>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 2 × 4</span></span></span>
 <span><span class="co">#&gt;   snapshot_id         operation added_records total_records</span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>             <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>         <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 4898657925042046861 append              200           200</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 2752999124793746994 append              200           400</span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 7421302734313711068 append              200           200</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 4788003530667186681 append              200           400</span></span></code></pre></div>
 <p>Snapshot ids are <strong>character</strong>, not numeric. Iceberg
 assigns them as random 64-bit integers, and an R numeric carries only 53
 bits, so passing one through a double would silently select the wrong
