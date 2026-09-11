@@ -80,10 +80,11 @@ an `icebergr-manual.tex` behind, which then raises `non-standard things in the
 check directory`. Passing `--no-manual` removes all of the LaTeX ones. The
 GitHub Actions runners have the full set, and the numbers above are from there.
 
-Check also reports, as INFO rather than a note, an installed size of 24.0 Mb, all
-of it `libs`. That is the statically linked Rust library: Apache Iceberg's Rust
-implementation, the Arrow and Parquet columnar readers, and an Avro reader for
-Iceberg manifests.
+Check also reports the installed size, essentially all of it `libs`: 27.5 Mb on
+the machine above. The figure moves with the toolchain and the platform, since it
+is one statically linked Rust library -- Apache Iceberg's Rust implementation,
+the Arrow and Parquet columnar readers, and an Avro reader for Iceberg
+manifests -- so please read it as an order of magnitude rather than a constant.
 
 ## What the package is
 
@@ -122,10 +123,14 @@ The package follows "Using Rust in CRAN packages" in full:
 - `inst/NOTICE` carries the Apache-2.0 attribution and trademark notice for the
   bundled Apache Iceberg Rust code.
 
-#### The size request
+#### The size request, as answered at 0.1.0
 
-You asked me to bring the tarball under 10 MB, and to explain the Rust crates if
-they really are all needed. Both, in that order.
+Kept here because it is the basis on which 0.1.0 was accepted, and 0.2.0 does not
+change it: `vendor.tar.xz` is byte-identical, and the tarball is 223,397 bytes
+larger only because there are now seven vignettes rather than two.
+
+At 0.1.0 you asked me to bring the tarball under 10 MB, and to explain the Rust
+crates if they really were all needed. Both, in that order.
 
 **At 0.1.0 the tarball came to 11,170,566 bytes, down from 33,048,416 — a 2.96x
 reduction.** All of it came out of `tools/vendor.R`, which now reduces the vendor
@@ -193,8 +198,9 @@ on a single machine — the extra six are the macOS and Windows system bindings.
 rustc, xz` — and no data in it, so its size is vendored Rust and nothing else.
 Checked against the current listing in `src/contrib/` rather than remembered:
 `arcgisgeocode_0.4.0.tar.gz`, 13M, and `prqlr_0.10.1.tar.gz` at 9.0M is the next
-one down. At 10.7 MB this package would be smaller than an exception already
-granted for exactly this reason, which is the main ground on which I am asking.
+one down. At 10.65 MiB then, and 10.87 MiB now, this package is smaller than an
+exception already granted for exactly this reason, which was the main ground on
+which I asked.
 
 **On the separate-package suggestion.** You mentioned that data can go in a
 separate package that is only infrequently updated. This package ships no data at
@@ -230,10 +236,14 @@ Brotli-compressed Parquet data files. That seemed the wrong trade to make
 silently, but it is available if you would rather have the 0.6 MB than the
 codec.
 
-So the request is for 10.7 MB rather than the 31.5 MB of the previous
-submission. I recognise that is still over the guidance. If it is not acceptable
-I would value knowing what number is, and I will either find it or withdraw
-rather than press the point.
+That was the request 0.1.0 was accepted on: 10.65 MiB rather than the 31.52 MiB
+of the submission before it (33,048,416 bytes -- the units are MiB throughout
+this section, since `du` and the check's byte count disagree by 5% and mixing
+them is how a 21 KB delta once read as 1.55 MB). 0.2.0 stands at 10.87 MiB, the difference being built
+vignettes and nothing else, so I am not asking for anything further here. If the
+figure should stop growing at some particular number, I would value knowing it --
+CI now fails the build when the tarball passes a ceiling, and that ceiling is a
+constant I can set to whatever you name.
 
 ### Rust version
 
