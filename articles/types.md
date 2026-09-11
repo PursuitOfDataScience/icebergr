@@ -261,7 +261,7 @@ Stream Interface*. Apache Arrow documentation.
 <https://arrow.apache.org/docs/format/CDataInterface.html>.
 
 The extendr authors. 2026. *Extendr: A Safe and User-Friendly R
-Extension Interface Using Rust*. <https://extendr.github.io/>.
+Extension Interface Using Rust*. <https://extendr.rs/>.
 
 Thusoo, Ashish, Joydeep Sen Sarma, Namit Jain, et al. 2009. “Hive: A
 Warehousing Solution over a Map-Reduce Framework.” *Proceedings of the

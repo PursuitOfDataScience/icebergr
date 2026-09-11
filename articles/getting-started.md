@@ -40,9 +40,9 @@ tbl <- icebergr_example_table(rows = 200)
 show(tbl)
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: <tempdir>/icebergr-warehouse2b226488bcff/db/events
+#>   location: <tempdir>/icebergr-warehouse2b883d7ef7c2/db/events
 #>   format:   v2
-#>   snapshot: 8183190700905976539
+#>   snapshot: 7026331841001689217
 #>   columns:  5
 #>     id <int>
 #>     event <string>
@@ -240,8 +240,8 @@ history[, c("snapshot_id", "operation", "added_records", "total_records")]
 #> # A tibble: 2 × 4
 #>   snapshot_id         operation added_records total_records
 #>   <chr>               <chr>             <dbl>         <dbl>
-#> 1 5807927327002716758 append              200           200
-#> 2 8183190700905976539 append              200           400
+#> 1 5225385937666392395 append              200           200
+#> 2 7026331841001689217 append              200           400
 ```
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as
@@ -455,4 +455,4 @@ Stream Interface*. Apache Arrow documentation.
 <https://arrow.apache.org/docs/format/CDataInterface.html>.
 
 The extendr authors. 2026. *Extendr: A Safe and User-Friendly R
-Extension Interface Using Rust*. <https://extendr.github.io/>.
+Extension Interface Using Rust*. <https://extendr.rs/>.
