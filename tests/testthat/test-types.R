@@ -10,7 +10,10 @@ test_that("integer, double and character survive unchanged", {
   events <- data.frame(
     i = c(1L, 2L, .Machine$integer.max),
     d = c(1.5, -2.25, .Machine$double.xmax),
-    s = c("a", "", "unicode: é中"),
+    # Escaped rather than literal: R CMD check reads sources in whatever
+    # locale it is run under, and a literal non-ASCII byte sequence is the
+    # kind of thing that only misbehaves on someone else's machine.
+    s = c("a", "", "unicode: \u00e9\u4e2d"),
     stringsAsFactors = FALSE
   )
   tbl <- seed_table(catalog, "db.types", events)

@@ -38,6 +38,28 @@ test_that("a credential over http is refused, and the escape hatch works", {
   })
 })
 
+test_that("the escape hatch accepts what people actually type", {
+  # as.logical() maps "true"/"T" and returns NA for "1", "yes" and "on" -- the
+  # forms a shell profile or a CI file is most likely to hold. Reading those as
+  # "not set" would make a documented escape hatch look broken.
+  for (yes in c("true", "TRUE", "T", "1", "yes", "on", " 1 ")) {
+    withr::with_envvar(c(ICEBERGR_ALLOW_INSECURE_CREDENTIALS = yes), {
+      expect_null(
+        check_credential_transport(list(uri = "http://c/v1", token = "t")),
+        info = yes
+      )
+    })
+  }
+  for (no in c("false", "0", "no", "off", "")) {
+    withr::with_envvar(c(ICEBERGR_ALLOW_INSECURE_CREDENTIALS = no), {
+      expect_error(
+        check_credential_transport(list(uri = "http://c/v1", token = "t")),
+        "unencrypted"
+      )
+    })
+  }
+})
+
 test_that("the transport check only fires when a credential is present", {
   # No credential: an http catalog is the user's business.
   expect_null(check_credential_transport(list(uri = "http://catalog/v1")))

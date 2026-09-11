@@ -70,9 +70,9 @@ fn scrub_params(text: &str) -> String {
                 }
             }
             let after_key = &text[from..];
+            // Allow `key = value` as well as `key=value`.
             let sep = after_key
                 .find(|c: char| !c.is_whitespace())
-                .filter(|_| true)
                 .unwrap_or(0);
             let bytes = after_key.as_bytes();
             if bytes.get(sep) != Some(&b'=') && bytes.get(sep) != Some(&b':') {

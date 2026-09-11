@@ -204,21 +204,38 @@ jobs:
       - name: Vendor Rust dependencies
         run: Rscript tools/vendor.R
 
-      - name: Report vendored size
+      # Half of the size guard: the vendored Rust, caught here because this is
+      # where it is produced and a dependency change shows up immediately.
+      # The other half -- the whole tarball, which also moves when vignettes or
+      # figures are added -- is guarded in check-vendored, where the real
+      # tarball gets built. Neither subsumes the other: 0.2.0 grew 223 KB with
+      # vendor.tar.xz byte-identical.
+      - name: Guard vendored size against growth
         run: |
-          set -e
-          ls -la src/rust/vendor.tar.xz
-          size_mb=$(du -m src/rust/vendor.tar.xz | cut -f1)
+          set -euo pipefail
+          BASELINE=10970960   # vendor.tar.xz as released in 0.1.0
+          CEILING=11534336    # 11 MiB, ~5% of headroom over that
+          bytes=$(stat -c%s src/rust/vendor.tar.xz)
+          delta=$(( bytes - BASELINE ))
           crates=$(grep -c '^Name:' LICENSE.note || echo "unknown")
           compiled=$(grep -c '^Compiled:    yes' LICENSE.note || echo "unknown")
-          echo "### Vendored dependencies" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`vendor.tar.xz\`: ${size_mb} MB" >> "$GITHUB_STEP_SUMMARY"
-          echo "- crates: ${crates} vendored, ${compiled} compiled" >> "$GITHUB_STEP_SUMMARY"
-          echo "- CRAN guidance is 10 MB; the largest exception granted to date is 13.6 MB." >> "$GITHUB_STEP_SUMMARY"
-          if [ "$size_mb" -gt 10 ]; then
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "This exceeds CRAN's preferred limit. See FEASIBILITY.md." >> "$GITHUB_STEP_SUMMARY"
+          # Everything in the tarball that is not the vendored archive.
+          other=$(tar --exclude='*/src/rust/vendor.tar.xz' -cf - \
+                    --exclude-vcs --exclude='.git' . 2>/dev/null | wc -c)
+          {
+            echo "### Vendored dependencies"
+            echo ""
+            printf -- '- `vendor.tar.xz`: %s bytes (%+d vs the 0.1.0 baseline of %s)\n' \
+              "$bytes" "$delta" "$BASELINE"
+            printf -- '- ceiling: %s bytes\n' "$CEILING"
+            printf -- '- crates: %s vendored, %s compiled\n' "$crates" "$compiled"
+            printf -- '- everything else in the source tree: ~%s bytes uncompressed\n' "$other"
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf 'vendor.tar.xz %s bytes (%+d vs baseline), ceiling %s\n' \
+            "$bytes" "$delta" "$CEILING"
+          if [ "$bytes" -gt "$CEILING" ]; then
+            echo "::error title=Vendored archive grew::vendor.tar.xz is ${bytes} bytes, over the ${CEILING} ceiling (+${delta} vs the 0.1.0 baseline). Find what was added with the per-crate sizes tools/vendor.R prints, then either prune it or raise CEILING deliberately."
+            exit 1
           fi
         shell: bash
 
@@ -269,7 +286,7 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::rcmdcheck, any::roxygen2
+          extra-packages: any::rcmdcheck, any::roxygen2, any::pkgbuild
           needs: check
 
       - name: Generate documentation
@@ -291,12 +308,63 @@ jobs:
 
       # NOT_CRAN is deliberately unset, so configure passes --offline to cargo
       # and the build fails if anything tries to reach the network.
+      #
+      # Built here rather than left to rcmdcheck so that the tarball is a file
+      # we can weigh. It has to be the real one, with the vignettes woven in:
+      # 0.2.0 grew 223,397 bytes over 0.1.0 without a single dependency
+      # changing, and every byte of that was built vignettes. A guard watching
+      # only vendor.tar.xz would have called that release unchanged.
+      - name: Build the source tarball
+        id: build
+        run: |
+          options(crayon.enabled = TRUE)
+          tarball <- pkgbuild::build(".", dest_path = ".", args = "--no-manual")
+          cat(sprintf("tarball=%s\n", basename(tarball)),
+              file = Sys.getenv("GITHUB_OUTPUT"), append = TRUE)
+        shell: Rscript {0}
+
+      # A regression guard, not a size target. CRAN accepted 0.1.0 at 11,170,566
+      # bytes with the explanation in cran-comments.md, so the bar is "do not
+      # grow", not "get under 10 MB" -- chasing the round number would cost a
+      # Parquet codec for no benefit CRAN asked for.
+      #
+      # Raising CEILING is a deliberate act. Do it in the same commit as
+      # whatever justified the growth, and note which half moved: the two
+      # figures below separate the vendored Rust from everything else, because
+      # they grow for entirely different reasons.
+      - name: Guard the tarball against growth
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          set -euo pipefail
+          RELEASED=11170566   # 0.1.0, the tarball CRAN accepted
+          CEILING=12058624    # 11.5 MiB
+          tarball=$(ls -1 icebergr_*.tar.gz | head -1)
+          bytes=$(stat -c%s "$tarball")
+          vendor=$(stat -c%s src/rust/vendor.tar.xz)
+          other=$(( bytes - vendor ))
+          delta=$(( bytes - RELEASED ))
+          {
+            echo "### Source tarball"
+            echo ""
+            printf -- '- `%s`: **%s** bytes (%+d vs the 0.1.0 release of %s)\n' \
+              "$tarball" "$bytes" "$delta" "$RELEASED"
+            printf -- '- vendored Rust %s, everything else %s\n' "$vendor" "$other"
+            printf -- '- ceiling %s bytes\n' "$CEILING"
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s: %s bytes (%+d vs 0.1.0); vendor %s, other %s; ceiling %s\n' \
+            "$tarball" "$bytes" "$delta" "$vendor" "$other" "$CEILING"
+          if [ "$bytes" -gt "$CEILING" ]; then
+            echo "::error title=Source tarball grew::${tarball} is ${bytes} bytes, over the ${CEILING} ceiling (${delta} vs the 0.1.0 release). vendored=${vendor}, other=${other} -- whichever moved tells you where to look."
+            exit 1
+          fi
+        shell: bash
+
       - name: Check with vendored, offline build
         run: |
           options(crayon.enabled = TRUE)
           rcmdcheck::rcmdcheck(
+            path = "${{ steps.build.outputs.tarball }}",
             args = c("--no-manual", "--as-cran"),
-            build_args = c("--no-manual"),
             error_on = "warning",
             check_dir = "check"
           )
