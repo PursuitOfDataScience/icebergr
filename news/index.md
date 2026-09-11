@@ -62,12 +62,15 @@ Closing the review findings tracked in
   function returns – so holding all of them alongside the columns was
   avoidable.
 
-One item stays open, as
-[\#12](https://github.com/PursuitOfDataScience/icebergr/issues/12):
-Ctrl-C still does nothing during a blocking call. The timeout above
-turns an unkillable hang into an error, which is most of the value, but
-real interrupt handling needs R’s `R_interrupts_pending` (`UserBreak` on
-Windows) and `extendr` 0.9 exposes no interrupt API to reach it.
+- **Ctrl-C now interrupts a blocking catalog or storage call.**
+  `block_on` parks R’s own thread and R only tests its interrupt flag
+  between evaluations, so an interrupt used to do nothing at all until
+  the call finished. The future is now polled in 200 ms slices, and
+  between slices – back on R’s thread, outside the runtime – R’s flag is
+  read and turned into an ordinary error. The timeout above remains the
+  backstop for where Ctrl-C cannot reach, such as a non-interactive
+  session. Closes
+  [\#12](https://github.com/PursuitOfDataScience/icebergr/issues/12).
 
 ### Documentation
 

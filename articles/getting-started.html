@@ -103,9 +103,9 @@ travel through and more than one data file for a filter to prune.</p>
 <span><span class="fu">show</span><span class="op">(</span><span class="va">tbl</span><span class="op">)</span></span>
 <span><span class="co">#&gt; &lt;icebergr_table&gt;</span></span>
 <span><span class="co">#&gt;   table:    db.events</span></span>
-<span><span class="co">#&gt;   location: &lt;tempdir&gt;/icebergr-warehouse2ba647d69d3f/db/events</span></span>
+<span><span class="co">#&gt;   location: &lt;tempdir&gt;/icebergr-warehouse2ba41a6451b3/db/events</span></span>
 <span><span class="co">#&gt;   format:   v2</span></span>
-<span><span class="co">#&gt;   snapshot: 7525589810463663364</span></span>
+<span><span class="co">#&gt;   snapshot: 2500571348698771057</span></span>
 <span><span class="co">#&gt;   columns:  5</span></span>
 <span><span class="co">#&gt;     id &lt;int&gt;</span></span>
 <span><span class="co">#&gt;     event &lt;string&gt;</span></span>
@@ -148,11 +148,11 @@ R happens on read.</p>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 5 × 5</span></span></span>
 <span><span class="co">#&gt;      id event    amount day        recorded_at        </span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>     <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;date&gt;</span>     <span style="color: #949494; font-style: italic;">&lt;dttm&gt;</span>             </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span>  <span style="text-decoration: underline;">1</span>001 purchase   500  2024-06-01 2024-06-01 <span style="color: #949494;">00:00:00</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span>  <span style="text-decoration: underline;">1</span>002 refund     503. 2024-06-02 2024-06-01 <span style="color: #949494;">01:00:00</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span>  <span style="text-decoration: underline;">1</span>003 purchase   505. 2024-06-03 2024-06-01 <span style="color: #949494;">02:00:00</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span>  <span style="text-decoration: underline;">1</span>004 refund     508. 2024-06-04 2024-06-01 <span style="color: #949494;">03:00:00</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span>  <span style="text-decoration: underline;">1</span>005 purchase   510. 2024-06-05 2024-06-01 <span style="color: #949494;">04:00:00</span></span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span>     1 click      0.5  2024-01-01 2024-01-01 <span style="color: #949494;">00:00:00</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span>     2 view       1.75 2024-01-02 2024-01-01 <span style="color: #949494;">01:00:00</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span>     3 purchase   3.01 2024-01-03 2024-01-01 <span style="color: #949494;">02:00:00</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span>     4 scroll     4.26 2024-01-04 2024-01-01 <span style="color: #949494;">03:00:00</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span>     5 click      5.52 2024-01-05 2024-01-01 <span style="color: #949494;">04:00:00</span></span></span></code></pre></div>
 <p>Scanning the whole table is common enough to have a shorthand:</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="fu"><a href="../reference/icebergr_collect.html">icebergr_collect</a></span><span class="op">(</span><span class="va">tbl</span><span class="op">)</span><span class="op">)</span></span>
@@ -270,8 +270,8 @@ so:</p>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 2 × 4</span></span></span>
 <span><span class="co">#&gt;   snapshot_id         operation added_records total_records</span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>             <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>         <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 2566363731954374877 append              200           200</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 7525589810463663364 append              200           400</span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 3940235951507823285 append              200           200</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 2500571348698771057 append              200           400</span></span></code></pre></div>
 <p>Snapshot ids are <strong>character</strong>, not numeric. Iceberg
 assigns them as random 64-bit integers, and an R numeric carries only 53
 bits, so passing one through a double would silently select the wrong
