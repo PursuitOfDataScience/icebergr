@@ -92,9 +92,9 @@ narrow
 #> # A tibble: 3 × 2
 #>      id amount
 #>   <int>  <dbl>
-#> 1  1001   500 
-#> 2  1002   503.
-#> 3  1003   505.
+#> 1     1   0.5 
+#> 2     2   1.75
+#> 3     3   3.01
 ```
 
 The other columns are not decoded, not converted, and not allocated in

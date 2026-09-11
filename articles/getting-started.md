@@ -40,9 +40,9 @@ tbl <- icebergr_example_table(rows = 200)
 show(tbl)
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: <tempdir>/icebergr-warehouse2ab67057a03/db/events
+#>   location: <tempdir>/icebergr-warehouse2ba647d69d3f/db/events
 #>   format:   v2
-#>   snapshot: 4788003530667186681
+#>   snapshot: 7525589810463663364
 #>   columns:  5
 #>     id <int>
 #>     event <string>
@@ -240,8 +240,8 @@ history[, c("snapshot_id", "operation", "added_records", "total_records")]
 #> # A tibble: 2 × 4
 #>   snapshot_id         operation added_records total_records
 #>   <chr>               <chr>             <dbl>         <dbl>
-#> 1 7421302734313711068 append              200           200
-#> 2 4788003530667186681 append              200           400
+#> 1 2566363731954374877 append              200           200
+#> 2 7525589810463663364 append              200           400
 ```
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as
@@ -407,13 +407,13 @@ features[unsupported, c("feature", "reason")]
 #>  7 Row-level deletes (write)     iceberg-rust 0.10.0 can write an equality dele…
 #>  8 MERGE / upsert                Needs row-level deletes plus an overwrite, nei…
 #>  9 Overwrite writes              iceberg-rust 0.10.0 has no overwrite or rewrit…
-#> 10 Schema evolution              Out of scope for icebergr 0.1.0                
-#> 11 Partitioned table creation    Out of scope for icebergr 0.1.0                
+#> 10 Schema evolution              Out of scope for this version of icebergr      
+#> 11 Partitioned table creation    Out of scope for this version of icebergr      
 #> 12 Append to a partitioned table An append would have to compute a partition va…
-#> 13 Partition evolution           Out of scope for icebergr 0.1.0                
+#> 13 Partition evolution           Out of scope for this version of icebergr      
 #> 14 Compaction / maintenance      Compaction needs a rewrite action iceberg-rust…
-#> 15 dbplyr lazy verbs             Out of scope for icebergr 0.1.0                
-#> 16 Table encryption              Not exposed in icebergr 0.1.0
+#> 15 dbplyr lazy verbs             Out of scope for this version of icebergr      
+#> 16 Table encryption              Not exposed by this version of icebergr
 ```
 
 Some of those are absent from `iceberg-rust` itself, not just from this

@@ -244,9 +244,9 @@ touching the warehouse:</p>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Row-level deletes (write)     iceberg-rust 0.10.0 can write an equality delet…</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> MERGE / upsert                Needs row-level deletes plus an overwrite, neit…</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Overwrite writes              iceberg-rust 0.10.0 has no overwrite or rewrite…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Partitioned table creation    Out of scope for icebergr 0.1.0                 </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Partitioned table creation    Out of scope for this version of icebergr       </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Append to a partitioned table An append would have to compute a partition val…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">7</span> Partition evolution           Out of scope for icebergr 0.1.0</span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">7</span> Partition evolution           Out of scope for this version of icebergr</span></span></code></pre></div>
 <p><strong>Appending to a partitioned table.</strong> Iceberg only
 discovers a missing partition value at commit time, which would leave
 orphan Parquet in the warehouse and report the cause in terms of neither

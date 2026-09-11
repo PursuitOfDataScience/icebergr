@@ -91,7 +91,7 @@ support
 #>     - Nested field pushdown - iceberg-rust cannot plan a scan filtered or
 #>         projected on a nested field; read the parent column and filter in R
 #>     - Table properties (write) - Needs an update_properties transaction; out of
-#>         scope for icebergr 0.1.0
+#>         scope for this version of icebergr
 #>     - Hadoop/filesystem catalog - Not implemented in iceberg-rust; use type =
 #>         'memory'
 #>     - Row limit pushdown - iceberg-rust has no row limit in its scan API; limit
@@ -103,17 +103,17 @@ support
 #>         which iceberg-rust 0.10.0 can commit
 #>     - Overwrite writes - iceberg-rust 0.10.0 has no overwrite or rewrite
 #>         transaction action; fast_append is the only way to add files
-#>     - Schema evolution - Out of scope for icebergr 0.1.0
-#>     - Partitioned table creation - Out of scope for icebergr 0.1.0
+#>     - Schema evolution - Out of scope for this version of icebergr
+#>     - Partitioned table creation - Out of scope for this version of icebergr
 #>     - Append to a partitioned table - An append would have to compute a
 #>         partition value per row, which this version does not do; it is refused
 #>         before anything is written
-#>     - Partition evolution - Out of scope for icebergr 0.1.0
+#>     - Partition evolution - Out of scope for this version of icebergr
 #>     - Compaction / maintenance - Compaction needs a rewrite action iceberg-rust
 #>         0.10.0 does not have. Snapshot expiry it does have, and that one is out
-#>         of scope for icebergr 0.1.0
-#>     - dbplyr lazy verbs - Out of scope for icebergr 0.1.0
-#>     - Table encryption - Not exposed in icebergr 0.1.0
+#>         of scope for this version of icebergr
+#>     - dbplyr lazy verbs - Out of scope for this version of icebergr
+#>     - Table encryption - Not exposed by this version of icebergr
 
 # Check a capability before relying on it.
 features <- support$features

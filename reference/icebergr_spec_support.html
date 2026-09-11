@@ -132,7 +132,7 @@ it is <code>TRUE</code> or <code>FALSE</code> here and never <code>NA</code>.</p
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Nested field pushdown - iceberg-rust cannot plan a scan filtered or</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         projected on a nested field; read the parent column and filter in R</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Table properties (write) - Needs an update_properties transaction; out of</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>         scope for icebergr 0.1.0</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         scope for this version of icebergr</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Hadoop/filesystem catalog - Not implemented in iceberg-rust; use type =</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         'memory'</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Row limit pushdown - iceberg-rust has no row limit in its scan API; limit</span>
@@ -144,17 +144,17 @@ it is <code>TRUE</code> or <code>FALSE</code> here and never <code>NA</code>.</p
 <span class="r-out co"><span class="r-pr">#&gt;</span>         which iceberg-rust 0.10.0 can commit</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Overwrite writes - iceberg-rust 0.10.0 has no overwrite or rewrite</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         transaction action; fast_append is the only way to add files</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>     - Schema evolution - Out of scope for icebergr 0.1.0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>     - Partitioned table creation - Out of scope for icebergr 0.1.0</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     - Schema evolution - Out of scope for this version of icebergr</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     - Partitioned table creation - Out of scope for this version of icebergr</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Append to a partitioned table - An append would have to compute a</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         partition value per row, which this version does not do; it is refused</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         before anything is written</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>     - Partition evolution - Out of scope for icebergr 0.1.0</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     - Partition evolution - Out of scope for this version of icebergr</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Compaction / maintenance - Compaction needs a rewrite action iceberg-rust</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         0.10.0 does not have. Snapshot expiry it does have, and that one is out</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>         of scope for icebergr 0.1.0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>     - dbplyr lazy verbs - Out of scope for icebergr 0.1.0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>     - Table encryption - Not exposed in icebergr 0.1.0</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         of scope for this version of icebergr</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     - dbplyr lazy verbs - Out of scope for this version of icebergr</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     - Table encryption - Not exposed by this version of icebergr</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Check a capability before relying on it.</span></span></span>
 <span class="r-in"><span><span class="va">features</span> <span class="op">&lt;-</span> <span class="va">support</span><span class="op">$</span><span class="va">features</span></span></span>
