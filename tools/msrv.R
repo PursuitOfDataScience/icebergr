@@ -45,7 +45,7 @@ no_cargo_msg <- c(
   "'icebergr' compiles Apache Iceberg's Rust implementation, so a Rust",
   "toolchain is required to install it from source. Install one from:",
   "",
-  "  https://www.rust-lang.org/tools/install",
+  "  https://rust-lang.org/tools/install/",
   "",
   "Your OS package manager may also provide it, but distribution packages",
   "are frequently older than the version this package needs:",
@@ -61,7 +61,7 @@ no_rustc_msg <- c(
   "",
   paste("'icebergr' requires", rustc_req, "or newer. Install it from:"),
   "",
-  "  https://www.rust-lang.org/tools/install",
+  "  https://rust-lang.org/tools/install/",
   "-------------------------------------------------------------------------"
 )
 
@@ -110,7 +110,7 @@ if (!is.na(msrv) && !is.na(current)) {
         "'icebergr' bundles Apache Iceberg's Rust implementation, which is",
         "written against Rust edition 2024. Please run `rustup update stable`,",
         "or install a newer toolchain from",
-        "https://www.rust-lang.org/tools/install.",
+        "https://rust-lang.org/tools/install/.",
         "---------------------------------------------------------------------"
       ),
       collapse = "\n"

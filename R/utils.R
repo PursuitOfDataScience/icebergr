@@ -27,7 +27,7 @@ ensure_rust <- function(call = rlang::caller_env()) {
           "`install.packages(\"icebergr\", type = \"source\")` and check the build",
           "log for cargo errors."
         ),
-        i = "icebergr needs a Rust toolchain: https://www.rust-lang.org/tools/install"
+        i = "icebergr needs a Rust toolchain: https://rust-lang.org/tools/install/"
       ),
       class = "icebergr_rust_unavailable",
       call = call
@@ -172,6 +172,18 @@ as_result_tbl <- function(x) {
 #' @noRd
 as_iceberg_location <- function(path, windows = .Platform$OS.type == "windows") {
   if (windows) gsub("\\", "/", path, fixed = TRUE) else path
+}
+
+#' Is an environment variable set to something meaning "yes"?
+#'
+#' `as.logical()` alone is not enough: it maps "true", "TRUE" and "T" but
+#' returns NA for "1", "yes" and "on", which are exactly what a person setting
+#' a flag in a shell profile or a CI file tends to write. Silently reading "1"
+#' as "not set" makes a documented escape hatch look broken.
+#' @noRd
+env_flag <- function(name) {
+  value <- tolower(trimws(Sys.getenv(name, unset = "")))
+  value %in% c("true", "t", "yes", "y", "on", "1")
 }
 
 #' Is `x` a path on this machine, rather than a remote location or a bare name?

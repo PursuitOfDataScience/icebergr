@@ -122,7 +122,7 @@ check_credential_transport <- function(props, call = rlang::caller_env()) {
   if (!length(supplied)) {
     return(invisible(NULL))
   }
-  if (isTRUE(as.logical(Sys.getenv("ICEBERGR_ALLOW_INSECURE_CREDENTIALS", "false")))) {
+  if (env_flag("ICEBERGR_ALLOW_INSECURE_CREDENTIALS")) {
     return(invisible(NULL))
   }
 
