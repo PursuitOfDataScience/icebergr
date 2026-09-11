@@ -51,7 +51,15 @@ test_that("an upstream gap is not reported as our scope choice", {
 
   # And the converse: partitioned creation *is* available upstream, so that one
   # really is our scope.
-  expect_match(reason_for("Partitioned table creation"), "icebergr 0.1.0")
+  #
+  # Matched on "this version of icebergr" rather than on a version number. This
+  # assertion used to read "icebergr 0.1.0", which made it a tripwire on the
+  # release rather than on the distinction it exists to protect: the reasons said
+  # 0.1.0 all through 0.2.0, and correcting them broke this test. A reason must
+  # still name *us* as the owner of the gap; it must not do so by naming a
+  # version that cannot update itself.
+  expect_match(reason_for("Partitioned table creation"), "this version of icebergr")
+  expect_false(any(grepl("icebergr [0-9]+\\.[0-9]+", features$reason)))
 
   # "Not implemented in iceberg-rust" was too blunt for the delete writes: the
   # equality delete *writer* exists, and only the commit path is missing.

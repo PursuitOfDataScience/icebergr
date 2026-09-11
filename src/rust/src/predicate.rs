@@ -474,8 +474,9 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
 
         PrimitiveType::Time | PrimitiveType::Binary | PrimitiveType::Fixed(_) => {
             return Err(RError::Other(format!(
-                "filtering on column {col:?} (Iceberg type {ty}) is not supported \
-                 in icebergr 0.1.0. Select the column and filter it in R instead."
+                "filtering on column {col:?} (Iceberg type {ty}) is not supported. \
+                 Select the column and filter it in R instead; \
+                 icebergr_spec_support() lists what this build does support."
             )));
         }
     })
