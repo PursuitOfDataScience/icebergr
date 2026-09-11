@@ -207,10 +207,15 @@ catalog from its metadata file, without moving or rewriting data:</p>
 <span>  <span class="st">"s3://warehouse/shop/archive/metadata/00007-8b1c….metadata.json"</span></span>
 <span><span class="op">)</span></span></code></pre></div>
 <p>The file has to be named the way every Iceberg engine names them —
-<code>&lt;version&gt;-&lt;uuid&gt;.metadata.json</code>. A renamed file
-reads, but cannot be appended to, because the next version number is
-derived from that name. The check happens at registration rather than at
-the first failed append.</p>
+<code>&lt;version&gt;-&lt;uuid&gt;.metadata.json</code>, because the
+next version number is derived from that name. A renamed file registers
+and reads perfectly well; it is the <em>append</em> that cannot
+work.</p>
+<p>That append is refused at the start, before any Parquet is written,
+and the error names the file. Left to Iceberg the name is only inspected
+when the commit is attempted — by which point the data files are already
+in the warehouse, and this package exposes no maintenance operation to
+clear them.</p>
 <p>It also has to sit inside the catalog’s warehouse, which is what
 <code>confine = TRUE</code> — the default — requires. A metadata file
 names absolute paths for its data, so one from an untrusted source reads

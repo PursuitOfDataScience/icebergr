@@ -162,10 +162,15 @@ icebergr_register_table(
 ```
 
 The file has to be named the way every Iceberg engine names them —
-`<version>-<uuid>.metadata.json`. A renamed file reads, but cannot be
-appended to, because the next version number is derived from that name.
-The check happens at registration rather than at the first failed
-append.
+`<version>-<uuid>.metadata.json`, because the next version number is
+derived from that name. A renamed file registers and reads perfectly
+well; it is the *append* that cannot work.
+
+That append is refused at the start, before any Parquet is written, and
+the error names the file. Left to Iceberg the name is only inspected
+when the commit is attempted — by which point the data files are already
+in the warehouse, and this package exposes no maintenance operation to
+clear them.
 
 It also has to sit inside the catalog’s warehouse, which is what
 `confine = TRUE` — the default — requires. A metadata file names
