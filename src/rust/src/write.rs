@@ -195,7 +195,7 @@ fn rs_table_append(
             })
             .collect();
         return Err(extendr_api::Error::Other(format!(
-            "cannot append to {:?}: it is partitioned by {}, and icebergr 0.1.0 \
+            "cannot append to {:?}: it is partitioned by {}, and this version of icebergr \
              writes only to unpartitioned tables.\n\
              An append would have to compute a partition value for every row, \
              which this version does not do. Write to this table with an engine \
