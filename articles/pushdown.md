@@ -55,8 +55,8 @@ all_files[, c("record_count", "file_size_in_bytes")]
 #> # A tibble: 2 × 2
 #>   record_count file_size_in_bytes
 #>          <dbl>              <dbl>
-#> 1          200               4901
-#> 2          200               4998
+#> 1          200               4998
+#> 2          200               4901
 hot_files[, c("record_count", "file_size_in_bytes")]
 #> # A tibble: 1 × 2
 #>   record_count file_size_in_bytes
