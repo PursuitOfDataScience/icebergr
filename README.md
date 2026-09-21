@@ -4,6 +4,7 @@
 
 <!-- badges: start -->
 [![CRAN status](https://www.r-pkg.org/badges/version/icebergr)](https://CRAN.R-project.org/package=icebergr)
+[![CRAN downloads](https://cranlogs.r-pkg.org/badges/grand-total/icebergr)](https://CRAN.R-project.org/package=icebergr)
 [![R-CMD-check](https://github.com/PursuitOfDataScience/icebergr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/PursuitOfDataScience/icebergr/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
