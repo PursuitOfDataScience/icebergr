@@ -73,7 +73,7 @@ Yu<br><span style="font-size:85%;">University of Chicago</span>
 <p>Pushdown is the reason to read an Iceberg table through a client
 rather than collect it and subset in R. <code>filter</code> and
 <code>select</code> travel with the scan into <code>iceberg-rust</code>,
-which uses them to decide what to open — so the saving is in bytes never
+which uses them to decide what to open, so the saving is in bytes never
 read, not in rows discarded afterwards.</p>
 <p>This vignette shows the three levels at which that happens, and how
 to verify each of them rather than assume it.</p>
@@ -145,7 +145,7 @@ can satisfy plans one file instead of two:</p>
 <span><span class="co">#&gt;   record_count file_size_in_bytes</span></span>
 <span><span class="co">#&gt;          <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>              <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span>          200               <span style="text-decoration: underline;">4</span>901</span></span></code></pre></div>
-<p><code>record_count</code> is the count <em>before</em> filtering — it
+<p><code>record_count</code> is the count <em>before</em> filtering: it
 is what the manifest recorded when the file was written. A plan is a
 statement about what will be opened, not about what will come back.</p>
 <p>A predicate no file can satisfy prunes everything:</p>
@@ -179,7 +179,7 @@ in R.</p>
 <h3 id="which-predicates-push-down">Which predicates push down<a class="anchor" aria-label="anchor" href="#which-predicates-push-down"></a>
 </h3>
 <p><code>filter</code> is an R expression, translated into an Iceberg
-predicate. What is translatable is a closed list — <code>==</code>,
+predicate. What is translatable is a closed list of <code>==</code>,
 <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>,
 <code>&gt;</code>, <code>&gt;=</code>, <code>&amp;</code>,
 <code>|</code>, <code>!</code>, <code>%in%</code>, <code><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na()</a></code>,
@@ -200,7 +200,7 @@ predicate. What is translatable is a closed list — <code>==</code>,
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> refund     910.</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> purchase   912.</span></span></code></pre></div>
 <p>A bare name is read as a column when the table has one of that name,
-and otherwise evaluated in the calling environment — so a local variable
+and otherwise evaluated in the calling environment, so a local variable
 works without any quoting ceremony:</p>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">threshold</span> <span class="op">&lt;-</span> <span class="fl">950</span></span>
@@ -218,6 +218,13 @@ no partial credit: an expression the translator does not recognise is an
 error rather than a silently unpushed filter, because a filter that
 quietly stopped pruning would look like nothing more than a slow
 scan.</p>
+<p>What is pushed down keeps the rows R’s own evaluation would,
+<code>NA</code> and <code>NaN</code> included, even where Iceberg’s
+rules differ: <code>NaN</code> matches no comparison,
+<code><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na()</a></code> is <code>TRUE</code> for it, and
+<code>!(x %in% c(1, 2))</code> keeps the rows where <code>x</code> is
+<code>NA</code>. <code><a href="../reference/icebergr_scan.html">?icebergr_scan</a></code> names the one exception,
+string ordering.</p>
 </div>
 <div class="section level3">
 <h3 id="three-things-that-do-not-push-down">Three things that do not push down<a class="anchor" aria-label="anchor" href="#three-things-that-do-not-push-down"></a>

@@ -91,14 +91,14 @@ id from <code><a href="icebergr_snapshots.html">icebergr_snapshots()</a></code>.
 <dt id="arg-as-of">as_of<a class="anchor" aria-label="anchor" href="#arg-as-of"></a></dt>
 <dd><p>Read the table as it was at this time, a <code>POSIXct</code> or <code>Date</code>.
 Resolved against the table's snapshot log to the snapshot that was current
-at that moment – so a snapshot a rollback abandoned, or one that only ever
+at that moment, so a snapshot a rollback abandoned, or one that only ever
 existed on another branch, is not selected even though it carries a matching
 timestamp. Cannot be combined with <code>snapshot_id</code>.</p></dd>
 
 
 <dt id="arg-batch-size">batch_size<a class="anchor" aria-label="anchor" href="#arg-batch-size"></a></dt>
-<dd><p>Rows per Arrow batch, or <code>NULL</code> for the default. Affects
-memory use, not results.</p></dd>
+<dd><p>Rows per Arrow batch, at least 1, or <code>NULL</code> for the
+default. Affects memory use, not results.</p></dd>
 
 
 <dt id="arg-case-sensitive">case_sensitive<a class="anchor" aria-label="anchor" href="#arg-case-sensitive"></a></dt>
@@ -131,8 +131,17 @@ It bounds how much is decoded and converted, not how much is planned.</p>
 <p>Filters may use <code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>&amp;</code>, <code>|</code>, <code>!</code>, <code>%in%</code>,
 <code><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na()</a></code>, <code><a href="https://rdrr.io/r/base/is.finite.html" class="external-link">is.nan()</a></code> and <code><a href="https://rdrr.io/r/base/startsWith.html" class="external-link">startsWith()</a></code>. A bare name is read as a column when
 the table has a column of that name, and otherwise evaluated in the calling
-environment, so <code>filter = year == target</code> works with a local <code>target</code>.
-Anything more elaborate should be applied in R after collecting.</p>
+environment, so <code>filter = year == target</code> works with a local <code>target</code>. That
+holds wherever the name appears: an Iceberg predicate compares a column with a
+value, so a filter naming a column on both sides, such as <code>a &gt; b</code>, is refused
+rather than reading <code>b</code> from the calling environment. Anything more elaborate
+should be applied in R after collecting.</p>
+<p>A filter keeps the rows R's own evaluation of it would keep, <code>NA</code> and <code>NaN</code>
+included, although Iceberg's rules for them differ: no comparison matches a
+<code>NaN</code>, <code><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na()</a></code> is <code>TRUE</code> for one, <code>x == 0</code> matches <code>-0</code> as well as <code>0</code>, and
+<code>!(x %in% c(1, 2))</code> keeps the rows where <code>x</code> is <code>NA</code>, since <code>%in%</code> is never
+<code>NA</code> in R. The exception is an ordering comparison between strings, which
+follows Iceberg's byte order; that agrees with R only in the C locale.</p>
 <p><code><a href="https://rdrr.io/r/base/startsWith.html" class="external-link">startsWith()</a></code> is pushed down only against a <code>string</code> column, since Iceberg
 defines a prefix comparison for no other type.</p>
 <p>A filter on a <code>decimal</code> column is pushed down, but with <code>iceberg-rust</code>'s
@@ -146,7 +155,7 @@ little less selective and still correct.</p>
 
 
 <p>Iceberg records a schema per snapshot, so <code>filter</code> and <code>select</code> are resolved
-against the schema of the snapshot actually being read – the one named by
+against the schema of the snapshot actually being read: the one named by
 <code>snapshot_id</code> or <code>as_of</code>, and otherwise the current one. A column another
 engine has since renamed or dropped is therefore still nameable as of a
 snapshot that had it, and one added afterwards is refused for a snapshot that

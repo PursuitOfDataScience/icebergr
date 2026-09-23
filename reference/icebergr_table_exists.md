@@ -27,8 +27,8 @@ icebergr_table_exists(catalog, table)
 ## Details
 
 A namespace that does not exist gives `FALSE` rather than an error,
-since it cannot hold the table either way. Any other failure – an
-unreachable catalog, a rejected credential – is still an error, because
+since it cannot hold the table either way. Any other failure, such as an
+unreachable catalog or a rejected credential, is still an error, because
 reporting one of those as "no such table" would be a confident wrong
 answer.
 
@@ -45,7 +45,7 @@ icebergr_table_exists(catalog, "db.events")
 icebergr_create_table(catalog, "db.events", data.frame(id = integer()))
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: /tmp/RtmprLWw8N/warehouse298354ea3ac0/db/events
+#>   location: /tmp/RtmphfwJfM/warehouse286d15f70261/db/events
 #>   format:   v2
 #>   snapshot: <none>
 #>   columns:  1

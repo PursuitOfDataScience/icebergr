@@ -79,7 +79,9 @@ accepts, such as an Arrow Table.</p></dd>
 <dd><p>Optional named character vector recorded in the new
 snapshot's summary, for provenance. Do not put credentials here: snapshot
 summaries are stored in table metadata and are readable by anyone who can
-read the table.</p></dd>
+read the table. The keys Iceberg writes into a summary itself, such as
+<code>"operation"</code> and <code>"added-records"</code>, are refused, since a value for one
+would corrupt the record of what the commit did.</p></dd>
 
 </dl></div>
     <div class="section level2">

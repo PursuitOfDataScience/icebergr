@@ -12,10 +12,11 @@ library(icebergr)
 
 Iceberg (The Apache Software Foundation 2026a) is the open table format
 that Snowflake, Databricks, BigQuery, AWS and Dremio have all
-standardised on. Apache maintains clients for Java, Python, Rust and Go
-— but not R, which has been able to read Iceberg tables only by routing
-through DuckDB (Raasveldt and Mühleisen 2019). That rules out writes,
-snapshot management, schema access and catalog integration.
+standardised on. Apache maintains clients for Java, Python, Rust and Go,
+but not for R, where Iceberg has been reached through a query engine
+such as DuckDB (Raasveldt and Mühleisen 2019). A client is a different
+thing: it hands you the table itself, with its snapshots, its schema as
+of each of them and its scan plan, as R objects.
 
 `icebergr` binds `iceberg-rust` (The Apache Software Foundation 2026b)
 directly through extendr (The extendr authors 2026). Arrow is the
@@ -40,9 +41,9 @@ tbl <- icebergr_example_table(rows = 200)
 show(tbl)
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: <tempdir>/icebergr-warehouse2bfd4561ca99/db/events
+#>   location: <tempdir>/icebergr-warehouse2ae6583e1c83/db/events
 #>   format:   v2
-#>   snapshot: 6198150543603564937
+#>   snapshot: 8533004476597629907
 #>   columns:  5
 #>     id <int>
 #>     event <string>
@@ -52,7 +53,7 @@ show(tbl)
 ```
 
 It is generated rather than shipped because Iceberg records absolute
-paths in its metadata and its Avro manifests — a table built on one
+paths in its metadata and its Avro manifests, so a table built on one
 machine does not resolve on another.
 
 ### Inspecting a table
@@ -96,11 +97,11 @@ icebergr_collect(icebergr_scan(tbl, limit = 5))
 #> # A tibble: 5 × 5
 #>      id event    amount day        recorded_at        
 #>   <int> <chr>     <dbl> <date>     <dttm>             
-#> 1  1001 purchase   500  2024-06-01 2024-06-01 00:00:00
-#> 2  1002 refund     503. 2024-06-02 2024-06-01 01:00:00
-#> 3  1003 purchase   505. 2024-06-03 2024-06-01 02:00:00
-#> 4  1004 refund     508. 2024-06-04 2024-06-01 03:00:00
-#> 5  1005 purchase   510. 2024-06-05 2024-06-01 04:00:00
+#> 1     1 click      0.5  2024-01-01 2024-01-01 00:00:00
+#> 2     2 view       1.75 2024-01-02 2024-01-01 01:00:00
+#> 3     3 purchase   3.01 2024-01-03 2024-01-01 02:00:00
+#> 4     4 scroll     4.26 2024-01-04 2024-01-01 03:00:00
+#> 5     5 click      5.52 2024-01-05 2024-01-01 04:00:00
 ```
 
 Scanning the whole table is common enough to have a shorthand:
@@ -240,8 +241,8 @@ history[, c("snapshot_id", "operation", "added_records", "total_records")]
 #> # A tibble: 2 × 4
 #>   snapshot_id         operation added_records total_records
 #>   <chr>               <chr>             <dbl>         <dbl>
-#> 1 7741159933833500328 append              200           200
-#> 2 6198150543603564937 append              200           400
+#> 1 3169512677046540111 append              200           200
+#> 2 8533004476597629907 append              200           400
 ```
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as
@@ -421,20 +422,20 @@ package; the `reason` column says which.
 
 ### Where next
 
-Five vignettes go deeper on one theme each:
+Six vignettes go deeper on one theme each:
 
-- [`vignette("table-format")`](https://pursuitofdatascience.github.io/icebergr/articles/table-format.md)
-  — what Iceberg is, and what it fixes
-- [`vignette("pushdown")`](https://pursuitofdatascience.github.io/icebergr/articles/pushdown.md)
-  — how a filter prunes files and row groups
-- [`vignette("time-travel")`](https://pursuitofdatascience.github.io/icebergr/articles/time-travel.md)
-  — snapshots, timestamps and rollbacks
-- [`vignette("writing")`](https://pursuitofdatascience.github.io/icebergr/articles/writing.md)
-  — appends, table creation, and what is refused
-- [`vignette("types")`](https://pursuitofdatascience.github.io/icebergr/articles/types.md)
-  — the R, Arrow and Iceberg type correspondence
-- [`vignette("catalog-configuration")`](https://pursuitofdatascience.github.io/icebergr/articles/catalog-configuration.md)
-  — REST, AWS Glue, object storage, and how credentials are handled
+- [`vignette("table-format")`](https://pursuitofdatascience.github.io/icebergr/articles/table-format.md):
+  what Iceberg is, and what it fixes
+- [`vignette("pushdown")`](https://pursuitofdatascience.github.io/icebergr/articles/pushdown.md):
+  how a filter prunes files and row groups
+- [`vignette("time-travel")`](https://pursuitofdatascience.github.io/icebergr/articles/time-travel.md):
+  snapshots, timestamps and rollbacks
+- [`vignette("writing")`](https://pursuitofdatascience.github.io/icebergr/articles/writing.md):
+  appends, table creation, and what is refused
+- [`vignette("types")`](https://pursuitofdatascience.github.io/icebergr/articles/types.md):
+  the R, Arrow and Iceberg type correspondence
+- [`vignette("catalog-configuration")`](https://pursuitofdatascience.github.io/icebergr/articles/catalog-configuration.md):
+  REST, AWS Glue, object storage, and how credentials are handled
 
 ## References
 

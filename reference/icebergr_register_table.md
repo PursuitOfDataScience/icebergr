@@ -24,14 +24,17 @@ icebergr_register_table(catalog, table, metadata_location, confine = TRUE)
 
 - metadata_location:
 
-  Path to the table's `metadata.json`.
+  Path to the table's `metadata.json`, or its location in object
+  storage, such as `"s3://bucket/db/events/metadata/..."`. A local path
+  has to exist; a remote one is left to the catalog to find.
 
 - confine:
 
   Whether to require `metadata_location` to sit inside the catalog's own
   `warehouse`. `TRUE` (the default) refuses anything outside it; `FALSE`
-  allows any path. Ignored when the catalog has no warehouse location to
-  confine against, such as a REST catalog identified by name.
+  allows any path. Ignored when the catalog has no local warehouse
+  directory to confine against, such as a REST catalog identified by
+  name or one whose warehouse is in object storage.
 
 ## Value
 
@@ -43,10 +46,10 @@ A metadata file names its table's `location`, its manifest list and
 every data file, all as absolute paths, and registering it makes this
 package read them. Those paths are not constrained by where the metadata
 file itself sits, so a file from a shared drive or an issue attachment
-can point anywhere on disk – and, with the `s3` feature compiled in, at
-an `s3://` or `https://` location, which turns opening a nominally
-offline `memory`-catalog table into an outbound request to a host of its
-author's choosing.
+can point anywhere on disk. With the `s3` feature compiled in it can
+also point at an `s3://` or `https://` location, which turns opening a
+nominally offline `memory`-catalog table into an outbound request to a
+host of its author's choosing.
 
 `confine = TRUE` is the guard: the metadata file has to be inside the
 catalog's warehouse, which is the directory you nominated. It does not

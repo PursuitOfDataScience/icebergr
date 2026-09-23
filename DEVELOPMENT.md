@@ -1,9 +1,9 @@
 # Developing icebergr
 
 Notes for maintaining an R package with a Rust core. If your other
-packages are pure R, the unfamiliar part here is not the Rust — it is
-the build system, and it is worth understanding before the first thing
-goes wrong.
+packages are pure R, the unfamiliar part here is not the Rust but the
+build system, and it is worth understanding before the first thing goes
+wrong.
 
 ## Setting up
 
@@ -25,35 +25,44 @@ install.packages(c("nanoarrow", "rlang", "tibble", "testthat", "devtools", "rext
 
 ## Day-to-day loop
 
-**Always set `NOT_CRAN=true` while developing.** It tells
-`tools/config.R` to let cargo use the network and to keep the build
-directory, which turns a rebuild from minutes into seconds:
+**Set `DEBUG=true` while iterating on the Rust.** It builds the debug
+profile and keeps `src/rust/target/`, so a rebuild compiles only what
+changed. It implies `NOT_CRAN`, which lets cargo use the network:
 
 ``` sh
-NOT_CRAN=true R CMD INSTALL --preclean .
+DEBUG=true R CMD INSTALL --preclean .
 ```
 
 or from R:
 
 ``` r
 
-Sys.setenv(NOT_CRAN = "true")
+Sys.setenv(DEBUG = "true")
 devtools::load_all()
 devtools::test()
 ```
 
-Without `NOT_CRAN`, every build is treated as a release build: offline,
-cleaned afterwards, and slow. Do that deliberately before a release, not
-while iterating.
+`NOT_CRAN=true` on its own is not enough to make rebuilds cheap. It lets
+cargo use the network and every core, but still builds the release
+profile and deletes `src/rust/target/` afterwards, so each build
+compiles from scratch. For every kind of build, `CARGO_HOME` points
+inside the build tree and is removed at the end, so crates are fetched
+again each time the network is in use.
 
-The first build compiles 343 crates and will take a long time — ten
-minutes or more is normal. Subsequent builds reuse `src/rust/target/`
-and are fast, as long as you have not run the clean path.
+Without either, every build is treated as a CRAN build: release, `-j 2`,
+cleaned afterwards, offline whenever `src/rust/vendor.tar.xz` is
+present, and slow. Do that deliberately before a release, not while
+iterating. A debug build is not fit for `R CMD check`, which reports the
+C that build scripts generate and the unoptimised library’s references
+to `exit` and `abort`.
+
+The first build compiles 264 crates and takes a while: several minutes
+on a workstation, ten or more on two cores.
 
 ## How the build actually works
 
     R CMD INSTALL
-      └─ configure                       (must be executable — check `git ls-files -s configure`)
+      └─ configure                       (must be executable: check `git ls-files -s configure`)
           └─ Rscript tools/config.R
               ├─ tools/msrv.R            checks rustc exists and is new enough
               └─ writes src/Makevars     from src/Makevars.in, substituting:
@@ -94,12 +103,12 @@ failure rather than a clear error.
     calls it. Keep the Rust side thin: argument checking, tibble
     construction and error messages are all easier to write, read and
     test in R.
-5.  **Export it** — roxygen `@export`, then `devtools::document()`.
+5.  **Export it** with roxygen’s `@export`, then `devtools::document()`.
 
 Names must match exactly across steps 1–3. A typo shows up as
 `object 'wrap__rs_whatever' not found`, and a wrong *argument count*
 shows up as `Incorrect number of arguments (n), expecting m` on every
-call — which is easy to introduce whenever `rextendr` is unavailable and
+call, which is easy to introduce whenever `rextendr` is unavailable and
 step 3 is done by hand.
 
 Neither mistake needs a build to catch. This checks all three lists
@@ -110,15 +119,17 @@ python3 - <<'PY'
 import re, glob
 src = "\n".join(open(f).read() for f in sorted(glob.glob("src/rust/src/*.rs")))
 def arity(after):                      # count top-level params from just past "("
-    d, n, seen = 1, 0, False
+    d, n, cur = 1, 0, ""
     for c in src[after:]:
         if c in "([<{": d += 1
         elif c in ")]>}":
             d -= 1
             if not d: break
-        elif d == 1 and c == ",": n += 1
-        if d >= 1 and not c.isspace(): seen = True
-    return n + 1 if seen else 0
+        if d == 1 and c == ",":        # rustfmt's trailing comma is not a parameter
+            n += bool(cur.strip()); cur = ""
+        else:
+            cur += c
+    return n + bool(cur.strip())
 rust = {m.group(1): arity(m.end()) for m in re.finditer(
     r"#\[extendr\][^\n]*\n(?:\s*#\[[^\]]*\]\s*\n)*\s*fn\s+(rs_[a-z_0-9]+)\s*\(", src)}
 mod = set(re.findall(r"fn\s+(rs_[a-z_0-9]+);", src))
@@ -132,7 +143,10 @@ PY
 ```
 
 Last run: 25 functions, all three lists agreeing, every arity matching,
-and every wrapper reached from `R/` or `tests/`.
+and every wrapper reached from `R/` or `tests/`. An earlier version of
+this script counted the trailing comma rustfmt puts after the last
+parameter of a multi-line signature, and so reported eight mismatches
+that were not there.
 
 ## Checking the Rust without R
 
@@ -147,19 +161,19 @@ LD_LIBRARY_PATH="$(R RHOME)/lib" \
 ```
 
 `cargo check` type-checks without linking, so it does not need libR. Run
-it before `R CMD INSTALL` — a type error found in 30 seconds beats one
+it before `R CMD INSTALL`: a type error found in 30 seconds beats one
 found after a ten-minute build.
 
 `cargo test` is for the pure-Rust helpers whose inputs are awkward to
-reach from R — anything taking a path or a file name, in particular. It
+reach from R, anything taking a path or a file name in particular. It
 earns its place: `metadata_name_is_committable()` split a path on `/`
 only, which refused every append on Windows and passed on every other
 platform, so a single OS’s R tests were the only thing standing between
 that and a release. Note that `cargo check --all-targets` compiles
 `#[cfg(test)]` code without running it, which is not the same thing.
 
-Nothing in these tests may **call into R** — there is no R session under
-a test binary — but they may use `extendr`’s own types, and
+Nothing in these tests may **call into R**, since there is no R session
+under a test binary, but they may use `extendr`’s own types, and
 `predicate.rs`’s do: `datum()` returns `RResult`, and what is worth
 pinning about it is that a bound past `i64::MAX` is refused rather than
 clamped. That is why the command above sets `LD_LIBRARY_PATH`.
@@ -173,8 +187,8 @@ it the harness dies before the first test with
 It needed no such help for as long as every test was a string function,
 because `ld --as-needed` leaves libR out when nothing references an R
 symbol. So this is a wall that appears the first time a unit test
-touches `extendr`, on a commit that changed nothing about linking —
-which is exactly how CI met it.
+touches `extendr`, on a commit that changed nothing about linking, which
+is exactly how CI met it.
 
 ## Optional features
 
@@ -187,7 +201,7 @@ ICEBERGR_CARGO_FEATURES=glue NOT_CRAN=true R CMD INSTALL --preclean .
 
 `icebergr_spec_support()$cargo_features` reports what a given install
 has. Code paths that need an absent feature raise an informative error
-rather than failing at link time — see `errors::not_compiled_in`.
+rather than failing at link time; see `errors::not_compiled_in`.
 
 ## Releasing
 
@@ -209,7 +223,7 @@ it is made of and what does and does not reduce it.
 
 **On any `iceberg-rust` or `arrow` bump, the version is carried by hand
 in thirteen files and nothing will catch a stale one.** Two of them are
-reported to users — `rs_build_info()` in `src/rust/src/lib.rs`, which is
+reported to users: `rs_build_info()` in `src/rust/src/lib.rs`, which is
 what
 [`icebergr_spec_support()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_spec_support.md)
 prints, and the `reason` strings in `feature_matrix()` that name the
@@ -227,7 +241,7 @@ Conflating the two is what broke the first CRAN submission. `iceberg`,
 `iceberg-catalog-rest`, `iceberg-catalog-glue` and `fastnum` all declare
 1.94 under iceberg-rust’s rolling-MSRV policy, nothing else in the tree
 exceeds 1.91.1, and none of the four uses a language or library feature
-newer than 1.92 — but CRAN’s Windows farm carries 1.92.0, and cargo
+newer than 1.92. But CRAN’s Windows farm carries 1.92.0, and cargo
 refuses a build outright when a *dependency* declares more than the
 active toolchain, so the install never reached the compiler.
 `src/Makevars{,.win}` therefore pass `--ignore-rust-version`, which
@@ -258,8 +272,8 @@ files total 343.9 MiB.
 Things that need a human, and cannot be done by CI:
 
 Email `trademarks@apache.org` describing the package and the name, and
-keep the reply. See `FEASIBILITY.md` §1a — this is the one item that is
-a genuine external dependency rather than a task.
+keep the reply. See `FEASIBILITY.md` §1a: this is the one item that is a
+genuine external dependency rather than a task.
 
 Reconfirm the name is free with
 [`available.packages()`](https://rdrr.io/r/utils/available.packages.html),
@@ -287,7 +301,7 @@ Fill in the “Test environments” and “R CMD check results” sections of
 | `error: no matching package named ...` during an offline build | `vendor.tar.xz` is stale. Re-run `tools/vendor.R` |
 | Builds are mysteriously slow every time | `NOT_CRAN` is unset, so each build is a cleaned release build |
 | Tests hang | A `block_on` was reached from inside the tokio runtime. Every entry point must be called from R’s thread; see `src/rust/src/runtime.rs` |
-| `mclapply()` hangs, with no error | The runtime’s worker threads do not survive `fork()`. `TOKIO` is a `OnceLock`, so a forked child inherits it already initialised and `block_on` waits on threads that never came across. Measured: forking *before* any call is fine, forking after the runtime has started deadlocks. Documented in the catalog-configuration vignette as “use a PSOCK cluster”. Not fixed in 0.1.0 — a fix means keying the runtime on `std::process::id()` and rebuilding it after a fork, which changes `block_on`’s return type or its `'static` lifetime and so touches every entry point. `check_live_ptr()` cannot catch it: after a fork the pointer really is valid |
+| `this process was forked from one that had already used icebergr` | A forked child, such as a [`parallel::mclapply()`](https://rdrr.io/r/parallel/mclapply.html) worker, called into icebergr after the parent had started the runtime. Its worker threads do not survive `fork()`, so in 0.1.0 `block_on` in the child waited forever, with no error and no way to interrupt it. `tokio_runtime()` in `runtime.rs` now records the process id that started the runtime and refuses in any other. Forking *before* any call is fine. Rebuilding the runtime in the child is not a fix: every catalog handle holds the parent’s runtime, and its HTTP pool shares sockets with the parent. `check_live_ptr()` cannot catch it, because after a fork the pointer really is valid |
 | `Failed to convert between uuid und iceberg value, invalid character: found \`x\``| Not a data problem. A metadata file whose name is not`-.metadata.json`; the stray character is the first letter of the file name. Iceberg derives the next name from the current one. Test fixtures must use`metadata_file_name()`| | A`decimal`filter returns no rows |`iceberg-rust`0.10.0's row-selection filter discards every row of an ordering comparison on a decimal.`configure()`in`scan.rs`turns that stage off when the predicate touches one; do not remove it | |`struct`in a schema |`iceberg::spec::Type`'s own`Display`runs a struct's child types together with no names.`table.rs::type_label()`exists for this; do not replace it with`to_string()`| | Hidden-file NOTE naming a dot-directory | It is in the tarball but not in`.Rbuildignore`. Local tooling state belongs in both that and`.gitignore\` |  |
 
 ## Design decisions worth not undoing
@@ -300,7 +314,7 @@ Fill in the “Test environments” and “R CMD check results” sections of
   undefined behaviour in the consumer.
 - **Credentials are never function arguments.** They come from
   environment variables, are never printed, and never appear in error
-  messages — only property *keys* do. `errors::config_err` exists to
+  messages; only property *keys* do. `errors::config_err` exists to
   enforce that.
 - **Filters are translated in R, typed in Rust.** `iceberg-rust` has no
   expression parser, so `R/filter.R` emits a JSON predicate tree and
@@ -339,7 +353,7 @@ Fill in the “Test environments” and “R CMD check results” sections of
   upstream has fixed it.
 - **`type_label()` renders Iceberg types, not `Display`.** Upstream
   writes a struct as its children’s types run together with no names or
-  separator — `struct<doubledouble>` — and a list or map as a bare word.
+  separator (`struct<doubledouble>`), and a list or map as a bare word.
 - **Every per-column helper in `arrow-bridge.R` recurses into data frame
   columns**, because a data frame column is how a `struct` arrives. All
   three had to learn this separately, so treat it as the rule for any
@@ -352,6 +366,18 @@ Fill in the “Test environments” and “R CMD check results” sections of
   nested `timestamptz` otherwise keeps `"+00:00"` and warns
   `'tzone' attributes are inconsistent`). `list` and `map` are
   deliberately left alone, since their columns are not data frames.
+- **A filter is built in R’s three-valued logic, not Iceberg’s.**
+  `predicate.rs` builds every node as a `Truth`, the pair of predicates
+  for the rows where R says TRUE and the rows where it says FALSE,
+  resolves `!` by swapping the pair, and hands Iceberg only the TRUE
+  half. Handing Iceberg a `NOT` lets its own null rules back in:
+  `NOT IN` drops the nulls that R’s never-`NA` `%in%` keeps. Every float
+  comparison carries `IS NOT NAN`, because Arrow orders NaN above every
+  number while file statistics leave it out, which made `x > 1` return a
+  NaN only from the files that were read; and a zero literal is a range,
+  because the same total order puts -0.0 below 0.0. `test-pushdown.R`
+  checks 150 random filters against R’s own evaluation. After touching
+  this, run it with more seeds.
 - **A `long` filter literal is range-checked, not cast.** `f as i64`
   *saturates* in Rust, so `id == 1e19` quietly became
   `id == 9223372036854775807` and returned whichever rows hold
@@ -373,7 +399,7 @@ Two habits follow.
   which. Check the vendored source before writing “not implemented in
   iceberg-rust”: as of 0.10.0 the transaction API has exactly eight
   actions, none of which overwrites or rewrites, but an
-  `equality_delete_writer` *does* exist — the gap there is the commit
+  `equality_delete_writer` *does* exist; the gap there is the commit
   path, not the writer.
 - **Exercise a capability before claiming it.** Positional and equality
   delete *reads* remain the one row asserted on upstream’s behalf rather

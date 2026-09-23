@@ -73,12 +73,12 @@ Yu<br><span style="font-size:85%;">University of Chicago</span>
 <p>Every Iceberg commit leaves the previous state of the table intact
 and readable <span class="citation">(The Apache Software Foundation
 2026)</span>. Nothing is overwritten, so a snapshot from before a bad
-load is still there — and reading it needs no backup, no restore and no
+load is still there, and reading it needs no backup, no restore and no
 cooperation from whoever wrote it.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/icebergr_example_table.html">icebergr_example_table</a></span><span class="op">(</span>rows <span class="op">=</span> <span class="fl">200</span><span class="op">)</span></span></code></pre></div>
 <div class="section level3">
-<h3 id="the-snapshot-log">The snapshot log<a class="anchor" aria-label="anchor" href="#the-snapshot-log"></a>
+<h3 id="snapshot-history">Snapshot history<a class="anchor" aria-label="anchor" href="#snapshot-history"></a>
 </h3>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">history</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/icebergr_snapshots.html">icebergr_snapshots</a></span><span class="op">(</span><span class="va">tbl</span><span class="op">)</span></span>
@@ -89,8 +89,8 @@ cooperation from whoever wrote it.</p>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 2 × 5</span></span></span>
 <span><span class="co">#&gt;   snapshot_id         parent_snapshot_id  operation added_records total_records</span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>             <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>         <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 3014757144883271854 <span style="color: #BB0000;">NA</span>                  append              200           200</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 6649609894203106844 3014757144883271854 append              200           400</span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 3377689695881697848 <span style="color: #BB0000;">NA</span>                  append              200           200</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 5989333791185888191 3377689695881697848 append              200           400</span></span></code></pre></div>
 <p>The example table was built with two appends, so there are two
 snapshots and the second’s parent is the first.
 <code>total_records</code> is cumulative; <code>added_records</code> is
@@ -148,16 +148,16 @@ column is data; filter on it with <code>filter</code>.</p>
 <p><strong>It resolves against the snapshot log, not the snapshot
 list.</strong> Iceberg keeps both: the list of every snapshot that still
 exists, and the <em>log</em> of which snapshot was current at which
-time. A rollback removes an entry from the log while leaving the
-snapshot in the list. Resolving against the list would find an abandoned
-snapshot with a matching timestamp and read a state the table was rolled
-back <em>out of</em>; <code>icebergr</code> resolves against the log, so
-it does not.</p>
+time. A rollback adds a log entry pointing back at the earlier snapshot,
+while the snapshot it abandoned stays in the list with its own, later,
+timestamp. Resolving against the list would find that abandoned snapshot
+and read a state the table was rolled back <em>out of</em>;
+<code>icebergr</code> resolves against the log, so it does not.</p>
 <p>The same applies to a snapshot that only ever existed on another
-branch — present in the list, never in this branch’s log, therefore
-never selected by <code>as_of</code>. It is still reachable by id, which
-is the right split: an explicit id is a request for a specific state,
-while a time is a request for the state this table was in.</p>
+branch: present in the list, never in this branch’s log, and so never
+selected by <code>as_of</code>. It is still reachable by id, which is
+the right split: an explicit id is a request for a specific state, while
+a time is a request for the state this table was in.</p>
 </div>
 <div class="section level3">
 <h3 id="the-schema-travels-too">The schema travels too<a class="anchor" aria-label="anchor" href="#the-schema-travels-too"></a>
@@ -173,8 +173,8 @@ it:</p>
 <span><span class="co">#&gt; [1] TRUE</span></span></code></pre></div>
 <p>Nothing was renamed here, so the two agree. Where they would not,
 <code>filter</code> and <code>select</code> are resolved against the
-schema of the snapshot actually being read — not the current one. That
-is what makes a historical read reproducible: the names that worked then
+schema of the snapshot actually being read, not the current one. That is
+what makes a historical read reproducible: the names that worked then
 still work, and you do not have to know what happened to the schema in
 between.</p>
 </div>
@@ -190,7 +190,7 @@ not change what your handle reads:</p>
 <span><span class="co">#&gt; [1] TRUE</span></span></code></pre></div>
 <p><code><a href="../reference/icebergr_reload.html">icebergr_reload()</a></code> is how you opt in to seeing new
 commits. Until you call it, every scan off that handle reads one
-consistent state — snapshot isolation in the sense of <span class="citation">Berenson et al. (1995)</span>, obtained from
+consistent state: snapshot isolation in the sense of <span class="citation">Berenson et al. (1995)</span>, obtained from
 immutability rather than from locking. All three lakehouse formats get
 it the same way <span class="citation">(Jain et al. 2023)</span>.</p>
 <p>The practical consequence: two scans off the same handle are
@@ -200,24 +200,26 @@ queries and has to add up.</p>
 <div class="section level3">
 <h3 id="what-is-not-here">What is not here<a class="anchor" aria-label="anchor" href="#what-is-not-here"></a>
 </h3>
-<p>Snapshot expiry — deleting old snapshots and the files only they
-reference — is a maintenance operation this version does not expose, and
-neither is rollback itself. Both need transaction actions
-<code>iceberg-rust</code> 0.10.0 does not provide:</p>
+<p>Snapshot expiry, which deletes old snapshots and the files only they
+reference, is a maintenance operation this version does not expose, and
+neither is rollback itself. <code>iceberg-rust</code> 0.10.0 has a
+transaction action for expiry and none for rollback, so the first is a
+gap in this package and the second is one upstream:</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">features</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/icebergr_spec_support.html">icebergr_spec_support</a></span><span class="op">(</span><span class="op">)</span><span class="op">$</span><span class="va">features</span></span>
 <span><span class="va">features</span><span class="op">[</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepl</a></span><span class="op">(</span><span class="st">"snapshot|expiry|rollback"</span>, <span class="va">features</span><span class="op">$</span><span class="va">feature</span>, ignore.case <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepl</a></span><span class="op">(</span><span class="st">"snapshot|maintenance"</span>, <span class="va">features</span><span class="op">$</span><span class="va">feature</span>, ignore.case <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>,</span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"feature"</span>, <span class="st">"supported"</span>, <span class="st">"reason"</span><span class="op">)</span></span>
 <span><span class="op">]</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 2 × 3</span></span></span>
-<span><span class="co">#&gt;   feature              supported reason</span></span>
-<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;lgl&gt;</span>     <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span> </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Snapshot time travel TRUE      <span style="color: #BB0000;">NA</span>    </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Snapshot history     TRUE      <span style="color: #BB0000;">NA</span></span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 3 × 3</span></span></span>
+<span><span class="co">#&gt;   feature                  supported reason                                     </span></span>
+<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                    <span style="color: #949494; font-style: italic;">&lt;lgl&gt;</span>     <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                                      </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Snapshot time travel     TRUE      <span style="color: #BB0000;">NA</span>                                         </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Snapshot history         TRUE      <span style="color: #BB0000;">NA</span>                                         </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Compaction / maintenance FALSE     Compaction needs a rewrite action iceberg-…</span></span></code></pre></div>
 <p>Reading a table that another engine has rolled back or expired works
-normally. Time travel is a read capability, and this package has all of
-it.</p>
+normally: time travel is a read, and reading by snapshot id or by time
+is all here.</p>
 </div>
 <div class="section level2">
 <h2 class="unnumbered" id="references">References<a class="anchor" aria-label="anchor" href="#references"></a>

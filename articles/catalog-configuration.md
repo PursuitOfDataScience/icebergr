@@ -33,7 +33,7 @@ raised nearby.
 The standard `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 `AWS_SESSION_TOKEN` and `AWS_REGION` variables are consulted as a
 fallback, so an environment already configured for AWS works without
-further setup — but **only for a connection that addresses object
+further setup, but **only for a connection that addresses object
 storage**: `storage = "s3"`, `type = "glue"`, or an `s3://` warehouse.
 They are not forwarded to a catalog with no object storage in sight,
 because a REST catalog controls each table’s `location` and may answer
@@ -48,8 +48,8 @@ loopback address is exempt, since developing against a catalog on your
 own machine is ordinary, and `ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true`
 overrides the check for the case where you know the network is trusted.
 
-Set them outside your scripts — in `~/.Renviron`, in your shell profile,
-or from your platform’s secret manager:
+Set them outside your scripts: in `~/.Renviron`, in your shell profile,
+or from your platform’s secret manager.
 
     # ~/.Renviron
     ICEBERGR_REST_TOKEN=eyJhbGciOi...
@@ -84,7 +84,7 @@ icebergr_list_namespaces(catalog)
 icebergr_list_tables(catalog, "analytics")
 ```
 
-`warehouse` is whatever the server expects to identify the warehouse —
+`warehouse` is whatever the server expects to identify the warehouse,
 often a name rather than a path.
 
 #### With OAuth2 client credentials
@@ -102,17 +102,25 @@ catalog <- icebergr_catalog("rest", uri = "https://catalog.example.com")
 
 #### Extra, non-secret properties
 
-Anything `iceberg-rust` accepts can be passed through `...`:
+Anything `iceberg-rust` accepts can be passed through `...`. Its REST
+client reads a URL `prefix`, OAuth2’s `audience` and `resource`, and
+sends each `header.<name>` property as an HTTP header:
 
 ``` r
 
 catalog <- icebergr_catalog(
   "rest",
   uri = "https://catalog.example.com",
-  `rest.signing-region` = "us-east-1",
-  `rest.sigv4-enabled` = "true"
+  prefix = "analytics",
+  `header.X-Iceberg-Access-Delegation` = "vended-credentials"
 )
 ```
+
+A property it does not know is ignored without a word, so check the
+spelling. There is no SigV4 request signing in `iceberg-rust` 0.10.0, so
+a REST endpoint that requires it, such as AWS Glue’s, is out of reach
+with `type = "rest"`; use `type = "glue"`, which goes through the AWS
+SDK, instead.
 
 ### Object storage
 
@@ -183,7 +191,7 @@ ICEBERGR_CARGO_FEATURES=glue R CMD INSTALL --preclean .
 catalog <- icebergr_catalog(
   "glue",
   warehouse = "s3://my-bucket/warehouse",
-  `glue.region` = "us-east-1"
+  region_name = "us-east-1"
 )
 
 icebergr_list_namespaces(catalog)
@@ -191,6 +199,9 @@ icebergr_list_namespaces(catalog)
 
 Glue uses the AWS SDK’s own credential chain, so instance roles, IRSA,
 SSO profiles and `AWS_PROFILE` all work as they do elsewhere.
+`region_name` is the property the Glue client reads for its region;
+without it, the SDK’s usual sources decide, such as `AWS_REGION` or the
+profile.
 
 If the feature is not compiled in, the error says so and how to get it,
 rather than failing at link time.
@@ -236,7 +247,7 @@ commit, and the newest is the current state of the table.
 The file has to be inside the catalog’s own warehouse. That is
 `confine = TRUE`, the default, and it matters because a metadata file
 names absolute paths for its `location`, its manifests and every data
-file — so registering one from a shared drive or an issue attachment
+file, so registering one from a shared drive or an issue attachment
 reads whatever its author nominated, and with the `s3` feature compiled
 in can make an outbound request from a catalog you opened offline.
 `confine = FALSE` lifts the restriction for a file you trust; it does
@@ -274,7 +285,7 @@ not vet the paths *inside* the file, which nothing can.
   and R’s
   [`parallel::mclapply()`](https://rdrr.io/r/parallel/mclapply.html)
   forks. Once you have made any `icebergr` call in the parent, a forked
-  child that calls into `icebergr` **hangs** rather than erroring. Use
+  child’s calls into `icebergr` fail with an error that says so. Use
   [`parallel::makeCluster()`](https://rdrr.io/r/parallel/makeCluster.html),
   which starts fresh R processes, and open the catalog inside each
   worker:
@@ -296,16 +307,28 @@ not vet the paths *inside* the file, which nothing can.
 
 - **Reads stream.** Batches are pulled one at a time rather than
   collected up front, so memory stays bounded by batch size, not table
-  size — until
+  size, until
   [`icebergr_collect()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_collect.md)
   materialises the result into a tibble, which is necessarily all of it.
   To process a table larger than memory, scan it in filtered pieces.
 
 ### Troubleshooting
 
+**[`icebergr_catalog()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_catalog.md)
+succeeded but the next call failed.** Building a REST or Glue handle
+does not contact the server; `iceberg-rust` connects on the first
+operation that needs it. A mistyped `uri`, an unreachable host or an
+unset token therefore surface at
+[`icebergr_list_namespaces()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_list_namespaces.md)
+or
+[`icebergr_table()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_table.md)
+rather than at the call that looks like it should have caught them. Ask
+the catalog something immediately if you want to find out then and
+there.
+
 **`could not connect to the REST catalog`, with a list of property
 keys.** The keys tell you what the catalog was given. A missing `token`
-usually means the environment variable is not visible to R — check
+usually means the environment variable is not visible to R: check
 `Sys.getenv("ICEBERGR_REST_TOKEN")`, and remember that `~/.Renviron` is
 read only at startup.
 
@@ -329,8 +352,8 @@ write both data files and new metadata. Write access to the table’s
 table is supported: `iceberg-rust` applies positional and equality
 deletes during the scan, so rows another engine deleted will correctly
 be absent. If the count still looks wrong, check whether you are reading
-an older snapshot — [`print()`](https://rdrr.io/r/base/print.html) on a
-table shows which one — and whether a filter is pruning more than you
+an older snapshot ([`print()`](https://rdrr.io/r/base/print.html) on a
+table shows which one) and whether a filter is pruning more than you
 meant, with
 [`icebergr_scan_plan()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_scan_plan.md).
 
@@ -339,12 +362,14 @@ only appends, which is always safe. It cannot delete or update rows, so
 a workflow needing that must do it elsewhere; see
 [`icebergr_spec_support()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_spec_support.md).
 
-**`mclapply()` never returns.** The async runtime’s worker threads do
-not survive a `fork()`, so a forked child that calls into `icebergr`
-waits forever on threads that did not come across. There is no error to
-catch, which is what makes it worth knowing about. Forking *before* any
-`icebergr` call is fine — each child then starts its own runtime — but
-once the parent has connected, use
+**`this process was forked from one that had already used icebergr`.**
+The async runtime’s worker threads do not survive a `fork()`, which is
+what [`parallel::mclapply()`](https://rdrr.io/r/parallel/mclapply.html)
+does, so a forked child cannot complete a call once the parent has
+started the runtime. It refuses at once rather than waiting forever on
+threads that did not come across. Forking *before* any `icebergr` call
+is fine, since each child then starts its own runtime, but once the
+parent has connected, use
 [`parallel::makeCluster()`](https://rdrr.io/r/parallel/makeCluster.html)
 instead and open the catalog inside each worker. See *Performance notes*
 above.

@@ -1,6 +1,15 @@
 # Connect to an Iceberg catalog
 
-Connect to an Iceberg catalog
+Builds a catalog handle. For `type = "rest"` and `type = "glue"` this
+does **not** contact the server: `iceberg-rust` opens the connection
+lazily, on the first operation that needs it. So a mistyped `uri`, an
+unreachable host or a missing credential all return a handle here and
+fail later, at
+[`icebergr_list_namespaces()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_list_namespaces.md)
+or
+[`icebergr_table()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_table.md),
+which can look like a fault in those functions rather than in the
+connection.
 
 ## Usage
 
@@ -40,7 +49,11 @@ icebergr_catalog(
 
   Further catalog properties, passed through to `iceberg-rust` as
   name-value pairs. Use this for non-secret configuration such as
-  `"s3.endpoint"` or `"rest.signing-region"`.
+  `"s3.path-style-access"` or `"prefix"`. `TRUE` and `FALSE` are sent as
+  `"true"` and `"false"`, and a number is written out in full rather
+  than in scientific notation. A property `iceberg-rust` does not know
+  is ignored without a word, so check the spelling against its
+  documentation.
 
 - storage:
 
@@ -55,6 +68,15 @@ icebergr_catalog(
 ## Value
 
 An `icebergr_catalog` object.
+
+## Details
+
+To find out straight away, ask the catalog something:
+`icebergr_list_namespaces(catalog)` is the cheapest round trip.
+
+`type = "memory"` is the exception, and is checked here: its `warehouse`
+has to be an existing directory, because there is no server to ask
+later.
 
 ## Credentials
 
@@ -86,15 +108,17 @@ ones, but only for a connection that addresses object storage:
 `storage = "s3"`, `type = "glue"`, or an `s3://` `warehouse`. They are
 *not* forwarded to a catalog that has no object storage in sight,
 because a third-party REST catalog controls each table's `location` and
-may answer with its own `s3.endpoint` – at which point ambient keys
-would sign requests to a host it chose. Set `storage = "s3"` if a REST
-catalog identified by name needs them.
+may answer with its own `s3.endpoint`, at which point ambient keys would
+sign requests to a host it chose. Set `storage = "s3"` if a REST catalog
+identified by name needs them.
 
 A credential is never sent over an unencrypted connection: an `http://`
 `uri` or OAuth2 endpoint is an error whenever any credential property is
-populated. A loopback address is exempt, since developing against a
-local catalog is ordinary, and
-`ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true` overrides the check.
+populated. An `Authorization`, `Proxy-Authorization`, `Cookie` or
+`X-Api-Key` header passed as a `header.` property counts as one. A
+loopback address is exempt, since developing against a local catalog is
+ordinary, and `ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true` overrides the
+check.
 
 Catalog properties are never printed, logged or included in error
 messages, and `user:password@` in a `uri` is redacted when a catalog is
@@ -112,7 +136,7 @@ catalog
 #> <icebergr_catalog>
 #>   type:      memory
 #>   name:      icebergr
-#>   warehouse: /tmp/RtmprLWw8N/warehouse29834fcfdf7f
+#>   warehouse: /tmp/RtmphfwJfM/warehouse286d56734fbd
 
 if (FALSE) { # \dontrun{
 # A REST catalog. The token comes from the environment, not from here.

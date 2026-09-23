@@ -50,14 +50,14 @@ icebergr_scan(
 
   Read the table as it was at this time, a `POSIXct` or `Date`. Resolved
   against the table's snapshot log to the snapshot that was current at
-  that moment – so a snapshot a rollback abandoned, or one that only
-  ever existed on another branch, is not selected even though it carries
-  a matching timestamp. Cannot be combined with `snapshot_id`.
+  that moment, so a snapshot a rollback abandoned, or one that only ever
+  existed on another branch, is not selected even though it carries a
+  matching timestamp. Cannot be combined with `snapshot_id`.
 
 - batch_size:
 
-  Rows per Arrow batch, or `NULL` for the default. Affects memory use,
-  not results.
+  Rows per Arrow batch, at least 1, or `NULL` for the default. Affects
+  memory use, not results.
 
 - case_sensitive:
 
@@ -95,8 +95,19 @@ Filters may use `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `|`, `!`, `%in%`,
 [`startsWith()`](https://rdrr.io/r/base/startsWith.html). A bare name is
 read as a column when the table has a column of that name, and otherwise
 evaluated in the calling environment, so `filter = year == target` works
-with a local `target`. Anything more elaborate should be applied in R
+with a local `target`. That holds wherever the name appears: an Iceberg
+predicate compares a column with a value, so a filter naming a column on
+both sides, such as `a > b`, is refused rather than reading `b` from the
+calling environment. Anything more elaborate should be applied in R
 after collecting.
+
+A filter keeps the rows R's own evaluation of it would keep, `NA` and
+`NaN` included, although Iceberg's rules for them differ: no comparison
+matches a `NaN`, [`is.na()`](https://rdrr.io/r/base/NA.html) is `TRUE`
+for one, `x == 0` matches `-0` as well as `0`, and `!(x %in% c(1, 2))`
+keeps the rows where `x` is `NA`, since `%in%` is never `NA` in R. The
+exception is an ordering comparison between strings, which follows
+Iceberg's byte order; that agrees with R only in the C locale.
 
 [`startsWith()`](https://rdrr.io/r/base/startsWith.html) is pushed down
 only against a `string` column, since Iceberg defines a prefix
@@ -111,8 +122,8 @@ a scan is a little less selective and still correct.
 ## Column names and time travel
 
 Iceberg records a schema per snapshot, so `filter` and `select` are
-resolved against the schema of the snapshot actually being read – the
-one named by `snapshot_id` or `as_of`, and otherwise the current one. A
+resolved against the schema of the snapshot actually being read: the one
+named by `snapshot_id` or `as_of`, and otherwise the current one. A
 column another engine has since renamed or dropped is therefore still
 nameable as of a snapshot that had it, and one added afterwards is
 refused for a snapshot that did not.

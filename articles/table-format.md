@@ -4,7 +4,7 @@ A table format is not a file format. Parquet says how one file is laid
 out; Iceberg says which files constitute a table right now, what their
 schema is, and what the table looked like an hour ago. This vignette is
 about that distinction, because it is the reason reading Parquet is not
-the same as reading an Iceberg table — and the reason `arrow` cannot
+the same as reading an Iceberg table, and the reason `arrow` cannot
 substitute for a client.
 
 ### The problem inherited from Hive
@@ -26,8 +26,8 @@ lakehouse table formats were designed against (Armbrust et al. 2021):
   nobody does it.
 
 Delta Lake (Armbrust et al. 2020) and Iceberg (The Apache Software
-Foundation 2026a) answer the same question in the same shape — keep the
-file list in metadata, commit by swapping a pointer — and differ in how
+Foundation 2026a) answer the same question in the same shape (keep the
+file list in metadata, commit by swapping a pointer) and differ in how
 that metadata is organised. A comparison of the three main
 implementations, with a benchmark, is in Jain et al. (2023).
 
@@ -38,7 +38,7 @@ Iceberg’s metadata is a tree, and every level of it is immutable:
 | Level | Holds | Written as |
 |----|----|----|
 | Table metadata | current schema, partition specs, snapshot log, properties | JSON |
-| Snapshot | one manifest list — the state of the table at one instant | referenced from the metadata |
+| Snapshot | one manifest list: the state of the table at one instant | referenced from the metadata |
 | Manifest list | the manifests in this snapshot, with partition ranges | Avro |
 | Manifest | data files, with per-column bounds, null counts and row counts | Avro |
 | Data file | the rows | Parquet, ORC or Avro |
@@ -70,7 +70,7 @@ icebergr_partitions(tbl)
 #> #   source_id <int>, source_name <chr>
 ```
 
-The snapshot log is the history:
+Its snapshots are the history:
 
 ``` r
 
@@ -78,14 +78,14 @@ icebergr_snapshots(tbl)[, c("snapshot_id", "operation", "added_records")]
 #> # A tibble: 2 × 3
 #>   snapshot_id         operation added_records
 #>   <chr>               <chr>             <dbl>
-#> 1 3958180281459623039 append              200
-#> 2 1481423467730184364 append              200
+#> 1 4480249804649180784 append              200
+#> 2 5486072778765605513 append              200
 ```
 
 And the manifests are what makes a scan plan possible without opening
-any data file —
+any data file, since
 [`icebergr_scan_plan()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_scan_plan.md)
-reads bounds out of the manifest, not out of Parquet:
+reads bounds out of the manifest rather than out of Parquet:
 
 ``` r
 
@@ -109,7 +109,7 @@ is inherited twice over: once from the manifest, and once from Parquet’s
 own footer, whose row-group statistics allow the same trick within a
 file.
 
-The columnar layout underneath is Dremel’s (Melnik et al. 2010) —
+The columnar layout underneath is Dremel’s (Melnik et al. 2010):
 repetition and definition levels, which is how a nested `struct` or
 `list` survives being stored one column at a time. The gains from
 reading only the columns a query needs, and only the row ranges that can
@@ -139,7 +139,7 @@ ask for it:
 tbl <- icebergr_reload(tbl) # now points at the newest snapshot
 ```
 
-That is a feature, not a staleness bug — two scans off the same handle
+That is a feature, not a staleness bug: two scans off the same handle
 are guaranteed to agree.
 
 ### Where R sits in this
@@ -148,26 +148,27 @@ The design that makes an R client possible at all is the one described
 in Pedreira et al. (2023): a data system decomposed into reusable
 components with Arrow as the interchange format between them, rather
 than a monolith with one front end. `icebergr` uses three of those
-components — `iceberg-rust` (The Apache Software Foundation 2026b) for
+components (`iceberg-rust` (The Apache Software Foundation 2026b) for
 metadata and planning, Parquet readers underneath it, and the Arrow C
 stream interface (The Apache Software Foundation 2026c) to hand the
-result to R — and adds no execution engine of its own.
+result to R) and adds no execution engine of its own.
 
-The alternative route, reading Iceberg through DuckDB (Raasveldt and
-Mühleisen 2019), is a good one for queries and remains available. What
-it cannot do is write, commit, manage snapshots, or read the schema of a
-snapshot that is no longer current, because those are table-format
-operations rather than query operations. Engines whose whole design
-centres on this format — Photon, for instance (Behm et al. 2022) — treat
-the metadata as a first-class input for exactly that reason.
+The alternative route, going through DuckDB (Raasveldt and Mühleisen
+2019), is a good one for queries and remains available; since version
+1.4 it can also write to a table in a REST catalog. What a query engine
+hands back is the answer to a query. A client hands back the table: a
+handle bound to one snapshot, the schema as of any of them, and the plan
+before a byte of data is read. Engines whose whole design centres on
+this format, Photon for instance (Behm et al. 2022), treat the metadata
+as a first-class input for the same reason.
 
 ### What this package does not do
 
 Iceberg’s spec is larger than any single client implements, and this
 package is narrower than `iceberg-rust`.
 [`icebergr_spec_support()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_spec_support.md)
-reports the boundary for your own build, and distinguishes the two cases
-— missing here, versus missing upstream:
+reports the boundary for your own build, and distinguishes the two
+cases, missing here versus missing upstream:
 
 ``` r
 

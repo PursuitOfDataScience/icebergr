@@ -1,10 +1,10 @@
 # Writing: Appends, Tables and What Is Refused
 
-Writing is the capability that routing through a query engine does not
-give you (Raasveldt and Mühleisen 2019): a commit is a table-format
-operation, not a query. This version writes appends, creates tables and
-namespaces, and registers existing tables. Everything it will not do, it
-refuses before writing anything.
+Writing is where a table format earns its keep: a commit is a
+table-format operation, not a query (The Apache Software Foundation
+2026). This version writes appends, creates tables and namespaces, and
+registers existing tables. Everything it will not do, it refuses before
+writing anything.
 
 Every example here runs against a local warehouse on your own machine.
 
@@ -38,7 +38,7 @@ icebergr_list_namespaces(catalog)
 ```
 
 [`icebergr_create_table()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_create_table.md)
-takes a data frame, but **only to read its schema off — no rows are
+takes a data frame, but **only to read its schema off: no rows are
 written**. The new table is empty, with no snapshot at all:
 
 ``` r
@@ -65,8 +65,8 @@ show(orders)
 ```
 
 `snapshot: <none>` is the tell. An Iceberg table with no commits is a
-legitimate state — schema and no data — and it is what you get here. The
-rows come next.
+legitimate state, a schema with no data, and it is what you get here.
+The rows come next.
 
 ### Appending
 
@@ -90,7 +90,7 @@ icebergr_collect(orders)
 
 [`icebergr_append()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_append.md)
 returns a *new* handle, pointing at the snapshot the append created.
-Reassigning is not optional bookkeeping — the old handle still reads the
+Reassigning is not optional bookkeeping; the old handle still reads the
 old snapshot, by design:
 
 ``` r
@@ -136,7 +136,7 @@ less than it used to. `zstd` is a reasonable default for cold data;
 ### Commits are atomic, and optimistic
 
 An append writes its Parquet, writes new manifests, and then swaps the
-table pointer — one atomic step, whose failure mode is that nothing
+table pointer in one atomic step, whose failure mode is that nothing
 happened rather than that half of it did. If another writer committed in
 between, the swap is rejected and retried against the new state, which
 is how all three lakehouse formats handle concurrency (Armbrust et al.
@@ -157,30 +157,29 @@ moving or rewriting data:
 
 icebergr_register_table(
   catalog, "shop.archive",
-  "s3://warehouse/shop/archive/metadata/00007-8b1c….metadata.json"
+  file.path(warehouse, "shop/archive/metadata/00007-8b1c….metadata.json")
 )
 ```
 
-The file has to be named the way every Iceberg engine names them —
+The file has to be named the way every Iceberg engine names them,
 `<version>-<uuid>.metadata.json`, because the next version number is
 derived from that name. A renamed file registers and reads perfectly
 well; it is the *append* that cannot work.
 
 That append is refused at the start, before any Parquet is written, and
 the error names the file. Left to Iceberg the name is only inspected
-when the commit is attempted — by which point the data files are already
+when the commit is attempted, by which point the data files are already
 in the warehouse, and this package exposes no maintenance operation to
 clear them.
 
-It also has to sit inside the catalog’s warehouse, which is what
-`confine = TRUE` — the default — requires. A metadata file names
-absolute paths for its data, so one from an untrusted source reads
-whatever its author chose; pass `confine = FALSE` only for a file you
-trust.
+It also has to sit inside the catalog’s warehouse, which is what the
+default, `confine = TRUE`, requires. A metadata file names absolute
+paths for its data, so one from an untrusted source reads whatever its
+author chose; pass `confine = FALSE` only for a file you trust.
 
 ### What is refused, and why that is the design
 
-Three write operations are unavailable, and each fails before touching
+Several write operations are unavailable, and each fails before touching
 the warehouse:
 
 ``` r
@@ -216,17 +215,17 @@ reports its spec.
 
 **Row-level deletes and `MERGE`.** `iceberg-rust` 0.10.0 can write an
 equality delete file but has no transaction action that commits one.
-Reading merge-on-read tables another engine wrote works — both
-positional and equality deletes are applied.
+Reading merge-on-read tables another engine wrote works: both positional
+and equality deletes are applied.
 
 **Overwrites.** `fast_append` is the only way 0.10.0 can add files to a
 table.
 
-That split — refuse loudly here, read whatever anyone else wrote — is
-deliberate. A narrow surface that is correct is worth more than a broad
-one that commits something subtly wrong, and the format is designed so
-that a client which does not implement a feature can still read tables
-that use it (The Apache Software Foundation 2026).
+That split, refusing loudly here while reading whatever anyone else
+wrote, is deliberate. A narrow surface that is correct is worth more
+than a broad one that commits something subtly wrong, and the format is
+designed so that a client which does not implement a feature can still
+read tables that use it (The Apache Software Foundation 2026).
 
 ### Checking before you write
 
@@ -243,7 +242,7 @@ icebergr_list_tables(catalog, "shop")
 
 [`icebergr_properties()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_properties.md)
 reads the table’s properties, and returns a zero-row tibble when it has
-none — as a freshly created table does:
+none, as a freshly created table does:
 
 ``` r
 
@@ -272,11 +271,6 @@ Jain, Paras, Peter Kraft, Conor Power, Tathagata Das, Ion Stoica, and
 Matei Zaharia. 2023. “Analyzing and Comparing Lakehouse Storage
 Systems.” *Proceedings of the 13th Conference on Innovative Data Systems
 Research (CIDR)*. <https://www.cidrdb.org/cidr2023/papers/p92-jain.pdf>.
-
-Raasveldt, Mark, and Hannes Mühleisen. 2019. “DuckDB: An Embeddable
-Analytical Database.” *Proceedings of the 2019 ACM SIGMOD International
-Conference on Management of Data*, 1981–84.
-<https://doi.org/10.1145/3299869.3320212>.
 
 The Apache Software Foundation. 2026. *Apache Iceberg Table Spec*.
 Apache Iceberg documentation. <https://iceberg.apache.org/spec/>.

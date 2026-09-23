@@ -145,7 +145,7 @@ in the <code><a href="https://rdrr.io/r/base/traceback.html" class="external-lin
 <p>The standard <code>AWS_ACCESS_KEY_ID</code>,
 <code>AWS_SECRET_ACCESS_KEY</code>, <code>AWS_SESSION_TOKEN</code> and
 <code>AWS_REGION</code> variables are consulted as a fallback, so an
-environment already configured for AWS works without further setup — but
+environment already configured for AWS works without further setup, but
 <strong>only for a connection that addresses object storage</strong>:
 <code>storage = "s3"</code>, <code>type = "glue"</code>, or an
 <code>s3://</code> warehouse. They are not forwarded to a catalog with
@@ -162,8 +162,8 @@ exempt, since developing against a catalog on your own machine is
 ordinary, and <code>ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true</code>
 overrides the check for the case where you know the network is
 trusted.</p>
-<p>Set them outside your scripts — in <code>~/.Renviron</code>, in your
-shell profile, or from your platform’s secret manager:</p>
+<p>Set them outside your scripts: in <code>~/.Renviron</code>, in your
+shell profile, or from your platform’s secret manager.</p>
 <pre><code><span><span class="co"># ~/.Renviron</span></span>
 <span><span class="va">ICEBERGR_REST_TOKEN</span><span class="op">=</span><span class="va">eyJhbGciOi...</span></span>
 <span><span class="va">ICEBERGR_S3_REGION</span><span class="op">=</span><span class="va">us</span><span class="op">-</span><span class="va">east</span><span class="op">-</span><span class="fl">1</span></span></code></pre>
@@ -195,7 +195,7 @@ endpoint, Tabular-style services, or a self-hosted REST catalog.</p>
 <span><span class="fu"><a href="../reference/icebergr_list_namespaces.html">icebergr_list_namespaces</a></span><span class="op">(</span><span class="va">catalog</span><span class="op">)</span></span>
 <span><span class="fu"><a href="../reference/icebergr_list_tables.html">icebergr_list_tables</a></span><span class="op">(</span><span class="va">catalog</span>, <span class="st">"analytics"</span><span class="op">)</span></span></code></pre></div>
 <p><code>warehouse</code> is whatever the server expects to identify the
-warehouse — often a name rather than a path.</p>
+warehouse, often a name rather than a path.</p>
 <div class="section level4">
 <h4 id="with-oauth2-client-credentials">With OAuth2 client credentials<a class="anchor" aria-label="anchor" href="#with-oauth2-client-credentials"></a>
 </h4>
@@ -212,14 +212,21 @@ warehouse — often a name rather than a path.</p>
 <h4 id="extra-non-secret-properties">Extra, non-secret properties<a class="anchor" aria-label="anchor" href="#extra-non-secret-properties"></a>
 </h4>
 <p>Anything <code>iceberg-rust</code> accepts can be passed through
-<code>...</code>:</p>
+<code>...</code>. Its REST client reads a URL <code>prefix</code>,
+OAuth2’s <code>audience</code> and <code>resource</code>, and sends each
+<code>header.&lt;name&gt;</code> property as an HTTP header:</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">catalog</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/icebergr_catalog.html">icebergr_catalog</a></span><span class="op">(</span></span>
 <span>  <span class="st">"rest"</span>,</span>
 <span>  uri <span class="op">=</span> <span class="st">"https://catalog.example.com"</span>,</span>
-<span>  `rest.signing-region` <span class="op">=</span> <span class="st">"us-east-1"</span>,</span>
-<span>  `rest.sigv4-enabled` <span class="op">=</span> <span class="st">"true"</span></span>
+<span>  prefix <span class="op">=</span> <span class="st">"analytics"</span>,</span>
+<span>  `header.X-Iceberg-Access-Delegation` <span class="op">=</span> <span class="st">"vended-credentials"</span></span>
 <span><span class="op">)</span></span></code></pre></div>
+<p>A property it does not know is ignored without a word, so check the
+spelling. There is no SigV4 request signing in <code>iceberg-rust</code>
+0.10.0, so a REST endpoint that requires it, such as AWS Glue’s, is out
+of reach with <code>type = "rest"</code>; use
+<code>type = "glue"</code>, which goes through the AWS SDK, instead.</p>
 </div>
 </div>
 <div class="section level3">
@@ -276,13 +283,15 @@ tarball cover the default install only, so cargo fetches the
 <code class="sourceCode R"><span><span class="va">catalog</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/icebergr_catalog.html">icebergr_catalog</a></span><span class="op">(</span></span>
 <span>  <span class="st">"glue"</span>,</span>
 <span>  warehouse <span class="op">=</span> <span class="st">"s3://my-bucket/warehouse"</span>,</span>
-<span>  `glue.region` <span class="op">=</span> <span class="st">"us-east-1"</span></span>
+<span>  region_name <span class="op">=</span> <span class="st">"us-east-1"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="../reference/icebergr_list_namespaces.html">icebergr_list_namespaces</a></span><span class="op">(</span><span class="va">catalog</span><span class="op">)</span></span></code></pre></div>
 <p>Glue uses the AWS SDK’s own credential chain, so instance roles,
 IRSA, SSO profiles and <code>AWS_PROFILE</code> all work as they do
-elsewhere.</p>
+elsewhere. <code>region_name</code> is the property the Glue client
+reads for its region; without it, the SDK’s usual sources decide, such
+as <code>AWS_REGION</code> or the profile.</p>
 <p>If the feature is not compiled in, the error says so and how to get
 it, rather than failing at link time.</p>
 </div>
@@ -318,8 +327,8 @@ one per commit, and the newest is the current state of the table.</p>
 <p>The file has to be inside the catalog’s own warehouse. That is
 <code>confine = TRUE</code>, the default, and it matters because a
 metadata file names absolute paths for its <code>location</code>, its
-manifests and every data file — so registering one from a shared drive
-or an issue attachment reads whatever its author nominated, and with the
+manifests and every data file, so registering one from a shared drive or
+an issue attachment reads whatever its author nominated, and with the
 <code>s3</code> feature compiled in can make an outbound request from a
 catalog you opened offline. <code>confine = FALSE</code> lifts the
 restriction for a file you trust; it does not vet the paths
@@ -356,8 +365,8 @@ connected.</p>
 <code>fork</code>.</strong> <code>icebergr</code> drives an async
 runtime whose worker threads do not survive <code>fork()</code>, and R’s
 <code><a href="https://rdrr.io/r/parallel/mclapply.html" class="external-link">parallel::mclapply()</a></code> forks. Once you have made any
-<code>icebergr</code> call in the parent, a forked child that calls into
-<code>icebergr</code> <strong>hangs</strong> rather than erroring. Use
+<code>icebergr</code> call in the parent, a forked child’s calls into
+<code>icebergr</code> fail with an error that says so. Use
 <code><a href="https://rdrr.io/r/parallel/makeCluster.html" class="external-link">parallel::makeCluster()</a></code>, which starts fresh R processes,
 and open the catalog inside each worker:</p>
 <div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
@@ -375,7 +384,7 @@ answer.</p>
 </li>
 <li><p><strong>Reads stream.</strong> Batches are pulled one at a time
 rather than collected up front, so memory stays bounded by batch size,
-not table size — until <code><a href="../reference/icebergr_collect.html">icebergr_collect()</a></code> materialises the
+not table size, until <code><a href="../reference/icebergr_collect.html">icebergr_collect()</a></code> materialises the
 result into a tibble, which is necessarily all of it. To process a table
 larger than memory, scan it in filtered pieces.</p></li>
 </ul>
@@ -383,10 +392,18 @@ larger than memory, scan it in filtered pieces.</p></li>
 <div class="section level3">
 <h3 id="troubleshooting">Troubleshooting<a class="anchor" aria-label="anchor" href="#troubleshooting"></a>
 </h3>
+<p><strong><code><a href="../reference/icebergr_catalog.html">icebergr_catalog()</a></code> succeeded but the next call
+failed.</strong> Building a REST or Glue handle does not contact the
+server; <code>iceberg-rust</code> connects on the first operation that
+needs it. A mistyped <code>uri</code>, an unreachable host or an unset
+token therefore surface at <code><a href="../reference/icebergr_list_namespaces.html">icebergr_list_namespaces()</a></code> or
+<code><a href="../reference/icebergr_table.html">icebergr_table()</a></code> rather than at the call that looks like it
+should have caught them. Ask the catalog something immediately if you
+want to find out then and there.</p>
 <p><strong><code>could not connect to the REST catalog</code>, with a
 list of property keys.</strong> The keys tell you what the catalog was
 given. A missing <code>token</code> usually means the environment
-variable is not visible to R — check
+variable is not visible to R: check
 <code>Sys.getenv("ICEBERGR_REST_TOKEN")</code>, and remember that
 <code>~/.Renviron</code> is read only at startup.</p>
 <p><strong>TLS failures behind a corporate proxy.</strong>
@@ -408,22 +425,22 @@ the table’s <code>metadata/</code> prefix is required, not just to
 merge-on-read table is supported: <code>iceberg-rust</code> applies
 positional and equality deletes during the scan, so rows another engine
 deleted will correctly be absent. If the count still looks wrong, check
-whether you are reading an older snapshot — <code><a href="https://rdrr.io/r/base/print.html" class="external-link">print()</a></code> on a
-table shows which one — and whether a filter is pruning more than you
+whether you are reading an older snapshot (<code><a href="https://rdrr.io/r/base/print.html" class="external-link">print()</a></code> on a
+table shows which one) and whether a filter is pruning more than you
 meant, with <code><a href="../reference/icebergr_scan_plan.html">icebergr_scan_plan()</a></code>.</p>
 <p><strong>Writes to a table another engine performs deletes
 on.</strong> <code>icebergr</code> only appends, which is always safe.
 It cannot delete or update rows, so a workflow needing that must do it
 elsewhere; see <code><a href="../reference/icebergr_spec_support.html">icebergr_spec_support()</a></code>.</p>
-<p><strong><code>mclapply()</code> never returns.</strong> The async
-runtime’s worker threads do not survive a <code>fork()</code>, so a
-forked child that calls into <code>icebergr</code> waits forever on
-threads that did not come across. There is no error to catch, which is
-what makes it worth knowing about. Forking <em>before</em> any
-<code>icebergr</code> call is fine — each child then starts its own
-runtime — but once the parent has connected, use
-<code><a href="https://rdrr.io/r/parallel/makeCluster.html" class="external-link">parallel::makeCluster()</a></code> instead and open the catalog inside
-each worker. See <em>Performance notes</em> above.</p>
+<p><strong><code>this process was forked from one that had already used icebergr</code>.</strong>
+The async runtime’s worker threads do not survive a <code>fork()</code>,
+which is what <code><a href="https://rdrr.io/r/parallel/mclapply.html" class="external-link">parallel::mclapply()</a></code> does, so a forked child
+cannot complete a call once the parent has started the runtime. It
+refuses at once rather than waiting forever on threads that did not come
+across. Forking <em>before</em> any <code>icebergr</code> call is fine,
+since each child then starts its own runtime, but once the parent has
+connected, use <code><a href="https://rdrr.io/r/parallel/makeCluster.html" class="external-link">parallel::makeCluster()</a></code> instead and open the
+catalog inside each worker. See <em>Performance notes</em> above.</p>
 <p><strong><code>cannot append to "db.events": it is partitioned by …</code>.</strong>
 Reading a partitioned table works, and
 <code><a href="../reference/icebergr_partitions.html">icebergr_partitions()</a></code> reports its spec, but appending to

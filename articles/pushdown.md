@@ -2,8 +2,8 @@
 
 Pushdown is the reason to read an Iceberg table through a client rather
 than collect it and subset in R. `filter` and `select` travel with the
-scan into `iceberg-rust`, which uses them to decide what to open — so
-the saving is in bytes never read, not in rows discarded afterwards.
+scan into `iceberg-rust`, which uses them to decide what to open, so the
+saving is in bytes never read, not in rows discarded afterwards.
 
 This vignette shows the three levels at which that happens, and how to
 verify each of them rather than assume it.
@@ -64,7 +64,7 @@ hot_files[, c("record_count", "file_size_in_bytes")]
 #> 1          200               4901
 ```
 
-`record_count` is the count *before* filtering — it is what the manifest
+`record_count` is the count *before* filtering: it is what the manifest
 recorded when the file was written. A plan is a statement about what
 will be opened, not about what will come back.
 
@@ -103,7 +103,7 @@ R.
 ### Which predicates push down
 
 `filter` is an R expression, translated into an Iceberg predicate. What
-is translatable is a closed list — `==`, `!=`, `<`, `<=`, `>`, `>=`,
+is translatable is a closed list of `==`, `!=`, `<`, `<=`, `>`, `>=`,
 `&`, `|`, `!`, `%in%`, [`is.na()`](https://rdrr.io/r/base/NA.html),
 [`is.nan()`](https://rdrr.io/r/base/is.finite.html) and
 [`startsWith()`](https://rdrr.io/r/base/startsWith.html):
@@ -127,7 +127,7 @@ icebergr_collect(
 ```
 
 A bare name is read as a column when the table has one of that name, and
-otherwise evaluated in the calling environment — so a local variable
+otherwise evaluated in the calling environment, so a local variable
 works without any quoting ceremony:
 
 ``` r
@@ -148,6 +148,13 @@ Anything outside that list belongs in R, after collecting. There is no
 partial credit: an expression the translator does not recognise is an
 error rather than a silently unpushed filter, because a filter that
 quietly stopped pruning would look like nothing more than a slow scan.
+
+What is pushed down keeps the rows R’s own evaluation would, `NA` and
+`NaN` included, even where Iceberg’s rules differ: `NaN` matches no
+comparison, [`is.na()`](https://rdrr.io/r/base/NA.html) is `TRUE` for
+it, and `!(x %in% c(1, 2))` keeps the rows where `x` is `NA`.
+[`?icebergr_scan`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_scan.md)
+names the one exception, string ordering.
 
 ### Three things that do not push down
 
