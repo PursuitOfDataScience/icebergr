@@ -71,9 +71,7 @@ fn scrub_params(text: &str) -> String {
             }
             let after_key = &text[from..];
             // Allow `key = value` as well as `key=value`.
-            let sep = after_key
-                .find(|c: char| !c.is_whitespace())
-                .unwrap_or(0);
+            let sep = after_key.find(|c: char| !c.is_whitespace()).unwrap_or(0);
             let bytes = after_key.as_bytes();
             if bytes.get(sep) != Some(&b'=') && bytes.get(sep) != Some(&b':') {
                 continue;
@@ -204,7 +202,10 @@ mod tests {
         let got = scrub("403: /obj?X-Amz-Credential=AKIA123%2Fus&X-Amz-Signature=deadbeef&foo=1");
         assert!(!got.contains("deadbeef"), "{got}");
         assert!(!got.contains("AKIA123"), "{got}");
-        assert!(got.contains("foo=1"), "the innocent parameter survives: {got}");
+        assert!(
+            got.contains("foo=1"),
+            "the innocent parameter survives: {got}"
+        );
     }
 
     #[test]

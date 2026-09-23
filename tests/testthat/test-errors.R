@@ -221,3 +221,10 @@ test_that("identifiers are parsed and rejected predictably", {
   expect_error(parse_identifier(c("a", "b")), "single non-empty string")
   expect_error(parse_identifier(NA_character_), "single non-empty string")
 })
+
+test_that("a batch size of zero is refused rather than read as the default", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+  expect_error(icebergr_scan(tbl, batch_size = 0), "at least 1")
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, batch_size = 1))), 3L)
+})

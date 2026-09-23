@@ -13,7 +13,7 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use extendr_api::Error as RError;
 use iceberg::expr::{Predicate, Reference};
-use iceberg::spec::{Datum, PrimitiveType, Schema, Type};
+use iceberg::spec::{Datum, PrimitiveLiteral, PrimitiveType, Schema, Type};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -119,7 +119,7 @@ pub fn build_predicate(
 ) -> RResult<BuiltPredicate> {
     let node: Node =
         serde_json::from_str(json).map_err(|e| ctx("could not read the filter expression", e))?;
-    let predicate = build(&node, schema, case_sensitive)?;
+    let predicate = build(&node, schema, case_sensitive)?.t;
 
     let mut cols = Vec::new();
     referenced_columns(&node, &mut cols);
@@ -166,110 +166,267 @@ fn referenced_columns<'a>(node: &'a Node, out: &mut Vec<&'a str>) {
     }
 }
 
-fn build(node: &Node, schema: &Schema, cs: bool) -> RResult<Predicate> {
-    // Iceberg's And/Or are strictly binary, so an n-ary R expression is folded.
-    fn fold(
-        args: &[Node],
-        schema: &Schema,
-        cs: bool,
-        empty: Predicate,
-        join: fn(Predicate, Predicate) -> Predicate,
-    ) -> RResult<Predicate> {
-        let mut it = args.iter();
-        let Some(first) = it.next() else {
-            return Ok(empty);
-        };
-        let mut acc = build(first, schema, cs)?;
-        for n in it {
-            acc = join(acc, build(n, schema, cs)?);
-        }
-        Ok(acc)
+/// The rows where an R filter expression is TRUE, and the rows where it is FALSE.
+///
+/// R's logic has three values, and a filter keeps only the rows where the
+/// expression is TRUE. Iceberg evaluates predicates with three values too (a
+/// comparison with a null is null), but its values do not line up with R's:
+///
+/// * R's `%in%` is never NA. `NA %in% c(1, 2)` is FALSE, so `!(x %in% c(1, 2))`
+///   keeps the rows where `x` is NA; Iceberg's `NOT IN` of a null is null, and
+///   dropped them.
+/// * A comparison with NaN is NA in R. The Arrow kernels iceberg-rust evaluates
+///   rows with order floats totally, NaN above every number, so `x > 1` matched
+///   NaN rows, and only in the files the scan read: file statistics leave NaN
+///   out of their bounds, so a NaN in a file pruned for `x > 1` was not returned
+///   while an identical one in a file that was read was. And `is.na()` is TRUE
+///   for NaN in R, where Iceberg's `IS NULL` is not.
+/// * The same total order puts -0.0 below 0.0, so `x == 0` missed a stored
+///   -0.0, which R counts as zero.
+///
+/// So every node is built as the pair of predicates matching exactly the rows
+/// where R says TRUE and exactly those where R says FALSE, and the connectives
+/// combine the pairs as R does: `!` swaps them, `a & b` is TRUE where both are
+/// TRUE and FALSE where either is FALSE, and `|` is the reverse. The scan uses
+/// the TRUE half. Negation is resolved here and never handed to Iceberg, which
+/// is what keeps Iceberg's own rules about nulls out of it.
+struct Truth {
+    t: Predicate,
+    f: Predicate,
+}
+
+impl Truth {
+    fn new(t: Predicate, f: Predicate) -> Self {
+        Self { t, f }
     }
 
+    fn not(self) -> Self {
+        Self {
+            t: self.f,
+            f: self.t,
+        }
+    }
+}
+
+fn build(node: &Node, schema: &Schema, cs: bool) -> RResult<Truth> {
     Ok(match node {
-        Node::And { args } => fold(args, schema, cs, Predicate::AlwaysTrue, Predicate::and)?,
-        Node::Or { args } => fold(args, schema, cs, Predicate::AlwaysFalse, Predicate::or)?,
-        Node::Not { arg } => build(arg, schema, cs)?.negate(),
-        Node::AlwaysTrue => Predicate::AlwaysTrue,
-        Node::AlwaysFalse => Predicate::AlwaysFalse,
-
-        Node::IsNull { col } => reference(col, schema, cs)?.0.is_null(),
-        Node::IsNotNull { col } => reference(col, schema, cs)?.0.is_not_null(),
-        Node::IsNan { col } => reference(col, schema, cs)?.0.is_nan(),
-        Node::IsNotNan { col } => reference(col, schema, cs)?.0.is_not_nan(),
-
-        Node::Eq { col, value } => binary(col, value, schema, cs, Reference::equal_to)?,
-        Node::Ne { col, value } => binary(col, value, schema, cs, Reference::not_equal_to)?,
-        Node::Lt { col, value } => binary(col, value, schema, cs, Reference::less_than)?,
-        Node::Lte { col, value } => {
-            binary(col, value, schema, cs, Reference::less_than_or_equal_to)?
-        }
-        Node::Gt { col, value } => binary(col, value, schema, cs, Reference::greater_than)?,
-        Node::Gte { col, value } => {
-            binary(col, value, schema, cs, Reference::greater_than_or_equal_to)?
-        }
-        Node::StartsWith { col, value } => prefix(col, value, schema, cs, Reference::starts_with)?,
-        Node::NotStartsWith { col, value } => {
-            prefix(col, value, schema, cs, Reference::not_starts_with)?
-        }
-
-        Node::In { col, values } => {
-            let (r, ty) = reference(col, schema, cs)?;
-            let datums = values
-                .iter()
-                .map(|v| datum(v, &ty, col))
-                .collect::<RResult<Vec<_>>>()?;
-            // An empty set can never match. Say so directly rather than letting
-            // an empty IN list turn into a scan of everything.
-            if datums.is_empty() {
-                Predicate::AlwaysFalse
-            } else {
-                r.is_in(datums)
+        // Iceberg's And/Or are strictly binary, so an n-ary one is folded.
+        // Predicate::and and ::or drop an AlwaysTrue or AlwaysFalse operand, so
+        // the seeds add nothing to the result.
+        Node::And { args } => {
+            let (mut t, mut f) = (Predicate::AlwaysTrue, Predicate::AlwaysFalse);
+            for n in args {
+                let part = build(n, schema, cs)?;
+                t = t.and(part.t);
+                f = f.or(part.f);
             }
+            Truth::new(t, f)
         }
-        Node::NotIn { col, values } => {
-            let (r, ty) = reference(col, schema, cs)?;
-            let datums = values
-                .iter()
-                .map(|v| datum(v, &ty, col))
-                .collect::<RResult<Vec<_>>>()?;
-            if datums.is_empty() {
-                Predicate::AlwaysTrue
-            } else {
-                r.is_not_in(datums)
+        Node::Or { args } => {
+            let (mut t, mut f) = (Predicate::AlwaysFalse, Predicate::AlwaysTrue);
+            for n in args {
+                let part = build(n, schema, cs)?;
+                t = t.or(part.t);
+                f = f.and(part.f);
             }
+            Truth::new(t, f)
         }
+        Node::Not { arg } => build(arg, schema, cs)?.not(),
+        Node::AlwaysTrue => Truth::new(Predicate::AlwaysTrue, Predicate::AlwaysFalse),
+        Node::AlwaysFalse => Truth::new(Predicate::AlwaysFalse, Predicate::AlwaysTrue),
+
+        Node::IsNull { col } => missing(col, schema, cs)?,
+        Node::IsNotNull { col } => missing(col, schema, cs)?.not(),
+        // is.nan(NA) is FALSE, and Iceberg's NOT NAN is true of a null, so the
+        // pair needs nothing added.
+        Node::IsNan { col } => {
+            let (r, _) = reference(col, schema, cs)?;
+            Truth::new(r.clone().is_nan(), r.is_not_nan())
+        }
+        Node::IsNotNan { col } => build(&Node::IsNan { col: col.clone() }, schema, cs)?.not(),
+
+        Node::Eq { col, value } => compare(Cmp::Eq, col, value, schema, cs)?,
+        Node::Ne { col, value } => compare(Cmp::Ne, col, value, schema, cs)?,
+        Node::Lt { col, value } => compare(Cmp::Lt, col, value, schema, cs)?,
+        Node::Lte { col, value } => compare(Cmp::Lte, col, value, schema, cs)?,
+        Node::Gt { col, value } => compare(Cmp::Gt, col, value, schema, cs)?,
+        Node::Gte { col, value } => compare(Cmp::Gte, col, value, schema, cs)?,
+        Node::StartsWith { col, value } => prefix(col, value, schema, cs)?,
+        Node::NotStartsWith { col, value } => prefix(col, value, schema, cs)?.not(),
+
+        Node::In { col, values } => membership(col, values, schema, cs)?,
+        Node::NotIn { col, values } => membership(col, values, schema, cs)?.not(),
     })
 }
 
-fn binary(
-    col: &str,
-    value: &Json,
-    schema: &Schema,
-    cs: bool,
-    f: fn(Reference, Datum) -> Predicate,
-) -> RResult<Predicate> {
+/// A comparison operator, kept symbolic until the column type is known.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Cmp {
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
+
+impl Cmp {
+    /// The comparison that holds exactly where this one does not, for a value
+    /// that is neither null nor NaN.
+    fn negate(self) -> Cmp {
+        match self {
+            Cmp::Eq => Cmp::Ne,
+            Cmp::Ne => Cmp::Eq,
+            Cmp::Lt => Cmp::Gte,
+            Cmp::Gte => Cmp::Lt,
+            Cmp::Lte => Cmp::Gt,
+            Cmp::Gt => Cmp::Lte,
+        }
+    }
+
+    fn apply(self, r: Reference, d: Datum) -> Predicate {
+        match self {
+            Cmp::Eq => r.equal_to(d),
+            Cmp::Ne => r.not_equal_to(d),
+            Cmp::Lt => r.less_than(d),
+            Cmp::Lte => r.less_than_or_equal_to(d),
+            Cmp::Gt => r.greater_than(d),
+            Cmp::Gte => r.greater_than_or_equal_to(d),
+        }
+    }
+}
+
+fn is_float(ty: &PrimitiveType) -> bool {
+    matches!(ty, PrimitiveType::Float | PrimitiveType::Double)
+}
+
+/// Whether a literal is zero, of either sign.
+fn is_zero(d: &Datum) -> bool {
+    match d.literal() {
+        PrimitiveLiteral::Float(v) => v.0 == 0.0,
+        PrimitiveLiteral::Double(v) => v.0 == 0.0,
+        _ => false,
+    }
+}
+
+/// Negative and positive zero, as literals of the column's own type.
+fn zeros(ty: &PrimitiveType) -> (Datum, Datum) {
+    match ty {
+        PrimitiveType::Float => (Datum::float(-0.0_f32), Datum::float(0.0_f32)),
+        _ => (Datum::double(-0.0), Datum::double(0.0)),
+    }
+}
+
+/// A comparison on a float or double column, where a zero literal means both
+/// zeros, as it does in R.
+///
+/// Rows are compared in IEEE 754's total order, which puts -0.0 strictly below
+/// 0.0. Each comparison against zero is therefore restated so that the two
+/// zeros fall on the same side of it: `x >= 0` becomes `x >= -0.0`, `x == 0`
+/// becomes the range from -0.0 to 0.0, and so on.
+fn float_compare(op: Cmp, r: &Reference, d: &Datum, ty: &PrimitiveType) -> Predicate {
+    if !is_zero(d) {
+        return op.apply(r.clone(), d.clone());
+    }
+    let (neg, pos) = zeros(ty);
+    match op {
+        Cmp::Eq => r
+            .clone()
+            .greater_than_or_equal_to(neg)
+            .and(r.clone().less_than_or_equal_to(pos)),
+        Cmp::Ne => r.clone().less_than(neg).or(r.clone().greater_than(pos)),
+        Cmp::Lt => r.clone().less_than(neg),
+        Cmp::Lte => r.clone().less_than_or_equal_to(pos),
+        Cmp::Gt => r.clone().greater_than(pos),
+        Cmp::Gte => r.clone().greater_than_or_equal_to(neg),
+    }
+}
+
+/// `col <op> value`: TRUE where R says TRUE, FALSE where R says FALSE, and
+/// neither for a null, or for a NaN, which compares as NA in R.
+fn compare(op: Cmp, col: &str, value: &Json, schema: &Schema, cs: bool) -> RResult<Truth> {
     let (r, ty) = reference(col, schema, cs)?;
-    Ok(f(r, datum(value, &ty, col)?))
+    let d = datum(value, &ty, col)?;
+    if !is_float(&ty) {
+        return Ok(Truth::new(
+            op.apply(r.clone(), d.clone()),
+            op.negate().apply(r, d),
+        ));
+    }
+    Ok(Truth::new(
+        float_compare(op, &r, &d, &ty).and(r.clone().is_not_nan()),
+        float_compare(op.negate(), &r, &d, &ty).and(r.clone().is_not_nan()),
+    ))
+}
+
+/// `is.na(col)`, which R makes TRUE for NaN as well as for a missing value.
+fn missing(col: &str, schema: &Schema, cs: bool) -> RResult<Truth> {
+    let (r, ty) = reference(col, schema, cs)?;
+    Ok(if is_float(&ty) {
+        Truth::new(
+            r.clone().is_null().or(r.clone().is_nan()),
+            r.clone().is_not_null().and(r.is_not_nan()),
+        )
+    } else {
+        Truth::new(r.clone().is_null(), r.is_not_null())
+    })
+}
+
+/// `col %in% values`, which in R is TRUE or FALSE and never NA: a missing
+/// value, or a NaN, is simply not in the set.
+fn membership(col: &str, values: &[Json], schema: &Schema, cs: bool) -> RResult<Truth> {
+    let (r, ty) = reference(col, schema, cs)?;
+    let datums = values
+        .iter()
+        .map(|v| datum(v, &ty, col))
+        .collect::<RResult<Vec<_>>>()?;
+    let float = is_float(&ty);
+
+    // A zero in the set stands for both zeros, and cannot be looked up as one:
+    // -0.0 and 0.0 compare unequal row by row, while the set, keyed on the
+    // literal, holds only one of them. So it becomes a range test instead.
+    let (zero, rest): (Vec<Datum>, Vec<Datum>) =
+        datums.into_iter().partition(|d| float && is_zero(d));
+
+    // An empty set matches nothing, and says so directly rather than letting an
+    // empty IN list turn into a scan of everything.
+    let mut t = if rest.is_empty() {
+        Predicate::AlwaysFalse
+    } else {
+        r.clone().is_in(rest.clone())
+    };
+    let mut f = if rest.is_empty() {
+        Predicate::AlwaysTrue
+    } else {
+        r.clone().is_not_in(rest)
+    };
+    if let Some(z) = zero.first() {
+        t = t.or(float_compare(Cmp::Eq, &r, z, &ty));
+        f = f.and(float_compare(Cmp::Ne, &r, z, &ty));
+    }
+
+    let absent = if float {
+        r.clone().is_null().or(r.is_nan())
+    } else {
+        r.is_null()
+    };
+    Ok(Truth::new(t, f.or(absent)))
 }
 
 /// A prefix comparison, which Iceberg defines only over string columns.
 ///
-/// `startsWith(id, "1")` against an `int` column parses cleanly on both sides --
+/// `startsWith(id, "1")` against an `int` column parses cleanly on both sides:
 /// R sees a column and a single string, and the prefix `"1"` converts to the
-/// integer `1` here -- so without this check the scan is planned against the
+/// integer `1` here. So without this check the scan is planned against the
 /// nonsense predicate `id STARTS WITH 1`. iceberg-rust does reject that, but only
 /// from inside the statistics evaluators, and only for files that carry bounds:
 /// a data file written without them would be read and its rows returned as
 /// though the filter had been applied. The column and the operator are both in
 /// hand here, so say so here instead.
-fn prefix(
-    col: &str,
-    value: &Json,
-    schema: &Schema,
-    cs: bool,
-    f: fn(Reference, Datum) -> Predicate,
-) -> RResult<Predicate> {
+///
+/// `startsWith(NA, p)` is NA in R, and both halves are null for a null row, so
+/// the pair needs nothing added.
+fn prefix(col: &str, value: &Json, schema: &Schema, cs: bool) -> RResult<Truth> {
     let (r, ty) = reference(col, schema, cs)?;
     if !matches!(ty, PrimitiveType::String) {
         return Err(RError::Other(format!(
@@ -279,7 +436,11 @@ fn prefix(
              instead."
         )));
     }
-    Ok(f(r, datum(value, &ty, col)?))
+    let d = datum(value, &ty, col)?;
+    Ok(Truth::new(
+        r.clone().starts_with(d.clone()),
+        r.not_starts_with(d),
+    ))
 }
 
 /// Resolve a column name to a reference plus the primitive type of its literals.

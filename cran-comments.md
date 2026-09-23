@@ -4,10 +4,24 @@
 
 `icebergr` 0.1.0 has been on CRAN since 2026-09-10. This is 0.2.0.
 
-**It changes no user-facing behaviour except three credential-handling
-decisions, and adds no dependency.** `iceberg-rust` is unmoved at 0.10.0, and
-code written against 0.1.0 needs no revision. The three exceptions, each with a
-documented escape hatch and each in `NEWS.md`:
+**It fixes faults that affect users of 0.1.0, hardens credential handling, and
+adds no dependency.** `iceberg-rust` is unmoved at 0.10.0 and no function was
+added or removed, so code written against 0.1.0 needs no revision unless it
+relied on one of the faults. Each fix is in `NEWS.md`, with a test:
+
+* An append given a snapshot property named `operation` wrote table metadata
+  that no engine could parse again, after which the table could not be loaded
+  or appended to. The keys Iceberg writes into a snapshot summary itself are now
+  refused.
+* Filters returned the wrong rows without an error: a timestamp literal
+  truncated to the microsecond below, a `POSIXlt` read in the wrong zone, a
+  column on the value side of a comparison read as a local variable, and `NA`
+  and `NaN` handled by Iceberg's rules rather than R's, so that whether a `NaN`
+  row matched `x > 1` depended on which file it was in.
+* A forked worker, such as one from `parallel::mclapply()`, hung forever once
+  the parent had used the package. It now fails at once, naming the alternative.
+
+Three credential-handling changes, each with a documented escape hatch:
 
 * A credential is no longer sent to an `http://` endpoint. A loopback address is
   exempt; `ICEBERGR_ALLOW_INSECURE_CREDENTIALS` overrides.
@@ -16,23 +30,24 @@ documented escape hatch and each in `NEWS.md`:
 * `icebergr_register_table()` gained `confine = TRUE`, requiring the metadata
   file to sit inside the catalog's own warehouse.
 
-Everything else is documentation: five further vignettes (seven in total, each
-with a bibliography), a `pkgdown` site, and a package logo.
+The rest is documentation: five further vignettes (seven in total, each with a
+bibliography), a `pkgdown` site, and a package logo.
 
 ### On the timing of this submission
 
 CRAN policy asks that updates not be submitted more often than every one to two
-months. 0.1.0 was published very recently, and nothing in 0.2.0 fixes a problem
-that affects users of 0.1.0 — the credential changes are hardening, not repairs
-of a reported fault. **Unless the reviewer would rather have the hardening
-sooner, this is content to hold and submit with whatever comes next.** It is
-described here so the decision is the reviewer's rather than mine to assume.
+months, and 0.1.0 was published very recently. The credential changes are
+hardening, but the first fault above is a repair: from a call that reports
+success, it leaves a table's metadata unparseable, and a 0.1.0 user can reach it
+today. That is the case for not waiting. If the reviewer would rather this were
+held for the usual interval, it can be.
 
 ### Size
 
-The tarball is 11,393,963 bytes, against 11,170,566 for 0.1.0: **223,397 bytes
-larger, and every byte of that is the built vignettes.** `vendor.tar.xz` is
-byte-identical, because no dependency changed.
+The tarball is 11,420,018 bytes, against 11,170,566 for 0.1.0: **249,452 bytes
+larger.** The five new vignettes account for 223,397 bytes of that, measured when
+they were the only change, and this release's code, tests and documentation for
+the rest. `vendor.tar.xz` is byte-identical, because no dependency changed.
 
 This remains above CRAN's 10 MB guideline, for the reasons accepted at 0.1.0 and
 restated under "The size request" below. Nothing further can be pruned without
@@ -44,15 +59,15 @@ cannot drift unnoticed.
 
 ## Test environments
 
-- Local: CentOS Linux 8 (x86_64), R 4.6.0, rustc 1.97.1 — vendored, offline
+- Local: CentOS Linux 8 (x86_64), R 4.6.0, rustc 1.97.1: a vendored, offline
   build, the same path a CRAN build takes.
-- Local: the same machine and R, with **rustc 1.92.0** — the version the Windows
-  farm reported — again vendored and offline.
+- Local: the same machine and R, with **rustc 1.92.0**, the version the Windows
+  farm reported, again vendored and offline.
 - GitHub Actions: ubuntu-latest (R release and R oldrel-1), macos-latest
   (R release), windows-latest (R release), building against crates.io.
 - GitHub Actions: one job vendors every dependency and publishes the resulting
-  `vendor.tar.xz`, and a three-platform matrix — ubuntu-latest, macos-latest and
-  windows-latest — then builds and checks **that same archive** with no network
+  `vendor.tar.xz`, and a three-platform matrix (ubuntu-latest, macos-latest and
+  windows-latest) then builds and checks **that same archive** with no network
   access at all, reproducing the CRAN build path. Extended to macOS and Windows
   because the reductions described below prune crates that only those two
   platforms compile, and Linux alone cannot show that to be safe. The vendoring job re-derives the archive from scratch on a clean runner
@@ -71,7 +86,7 @@ The note is CRAN incoming feasibility: the size of the tarball, and the number o
 days since the last update. Both are addressed in the preamble above.
 
 Two warnings and two further notes appear on the local machine only, and none is
-a property of the package — each is a tool that is simply not installed there.
+a property of the package: each is a tool that is simply not installed there.
 `checking top-level files` wants `checkbashisms` (the package's own shell scripts
 are `configure` and `configure.win`, both two lines and both POSIX);
 `checking HTML version of manual` wants `tidy`; and with no `pdflatex` on the
@@ -80,19 +95,24 @@ an `icebergr-manual.tex` behind, which then raises `non-standard things in the
 check directory`. Passing `--no-manual` removes all of the LaTeX ones. The
 GitHub Actions runners have the full set, and the numbers above are from there.
 
-Check also reports the installed size, essentially all of it `libs`: 27.5 Mb on
-the machine above. The figure moves with the toolchain and the platform, since it
-is one statically linked Rust library -- Apache Iceberg's Rust implementation,
-the Arrow and Parquet columnar readers, and an Avro reader for Iceberg
-manifests -- so please read it as an order of magnitude rather than a constant.
+Check also reports the installed size, essentially all of it `libs`: one
+statically linked Rust library of about 28 MB, holding Apache Iceberg's Rust
+implementation, the Arrow and Parquet columnar readers, and an Avro reader for
+Iceberg manifests.
+
+The figure `R CMD check` prints for it is worth reading loosely. It is a `du`
+reading, so on a filesystem that compresses, as the one these numbers were
+taken on does, it understates the library: three runs here reported 27.5 Mb,
+24.0 Mb and 24.1 Mb, and the last two produced a byte-identical 28,743,200-byte
+`.so`. Expect your own number to differ from any of them for that reason rather
+than because the build did.
 
 ## What the package is
 
-`icebergr` is a client for Apache Iceberg, the open table format. R has otherwise
-been able to read Iceberg tables only by routing through DuckDB as an
-intermediary, which precludes writes, schema access, snapshot management and
-catalog integration. The package binds `iceberg-rust`, the Apache-governed Rust
-implementation, via `extendr`.
+`icebergr` is a client for Apache Iceberg, the open table format: it works with
+Iceberg's catalogs, snapshots, schemas and scan plans directly, rather than
+through a query engine such as DuckDB. The package binds `iceberg-rust`, the
+Apache-governed Rust implementation, via `extendr`.
 
 ## Notes for the reviewer
 
@@ -106,7 +126,7 @@ The package follows "Using Rust in CRAN packages" in full:
   xz.
 - The build never accesses the network. `configure` passes `--offline` to cargo
   whenever the vendored archive is present, `NOT_CRAN` is unset and no optional
-  Cargo feature has been requested — see the size request below for why the last
+  Cargo feature has been requested; see the size request below for why the last
   condition is now there.
 - Cargo's parallelism is pinned with `-j 2`, since it would otherwise default to
   the number of logical CPUs.
@@ -126,13 +146,13 @@ The package follows "Using Rust in CRAN packages" in full:
 #### The size request, as answered at 0.1.0
 
 Kept here because it is the basis on which 0.1.0 was accepted, and 0.2.0 does not
-change it: `vendor.tar.xz` is byte-identical, and the tarball is 223,397 bytes
-larger only because there are now seven vignettes rather than two.
+change it: `vendor.tar.xz` is byte-identical, and the tarball is 249,452 bytes
+larger, mostly because there are now seven vignettes rather than two.
 
 At 0.1.0 you asked me to bring the tarball under 10 MB, and to explain the Rust
 crates if they really were all needed. Both, in that order.
 
-**At 0.1.0 the tarball came to 11,170,566 bytes, down from 33,048,416 — a 2.96x
+**At 0.1.0 the tarball came to 11,170,566 bytes, down from 33,048,416: a 2.96x
 reduction.** All of it came out of `tools/vendor.R`, which now reduces the vendor
 tree before compressing it rather than only compressing it. Uncompressed, stage
 by stage:
@@ -150,9 +170,9 @@ by stage:
 That last row corrects something I got wrong in the previous submission. I wrote
 there that the crates cargo vendors but never compiles "cannot be pruned,
 because cargo resolves the whole lock graph before it selects features or
-filters targets". The premise is right — an offline build really does fail with
+filters targets". The premise is right (an offline build really does fail with
 `no matching package named ...` if a locked package is absent from the directory
-source — but the conclusion was not. Cargo needs to *find* those packages; it
+source), but the conclusion was not. Cargo needs to *find* those packages; it
 never reads them. They now ship as their `Cargo.toml`, their licence files and
 an empty `lib.rs`: 172 crates in 0.5 MB rather than 222 MB. `aws-lc-sys` is the
 clearest case. It is 63 MB of BoringSSL, it was the largest single item in the
@@ -166,8 +186,8 @@ Two consequences worth stating plainly:
   extra crates from crates.io instead, because cargo replaces the crates.io
   source wholesale when a directory source is configured and so cannot fetch
   just the missing few. `tools/config.R` detects that case, does not unpack the
-  archive, does not pass `--offline`, and says so. A default install — the only
-  kind CRAN performs — still touches the network at no point.
+  archive, does not pass `--offline`, and says so. A default install, the only
+  kind CRAN performs, still touches the network at no point.
 - Every stage is derived from what cargo itself reports rather than from a
   hand-maintained list: `cargo tree --target ... -e normal,build` for the
   compiled set, `cargo tree -f "{p} :: {f}"` for which `windows-sys` features
@@ -182,7 +202,7 @@ every one of which is compiled into the shared object, and there is no longer
 anything in it that dominates.** Compressed individually, the ten largest are
 `ring` 0.89 MB, `parquet` 0.51, `brotli` 0.48, `tokio` 0.44, `zstd-sys` 0.43,
 `regex-automata` 0.38, `iceberg` 0.37, `libc` 0.37, `windows-sys` 0.35 and
-`rustls` 0.25 — 4.45 MB in total. The other 432 directories average 22 KB each.
+`rustls` 0.25: 4.45 MB in total. The other 432 directories average 22 KB each.
 
 The shape of that list is the explanation. Apache Iceberg's data path is Arrow
 and Parquet and its metadata path is Avro, so the `iceberg` crate depends
@@ -191,20 +211,20 @@ compression codecs those two require; a REST catalog is HTTPS, so it also
 depends on `tokio`, `hyper`, `reqwest`, `rustls` and `ring`. `iceberg` declares
 `[features] default = []` and has no optional dependencies at all, so there is
 no feature configuration that removes any of it, and 264 of the 270 are compiled
-on a single machine — the extra six are the macOS and Windows system bindings.
+on a single machine; the extra six are the macOS and Windows system bindings.
 
 **For scale.** `arcgisgeocode` is on CRAN today at **13 MB**, with the same
-`SystemRequirements` profile as this package — `Cargo (Rust's package manager),
-rustc, xz` — and no data in it, so its size is vendored Rust and nothing else.
+`SystemRequirements` profile as this package (`Cargo (Rust's package manager),
+rustc, xz`) and no data in it, so its size is vendored Rust and nothing else.
 Checked against the current listing in `src/contrib/` rather than remembered:
 `arcgisgeocode_0.4.0.tar.gz`, 13M, and `prqlr_0.10.1.tar.gz` at 9.0M is the next
-one down. At 10.65 MiB then, and 10.87 MiB now, this package is smaller than an
+one down. At 10.65 MiB then, and 10.89 MiB now, this package is smaller than an
 exception already granted for exactly this reason, which was the main ground on
 which I asked.
 
 **On the separate-package suggestion.** You mentioned that data can go in a
 separate package that is only infrequently updated. This package ships no data at
-all — outside `vendor.tar.xz` the whole tarball is 199,606 bytes — so that route
+all (outside `vendor.tar.xz` the whole tarball is 199,606 bytes), so that route
 does not apply literally, but the analogous move does exist and I want to be
 straight about it rather than leave it unaddressed: a companion package
 containing nothing but the vendored archive and a function returning its path,
@@ -230,18 +250,19 @@ Parquet supports Brotli as a column codec, and `brotli` plus
 `default-features = false` on our own `parquet` dependency does not remove it:
 `iceberg` depends on it with default features on, and cargo unions features
 across the graph rather than intersecting them, so the only way to drop Brotli
-is to override a feature inside the bundled `iceberg` manifest — a modification
+is to override a feature inside the bundled `iceberg` manifest: a modification
 to a third-party crate, in exchange for not being able to read
 Brotli-compressed Parquet data files. That seemed the wrong trade to make
 silently, but it is available if you would rather have the 0.6 MB than the
 codec.
 
 That was the request 0.1.0 was accepted on: 10.65 MiB rather than the 31.52 MiB
-of the submission before it (33,048,416 bytes -- the units are MiB throughout
+of the submission before it (33,048,416 bytes; the units are MiB throughout
 this section, since `du` and the check's byte count disagree by 5% and mixing
-them is how a 21 KB delta once read as 1.55 MB). 0.2.0 stands at 10.87 MiB, the difference being built
-vignettes and nothing else, so I am not asking for anything further here. If the
-figure should stop growing at some particular number, I would value knowing it --
+them is how a 21 KB delta once read as 1.55 MB). 0.2.0 stands at 10.89 MiB, the
+difference being mostly built vignettes, so I am not asking for anything further
+here. If the
+figure should stop growing at some particular number, I would value knowing it:
 CI now fails the build when the tarball passes a ceiling, and that ceiling is a
 constant I can set to whatever you name.
 
@@ -254,19 +275,19 @@ run against the result.
 
 What went wrong last time is worth stating precisely, because the number I
 declared was not a compiler requirement at all. Four crates in the tree declare
-`rust-version = "1.94"` — `iceberg`, `iceberg-catalog-rest`,
-`iceberg-catalog-glue` and `fastnum` — under `iceberg-rust`'s rolling-MSRV
+`rust-version = "1.94"` (`iceberg`, `iceberg-catalog-rest`,
+`iceberg-catalog-glue` and `fastnum`) under `iceberg-rust`'s rolling-MSRV
 policy, which bumps the declaration on most releases whether or not the code
 needs it. Nothing else in the tree exceeds 1.91.1. None of those four uses a
 language or library feature newer than 1.92. Edition 2024 itself needs only 1.85.
 
 Two things carry that measurement over to Windows, which I have no 1.92 Windows
-machine to check directly. None of the four contains any Windows-specific code —
-no `cfg(windows)` or `cfg(target_os = "windows")` anywhere in their sources — so
+machine to check directly. None of the four contains any Windows-specific code
+(no `cfg(windows)` or `cfg(target_os = "windows")` anywhere in their sources), so
 they have no platform-gated path that a Linux build would have skipped. And of
 the crates that *do* carry Windows-specific code, not one declares a floor above
-1.91.1 — the highest are `aws-config`, `aws-runtime` and `aws-smithy-http-client`
-— so nothing on the Windows-only side of the tree claims to need more than 1.92
+1.91.1 (the highest are `aws-config`, `aws-runtime` and `aws-smithy-http-client`),
+so nothing on the Windows-only side of the tree claims to need more than 1.92
 either.
 
 Cargo, however, treats a *dependency's* `rust-version` as a hard error rather
@@ -280,7 +301,7 @@ than a warning:
 so the build stops at resolution, before rustc ever sees the code. `src/Makevars`
 and `src/Makevars.win` therefore pass `--ignore-rust-version`, which is cargo's
 documented opt-in for precisely this case and has been respected since Cargo
-1.56, the same release that began enforcing the field — so no toolchain can
+1.56, the same release that began enforcing the field, so no toolchain can
 enforce the declaration without also accepting the flag. The declarations
 themselves are left exactly as upstream ships them: the vendored sources are
 unmodified, and `tools/vendor.R` needs no patch step.
@@ -295,7 +316,7 @@ only be raised after building and testing on the new value.
 
 The optional backends were checked on the same floor, not just the default
 build: `cargo check --features glue` (which adds the AWS SDK and opendal, around
-517 crates in total, and includes the fourth 1.94-declaring crate
+360 crates in total, and includes the fourth 1.94-declaring crate
 `iceberg-catalog-glue`) also succeeds on 1.92.0. So the declared floor holds for
 every configuration the package can be built in, not only the one CRAN compiles.
 
@@ -328,7 +349,7 @@ Apache, Apache Iceberg and Iceberg are trademarks of The Apache Software
 Foundation. The package is named `icebergr`, not `iceberg`, and `inst/NOTICE`,
 `DESCRIPTION` and the documentation each state that this is an independent
 community package with no ASF affiliation or endorsement. Uses of the mark in the
-Title and Description are nominative — identifying the format the package reads
+Title and Description are nominative, identifying the format the package reads
 and writes.
 
 ## Downstream dependencies

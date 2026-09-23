@@ -190,3 +190,75 @@ test_that("the JSON string writer survives an NA rather than erroring", {
   expect_equal(json_string(NA_character_), "\"NA\"")
   expect_equal(json_string(c("a", NA)), c("\"a\"", "\"NA\""))
 })
+
+test_that("a column on the value side is refused, not read as a local variable", {
+  # `amount` is a column, so `id > amount` compares two columns, which an
+  # Iceberg predicate cannot express. The value side used to be evaluated in
+  # the caller regardless: with a local `amount` in scope the filter silently
+  # became `id > <that local>`, and without one it failed with "object not
+  # found" beside advice saying the name was not a column.
+  expect_error(tr(id > amount), "is a column of the table", class = "icebergr_unsupported_filter")
+  amount <- 5
+  expect_error(tr(id > amount), "is a column of the table")
+  expect_error(tr(amount < id), "is a column of the table")
+  expect_error(tr(id > amount + 1), "is a column of the table")
+  expect_error(tr(id %in% c(amount, 1)), "is a column of the table")
+  expect_error(tr(startsWith(label, label)), "is a column of the table")
+
+  # Case-insensitive resolution counts a differently-cased name as the column.
+  AMOUNT <- 5
+  expect_error(
+    translate_filter(quote(id > AMOUNT), columns, environment(), case_sensitive = FALSE),
+    "is a column of the table"
+  )
+  expect_equal(tr(id > AMOUNT), list(op = "gt", col = "id", value = 5))
+
+  # A local whose name is not a column still works, and the field of `x$field`
+  # is a name rather than a reference to the column it happens to share.
+  cutoff <- 5
+  expect_equal(tr(id > cutoff), list(op = "gt", col = "id", value = 5))
+  limits <- list(amount = 7)
+  expect_equal(tr(id > limits$amount), list(op = "gt", col = "id", value = 7))
+})
+
+test_that("a timestamp goes out to the nearest microsecond, not truncated", {
+  # The double nearest 2024-01-01 00:00:00.009690 UTC is 4.4e-8 s *below* it,
+  # which is how nanoarrow hands that instant back from a table, and %OS6
+  # truncates: the literal used to say .009689, a microsecond early, so
+  # `ts == x` missed the very row `x` was read from.
+  x <- .POSIXct(1704067200.009689808, tz = "UTC")
+  expect_lt(as.numeric(x) - 1704067200, 0.00969)
+  expect_match(js(ts == x), '"2024-01-01T00:00:00.009690Z"', fixed = TRUE)
+
+  # Rounding carries into the seconds rather than writing .1000000.
+  y <- .POSIXct(1704067259.9999998, tz = "UTC")
+  expect_match(js(ts == y), '"2024-01-01T00:01:00.000000Z"', fixed = TRUE)
+
+  # Before the epoch the fraction still counts forwards from the second.
+  z <- as.POSIXct("1969-12-31 23:59:59", tz = "UTC") + 0.25
+  expect_match(js(ts == z), '"1969-12-31T23:59:59.250000Z"', fixed = TRUE)
+})
+
+test_that("a POSIXlt is read in its own zone, as strptime() returns one", {
+  # as.POSIXct(x, tz = "UTC") reads a POSIXlt's wall-clock fields *as* UTC, so
+  # these went out as 07:00Z and 09:00Z.
+  lt <- as.POSIXlt("2024-03-01 07:00:00", tz = "America/New_York")
+  expect_match(js(ts > lt), '"2024-03-01T12:00:00.000000Z"', fixed = TRUE)
+  parsed <- strptime("2024-06-01 09:00:00", "%Y-%m-%d %H:%M:%S", tz = "America/New_York")
+  expect_match(js(ts > parsed), '"2024-06-01T13:00:00.000000Z"', fixed = TRUE)
+})
+
+test_that("%in% with NaN points at is.nan(), not at is.na()", {
+  expect_error(tr(amount %in% c(1, NaN)), "is.nan")
+  expect_error(tr(amount %in% c(1, NA)), "is.na")
+})
+
+test_that("a filter held in a variable is told how to pass it, not to add == TRUE", {
+  # `filter` is captured unevaluated, so only the variable's name arrives. The
+  # advice for a bare boolean column, to write `f == TRUE`, made no sense here.
+  f <- quote(id > 1)
+  expect_error(tr(f), "not a column of the table", class = "icebergr_unsupported_filter")
+  expect_error(tr(f), "do.call")
+  # A column still gets the column advice.
+  expect_error(tr(flag), "flag == TRUE")
+})

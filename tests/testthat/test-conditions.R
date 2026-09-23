@@ -46,3 +46,29 @@ test_that("an ordinary error prints no Rust panic banner on stderr", {
 
   expect_false(grepl("panicked at", output, fixed = TRUE))
 })
+
+test_that("a forked child errors instead of hanging forever", {
+  # parallel::mclapply() forks. The runtime's worker threads do not come across
+  # a fork, so once the parent had used icebergr, a child's first call waited
+  # on threads that did not exist: no error, no interrupt, no timeout.
+  skip_on_cran()
+  skip_on_os("windows")
+
+  tbl <- local_fixture_table(rows = 5L)
+  expect_equal(nrow(icebergr_collect(tbl)), 10L) # the runtime is running here
+
+  job <- parallel::mcparallel(
+    tryCatch(icebergr_collect(icebergr_reload(tbl)), error = conditionMessage)
+  )
+  result <- parallel::mccollect(job, wait = FALSE, timeout = 60)
+  if (is.null(result)) {
+    tools::pskill(job$pid)
+    parallel::mccollect(job, wait = FALSE, timeout = 5)
+  }
+  expect_false(is.null(result), info = "the forked child did not answer in 60s")
+  expect_match(result[[1L]], "forked")
+  expect_match(result[[1L]], "makeCluster")
+
+  # The parent is untouched by what happened in the child.
+  expect_equal(nrow(icebergr_collect(icebergr_reload(tbl))), 10L)
+})

@@ -132,3 +132,54 @@ test_that("printing a catalog does not print a password in its uri", {
     "https://catalog/v1/tables/a@b"
   )
 })
+
+test_that("loopback is recognised in any case, and across 127.0.0.0/8", {
+  # A host name is case-insensitive, so this was refused as though it left the
+  # machine.
+  expect_false(sends_in_cleartext("http://LOCALHOST:8181/v1"))
+  expect_false(sends_in_cleartext("http://LocalHost/v1"))
+  expect_false(sends_in_cleartext("http://127.0.0.2:8181/v1"))
+  expect_false(sends_in_cleartext("http://127.255.255.254/v1"))
+  # Near misses are still remote.
+  expect_true(sends_in_cleartext("http://128.0.0.1/v1"))
+  expect_true(sends_in_cleartext("http://127.0.0.1.evil.example/v1"))
+})
+
+test_that("a credential in a header property counts as a credential", {
+  # iceberg-rust sends every `header.*` property as an HTTP header, so this is
+  # a bearer token by another route, and it went out over http unchallenged.
+  expect_true(is_secret_prop("header.Authorization"))
+  expect_true(is_secret_prop("header.authorization"))
+  expect_true(is_secret_prop("header.X-Api-Key"))
+  expect_false(is_secret_prop("header.X-Iceberg-Access-Delegation"))
+  expect_false(is_secret_prop("header.Authorization-Hint"))
+
+  expect_error(
+    check_credential_transport(list(
+      uri = "http://catalog.internal/v1", `header.Authorization` = "Bearer x"
+    )),
+    "unencrypted"
+  )
+  expect_null(check_credential_transport(list(
+    uri = "http://catalog.internal/v1", `header.X-Iceberg-Access-Delegation` = "vended-credentials"
+  )))
+})
+
+test_that("a credential passed through ... gets advice it can follow", {
+  # "Set it in the environment" was the advice for every key without an
+  # ICEBERGR_* variable of its own, which is advice those keys cannot follow.
+  expect_warning(
+    icebergr_catalog(
+      "rest",
+      uri = "https://catalog.example.com", `header.Authorization` = "Bearer x"
+    ),
+    "ICEBERGR_REST_TOKEN"
+  )
+  expect_warning(
+    icebergr_catalog(
+      "rest",
+      uri = "https://catalog.example.com", `adls.sas-token` = "x"
+    ),
+    "Sys.getenv"
+  )
+})

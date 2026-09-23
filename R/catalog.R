@@ -35,6 +35,22 @@ secret_props <- c(
   "adls.connection-string"
 )
 
+# Whether a property carries a credential.
+#
+# iceberg-rust's REST client also sends every `header.<name>` property as an
+# HTTP header, so `header.Authorization` is a bearer token by another route, and
+# one that neither the warning below nor the cleartext check used to see, since
+# neither list named it. Header names are case-insensitive.
+#' @noRd
+is_secret_prop <- function(keys) {
+  keys %in% secret_props |
+    grepl(
+      "^header[.](authorization|proxy-authorization|cookie|x-api-key)$",
+      keys,
+      ignore.case = TRUE
+    )
+}
+
 # Does this connection actually address object storage?
 #
 # `storage = "s3"` says so outright, Glue implies it, and an `s3://` warehouse
@@ -84,6 +100,23 @@ properties_from_env <- function(type = "rest", storage = "auto", warehouse = NUL
   out
 }
 
+# A catalog property value as the string iceberg-rust parses.
+#
+# Properties are strings on the Rust side, and as.character() spells two common
+# kinds of R value in a way it does not read: a whole number of 1e5 or more in
+# scientific notation (`"1e+05"`, which no integer parser accepts) and a logical
+# in capitals (`"TRUE"`, where Iceberg's own properties say `"true"`).
+#' @noRd
+property_value <- function(value) {
+  if (is.logical(value)) {
+    return(if (value) "true" else "false")
+  }
+  if (is.numeric(value) && !inherits(value, "integer64")) {
+    return(format(value, scientific = FALSE, trim = TRUE, digits = 15))
+  }
+  as.character(value)
+}
+
 # The host part of a URI, with any userinfo and port removed.
 #' @noRd
 uri_host <- function(x) {
@@ -105,7 +138,13 @@ sends_in_cleartext <- function(x) {
   if (scheme %in% c("https", "wss")) {
     return(FALSE)
   }
-  !(uri_host(x) %in% c("localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"))
+  # Lowercased, because a host name is case-insensitive and `http://LOCALHOST`
+  # was refused as though it left the machine; and the whole of 127.0.0.0/8,
+  # which is loopback, not only 127.0.0.1.
+  host <- tolower(uri_host(x))
+  loopback <- host %in% c("localhost", "::1", "[::1]", "0.0.0.0") ||
+    grepl("^127[.][0-9]+[.][0-9]+[.][0-9]+$", host)
+  !loopback
 }
 
 # Refuse to put a credential on the wire unencrypted.
@@ -118,7 +157,7 @@ sends_in_cleartext <- function(x) {
 # hatch is one environment variable, and loopback is exempt already.
 #' @noRd
 check_credential_transport <- function(props, call = rlang::caller_env()) {
-  supplied <- intersect(names(props), secret_props)
+  supplied <- names(props)[is_secret_prop(names(props))]
   if (!length(supplied)) {
     return(invisible(NULL))
   }
@@ -154,6 +193,19 @@ check_credential_transport <- function(props, call = rlang::caller_env()) {
 
 #' Connect to an Iceberg catalog
 #'
+#' Builds a catalog handle. For `type = "rest"` and `type = "glue"` this does
+#' **not** contact the server: `iceberg-rust` opens the connection lazily, on the
+#' first operation that needs it. So a mistyped `uri`, an unreachable host or a
+#' missing credential all return a handle here and fail later, at
+#' [icebergr_list_namespaces()] or [icebergr_table()], which can look like a
+#' fault in those functions rather than in the connection.
+#'
+#' To find out straight away, ask the catalog something:
+#' `icebergr_list_namespaces(catalog)` is the cheapest round trip.
+#'
+#' `type = "memory"` is the exception, and is checked here: its `warehouse` has
+#' to be an existing directory, because there is no server to ask later.
+#'
 #' @param type Catalog type. `"rest"` for an Iceberg REST catalog, `"memory"` for
 #'   an in-process catalog over a local warehouse directory, `"glue"` for AWS
 #'   Glue.
@@ -166,7 +218,10 @@ check_credential_transport <- function(props, call = rlang::caller_env()) {
 #'   REST catalogs, the warehouse name or location the server expects.
 #' @param ... Further catalog properties, passed through to `iceberg-rust` as
 #'   name-value pairs. Use this for non-secret configuration such as
-#'   `"s3.endpoint"` or `"rest.signing-region"`.
+#'   `"s3.path-style-access"` or `"prefix"`. `TRUE` and `FALSE` are sent as
+#'   `"true"` and `"false"`, and a number is written out in full rather than in
+#'   scientific notation. A property `iceberg-rust` does not know is ignored
+#'   without a word, so check the spelling against its documentation.
 #' @param storage Storage backend. `"auto"` infers it from `warehouse`,
 #'   `"local"` forces the local filesystem, `"s3"` forces object storage. S3
 #'   requires the package to have been compiled with the `s3` Cargo feature.
@@ -189,14 +244,15 @@ check_credential_transport <- function(props, call = rlang::caller_env()) {
 #' `type = "glue"`, or an `s3://` `warehouse`. They are *not* forwarded to a
 #' catalog that has no object storage in sight, because a third-party REST
 #' catalog controls each table's `location` and may answer with its own
-#' `s3.endpoint` -- at which point ambient keys would sign requests to a host it
+#' `s3.endpoint`, at which point ambient keys would sign requests to a host it
 #' chose. Set `storage = "s3"` if a REST catalog identified by name needs them.
 #'
 #' A credential is never sent over an unencrypted connection: an `http://`
 #' `uri` or OAuth2 endpoint is an error whenever any credential property is
-#' populated. A loopback address is exempt, since developing against a local
-#' catalog is ordinary, and `ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true` overrides
-#' the check.
+#' populated. An `Authorization`, `Proxy-Authorization`, `Cookie` or `X-Api-Key`
+#' header passed as a `header.` property counts as one. A loopback address is
+#' exempt, since developing against a local catalog is ordinary, and
+#' `ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true` overrides the check.
 #'
 #' Catalog properties are never printed, logged or included in error messages,
 #' and `user:password@` in a `uri` is redacted when a catalog is printed. A
@@ -235,6 +291,15 @@ icebergr_catalog <- function(type = c("rest", "memory", "glue"),
   extra <- list(...)
   if (length(extra) && (is.null(names(extra)) || any(!nzchar(names(extra))))) {
     abort("All catalog properties passed through `...` must be named.")
+  }
+  # Otherwise the last one silently wins.
+  repeated <- unique(names(extra)[duplicated(names(extra))])
+  if (length(repeated)) {
+    abort(paste0(
+      "Catalog propert", if (length(repeated) > 1L) "ies " else "y ",
+      paste(encodeString(repeated, quote = "\""), collapse = ", "),
+      " passed through `...` more than once."
+    ))
   }
 
   # Blank counts as absent. `uri = Sys.getenv("MY_CATALOG")` returns "" when the
@@ -278,19 +343,23 @@ icebergr_catalog <- function(type = c("rest", "memory", "glue"),
     if (length(value) != 1L || is.na(value)) {
       abort(paste0("Catalog property `", key, "` must be a single non-missing value."))
     }
-    if (key %in% secret_props) {
+    if (is_secret_prop(key)) {
       env_var <- names(credential_vars)[match(key, credential_vars)]
       warn(c(
         paste0("Passing ", encodeString(key, quote = "\""), " as an argument risks leaking it."),
         i = "It will be visible in your script, your .Rhistory and any knitr cache.",
+        # Only the keys in `credential_vars` have a variable of their own, so
+        # "set it in the environment" was advice the rest could not follow.
         i = if (!is.na(env_var)) {
           paste0("Set the ", env_var, " environment variable instead.")
+        } else if (grepl("^header[.]authorization$", key, ignore.case = TRUE)) {
+          "For a bearer token, set the ICEBERGR_REST_TOKEN environment variable instead."
         } else {
-          "Set it in the environment instead."
+          "If it has to come through `...`, read it with Sys.getenv() rather than typing it."
         }
       ))
     }
-    props[[key]] <- as.character(value)
+    props[[key]] <- property_value(value)
   }
 
   # After `...`, so that a credential passed there is covered too.

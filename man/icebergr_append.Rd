@@ -23,7 +23,9 @@ accepts, such as an Arrow Table.}
 \item{properties}{Optional named character vector recorded in the new
 snapshot's summary, for provenance. Do not put credentials here: snapshot
 summaries are stored in table metadata and are readable by anyone who can
-read the table.}
+read the table. The keys Iceberg writes into a summary itself, such as
+\code{"operation"} and \code{"added-records"}, are refused, since a value for one
+would corrupt the record of what the commit did.}
 }
 \value{
 An updated \code{icebergr_table} handle that sees the new snapshot. The

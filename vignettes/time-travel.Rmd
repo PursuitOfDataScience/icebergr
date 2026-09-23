@@ -19,14 +19,14 @@ library(icebergr)
 
 Every Iceberg commit leaves the previous state of the table intact and readable
 [@icebergspec]. Nothing is overwritten, so a snapshot from before a bad load is
-still there — and reading it needs no backup, no restore and no cooperation from
+still there, and reading it needs no backup, no restore and no cooperation from
 whoever wrote it.
 
 ```{r}
 tbl <- icebergr_example_table(rows = 200)
 ```
 
-## The snapshot log
+## Snapshot history
 
 ```{r}
 history <- icebergr_snapshots(tbl)
@@ -87,13 +87,14 @@ column is data; filter on it with `filter`.
 
 **It resolves against the snapshot log, not the snapshot list.** Iceberg keeps
 both: the list of every snapshot that still exists, and the *log* of which
-snapshot was current at which time. A rollback removes an entry from the log while
-leaving the snapshot in the list. Resolving against the list would find an
-abandoned snapshot with a matching timestamp and read a state the table was
-rolled back *out of*; `icebergr` resolves against the log, so it does not.
+snapshot was current at which time. A rollback adds a log entry pointing back at
+the earlier snapshot, while the snapshot it abandoned stays in the list with its
+own, later, timestamp. Resolving against the list would find that abandoned
+snapshot and read a state the table was rolled back *out of*; `icebergr`
+resolves against the log, so it does not.
 
-The same applies to a snapshot that only ever existed on another branch — present
-in the list, never in this branch's log, therefore never selected by `as_of`. It
+The same applies to a snapshot that only ever existed on another branch: present
+in the list, never in this branch's log, and so never selected by `as_of`. It
 is still reachable by id, which is the right split: an explicit id is a request
 for a specific state, while a time is a request for the state this table was in.
 
@@ -110,7 +111,7 @@ identical(
 ```
 
 Nothing was renamed here, so the two agree. Where they would not, `filter` and
-`select` are resolved against the schema of the snapshot actually being read —
+`select` are resolved against the schema of the snapshot actually being read,
 not the current one. That is what makes a historical read reproducible: the names
 that worked then still work, and you do not have to know what happened to the
 schema in between.
@@ -127,7 +128,7 @@ identical(nrow(icebergr_snapshots(tbl2)), nrow(current))
 ```
 
 `icebergr_reload()` is how you opt in to seeing new commits. Until you call it,
-every scan off that handle reads one consistent state — snapshot isolation in the
+every scan off that handle reads one consistent state: snapshot isolation in the
 sense of @berenson1995critique, obtained from immutability rather than from
 locking. All three lakehouse formats get it the same way [@jain2023lakehouse].
 
@@ -136,19 +137,20 @@ which is what you want when a report runs several queries and has to add up.
 
 ## What is not here
 
-Snapshot expiry — deleting old snapshots and the files only they reference — is a
-maintenance operation this version does not expose, and neither is rollback
-itself. Both need transaction actions `iceberg-rust` 0.10.0 does not provide:
+Snapshot expiry, which deletes old snapshots and the files only they reference,
+is a maintenance operation this version does not expose, and neither is rollback
+itself. `iceberg-rust` 0.10.0 has a transaction action for expiry and none for
+rollback, so the first is a gap in this package and the second is one upstream:
 
 ```{r}
 features <- icebergr_spec_support()$features
 features[
-  grepl("snapshot|expiry|rollback", features$feature, ignore.case = TRUE),
+  grepl("snapshot|maintenance", features$feature, ignore.case = TRUE),
   c("feature", "supported", "reason")
 ]
 ```
 
-Reading a table that another engine has rolled back or expired works normally.
-Time travel is a read capability, and this package has all of it.
+Reading a table that another engine has rolled back or expired works normally:
+time travel is a read, and reading by snapshot id or by time is all here.
 
 # References

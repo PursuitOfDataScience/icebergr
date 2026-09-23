@@ -11,12 +11,15 @@ icebergr_register_table(catalog, table, metadata_location, confine = TRUE)
 
 \item{table}{A table identifier, \code{"namespace.table"}, to register it under.}
 
-\item{metadata_location}{Path to the table's \code{metadata.json}.}
+\item{metadata_location}{Path to the table's \code{metadata.json}, or its location
+in object storage, such as \code{"s3://bucket/db/events/metadata/..."}. A local
+path has to exist; a remote one is left to the catalog to find.}
 
 \item{confine}{Whether to require \code{metadata_location} to sit inside the
 catalog's own \code{warehouse}. \code{TRUE} (the default) refuses anything outside
-it; \code{FALSE} allows any path. Ignored when the catalog has no warehouse
-location to confine against, such as a REST catalog identified by name.}
+it; \code{FALSE} allows any path. Ignored when the catalog has no local warehouse
+directory to confine against, such as a REST catalog identified by name or
+one whose warehouse is in object storage.}
 }
 \value{
 An \code{icebergr_table} handle.
@@ -32,9 +35,9 @@ A metadata file names its table's \code{location}, its manifest list and every
 data file, all as absolute paths, and registering it makes this package read
 them. Those paths are not constrained by where the metadata file itself sits,
 so a file from a shared drive or an issue attachment can point anywhere on
-disk -- and, with the \code{s3} feature compiled in, at an \verb{s3://} or \verb{https://}
-location, which turns opening a nominally offline \code{memory}-catalog table into
-an outbound request to a host of its author's choosing.
+disk. With the \code{s3} feature compiled in it can also point at an \verb{s3://} or
+\verb{https://} location, which turns opening a nominally offline \code{memory}-catalog
+table into an outbound request to a host of its author's choosing.
 
 \code{confine = TRUE} is the guard: the metadata file has to be inside the
 catalog's warehouse, which is the directory you nominated. It does not vet

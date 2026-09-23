@@ -31,12 +31,12 @@ id from \code{\link[=icebergr_snapshots]{icebergr_snapshots()}}.}
 
 \item{as_of}{Read the table as it was at this time, a \code{POSIXct} or \code{Date}.
 Resolved against the table's snapshot log to the snapshot that was current
-at that moment -- so a snapshot a rollback abandoned, or one that only ever
+at that moment, so a snapshot a rollback abandoned, or one that only ever
 existed on another branch, is not selected even though it carries a matching
 timestamp. Cannot be combined with \code{snapshot_id}.}
 
-\item{batch_size}{Rows per Arrow batch, or \code{NULL} for the default. Affects
-memory use, not results.}
+\item{batch_size}{Rows per Arrow batch, at least 1, or \code{NULL} for the
+default. Affects memory use, not results.}
 
 \item{case_sensitive}{Whether column names in \code{filter} and \code{select} are
 matched case-sensitively. When \code{FALSE}, each name is resolved to the
@@ -70,8 +70,18 @@ It bounds how much is decoded and converted, not how much is planned.
 Filters may use \code{==}, \code{!=}, \code{<}, \code{<=}, \code{>}, \code{>=}, \code{&}, \code{|}, \code{!}, \code{\%in\%},
 \code{is.na()}, \code{is.nan()} and \code{startsWith()}. A bare name is read as a column when
 the table has a column of that name, and otherwise evaluated in the calling
-environment, so \code{filter = year == target} works with a local \code{target}.
-Anything more elaborate should be applied in R after collecting.
+environment, so \code{filter = year == target} works with a local \code{target}. That
+holds wherever the name appears: an Iceberg predicate compares a column with a
+value, so a filter naming a column on both sides, such as \code{a > b}, is refused
+rather than reading \code{b} from the calling environment. Anything more elaborate
+should be applied in R after collecting.
+
+A filter keeps the rows R's own evaluation of it would keep, \code{NA} and \code{NaN}
+included, although Iceberg's rules for them differ: no comparison matches a
+\code{NaN}, \code{is.na()} is \code{TRUE} for one, \code{x == 0} matches \code{-0} as well as \code{0}, and
+\code{!(x \%in\% c(1, 2))} keeps the rows where \code{x} is \code{NA}, since \code{\%in\%} is never
+\code{NA} in R. The exception is an ordering comparison between strings, which
+follows Iceberg's byte order; that agrees with R only in the C locale.
 
 \code{startsWith()} is pushed down only against a \code{string} column, since Iceberg
 defines a prefix comparison for no other type.
@@ -86,7 +96,7 @@ little less selective and still correct.
 \section{Column names and time travel}{
 
 Iceberg records a schema per snapshot, so \code{filter} and \code{select} are resolved
-against the schema of the snapshot actually being read -- the one named by
+against the schema of the snapshot actually being read: the one named by
 \code{snapshot_id} or \code{as_of}, and otherwise the current one. A column another
 engine has since renamed or dropped is therefore still nameable as of a
 snapshot that had it, and one added afterwards is refused for a snapshot that

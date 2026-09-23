@@ -94,20 +94,23 @@ icebergr_create_table <- function(catalog, table, data, location = NULL) {
 #'
 #' @param catalog An `icebergr_catalog` from [icebergr_catalog()].
 #' @param table A table identifier, `"namespace.table"`, to register it under.
-#' @param metadata_location Path to the table's `metadata.json`.
+#' @param metadata_location Path to the table's `metadata.json`, or its location
+#'   in object storage, such as `"s3://bucket/db/events/metadata/..."`. A local
+#'   path has to exist; a remote one is left to the catalog to find.
 #' @param confine Whether to require `metadata_location` to sit inside the
 #'   catalog's own `warehouse`. `TRUE` (the default) refuses anything outside
-#'   it; `FALSE` allows any path. Ignored when the catalog has no warehouse
-#'   location to confine against, such as a REST catalog identified by name.
+#'   it; `FALSE` allows any path. Ignored when the catalog has no local warehouse
+#'   directory to confine against, such as a REST catalog identified by name or
+#'   one whose warehouse is in object storage.
 #'
 #' @section Registering a metadata file you did not write:
 #' A metadata file names its table's `location`, its manifest list and every
 #' data file, all as absolute paths, and registering it makes this package read
 #' them. Those paths are not constrained by where the metadata file itself sits,
 #' so a file from a shared drive or an issue attachment can point anywhere on
-#' disk -- and, with the `s3` feature compiled in, at an `s3://` or `https://`
-#' location, which turns opening a nominally offline `memory`-catalog table into
-#' an outbound request to a host of its author's choosing.
+#' disk. With the `s3` feature compiled in it can also point at an `s3://` or
+#' `https://` location, which turns opening a nominally offline `memory`-catalog
+#' table into an outbound request to a host of its author's choosing.
 #'
 #' `confine = TRUE` is the guard: the metadata file has to be inside the
 #' catalog's warehouse, which is the directory you nominated. It does not vet
@@ -146,23 +149,33 @@ icebergr_register_table <- function(catalog, table, metadata_location,
   check_bool(confine, "confine")
   ident <- parse_identifier(table)
 
-  if (!file.exists(metadata_location)) {
-    abort(paste0(
-      "No metadata file at ", encodeString(metadata_location, quote = "\""), "."
-    ))
+  # Only a local path can be checked for, or resolved, here. An `s3://` location
+  # is the catalog's to find, and used to be refused outright as "No metadata
+  # file" because file.exists() cannot see into a bucket.
+  location <- metadata_location
+  if (is_local_dir(metadata_location)) {
+    if (!file.exists(metadata_location) || dir.exists(metadata_location)) {
+      abort(paste0(
+        "No metadata file at ", encodeString(metadata_location, quote = "\""), "."
+      ))
+    }
+    # Resolved before the comparison: ".." and a symlink both make a path that
+    # looks confined and is not.
+    location <- as_iceberg_location(normalizePath(metadata_location, mustWork = TRUE))
   }
 
-  # Resolved before the comparison: ".." and a symlink both make a path that
-  # looks confined and is not.
-  location <- as_iceberg_location(normalizePath(metadata_location, mustWork = TRUE))
-
-  if (confine && !is.null(catalog$warehouse) && !is_local_dir(catalog$warehouse)) {
-    # Nothing to compare against -- the warehouse is a name or a remote
-    # location, not a directory on this machine.
+  warehouse <- catalog$warehouse
+  if (confine && !is.null(warehouse) &&
+    !(is_local_dir(warehouse) && dir.exists(warehouse))) {
+    # Nothing to compare against: the warehouse is a remote location, or a
+    # name a REST server resolves. dir.exists() as well as is_local_dir(),
+    # because a name has no scheme either: `warehouse = "analytics"` was
+    # compared as the directory `analytics` under the working directory, so
+    # every registration on such a catalog was refused.
     confine <- FALSE
   }
-  if (confine && !is.null(catalog$warehouse)) {
-    root <- as_iceberg_location(normalizePath(catalog$warehouse, mustWork = FALSE))
+  if (confine && !is.null(warehouse)) {
+    root <- as_iceberg_location(normalizePath(warehouse, mustWork = FALSE))
     if (!is_inside(location, root)) {
       abort(c(
         paste0(
@@ -183,6 +196,40 @@ icebergr_register_table <- function(catalog, table, metadata_location,
   new_icebergr_table(ptr, catalog)
 }
 
+# The keys Iceberg writes into a snapshot summary itself, which a user-supplied
+# property must not collide with.
+#
+# `operation` is a field of the summary rather than a property, so a property of
+# that name was serialised as a *second* `"operation"` key in the metadata JSON.
+# The append reported success, and the table could then never be loaded again:
+# not reloaded, not registered, not appended to, by this package or any other
+# engine, since the file no longer parses.
+#
+# The rest are the metrics iceberg-rust 0.10.0 computes (the constants in its
+# `spec/snapshot_summary.rs`, which are private, hence the copy). A computed one
+# overwrites a colliding user value, but an append computes only what is
+# positive, so a user-supplied `deleted-records` survived and was subtracted
+# into `total-records`: `properties = c("deleted-records" = "7")` on a five-row
+# append into a five-row table recorded a total of 3. `partitions.` is the
+# prefix of the per-partition summaries it writes for a partitioned table.
+reserved_summary_keys <- c(
+  "operation",
+  "added-data-files", "added-delete-files", "added-equality-delete-files",
+  "added-equality-deletes", "added-files-size", "added-position-delete-files",
+  "added-position-deletes", "added-records", "changed-partition-count",
+  "deleted-data-files", "deleted-records", "removed-delete-files",
+  "removed-equality-delete-files", "removed-equality-deletes",
+  "removed-files-size", "removed-position-delete-files",
+  "removed-position-deletes", "total-data-files", "total-delete-files",
+  "total-equality-deletes", "total-files-size", "total-position-deletes",
+  "total-records"
+)
+
+#' @noRd
+is_reserved_summary_key <- function(keys) {
+  keys %in% reserved_summary_keys | startsWith(keys, "partitions.")
+}
+
 #' Append rows to an Iceberg table
 #'
 #' Writes `data` as one or more new Parquet data files and commits a new
@@ -196,7 +243,9 @@ icebergr_register_table <- function(catalog, table, metadata_location,
 #' @param properties Optional named character vector recorded in the new
 #'   snapshot's summary, for provenance. Do not put credentials here: snapshot
 #'   summaries are stored in table metadata and are readable by anyone who can
-#'   read the table.
+#'   read the table. The keys Iceberg writes into a summary itself, such as
+#'   `"operation"` and `"added-records"`, are refused, since a value for one
+#'   would corrupt the record of what the commit did.
 #'
 #' @return An updated `icebergr_table` handle that sees the new snapshot. The
 #'   handle passed in is unchanged, so reassign it: `tbl <- icebergr_append(tbl, x)`.
@@ -253,6 +302,25 @@ icebergr_append <- function(tbl,
       any(!nzchar(names(properties))) || anyNA(names(properties)) ||
       anyNA(properties)) {
       abort("`properties` must be a fully named character vector without NAs.")
+    }
+    # Rust collects these into a map, so a repeated name kept one of its values
+    # and dropped the other without saying which.
+    repeated <- unique(names(properties)[duplicated(names(properties))])
+    if (length(repeated)) {
+      abort(paste0(
+        "`properties` names ", paste(encodeString(repeated, quote = "\""), collapse = ", "),
+        " more than once."
+      ))
+    }
+    reserved <- names(properties)[is_reserved_summary_key(names(properties))]
+    if (length(reserved)) {
+      abort(c(
+        paste0(
+          "`properties` cannot set ", paste(encodeString(reserved, quote = "\""), collapse = ", "),
+          ": Iceberg writes that key into the snapshot summary itself."
+        ),
+        i = "Choose another name for provenance, such as \"source\" or \"job-id\"."
+      ))
     }
     keys <- names(properties)
     values <- unname(properties)

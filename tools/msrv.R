@@ -36,7 +36,9 @@ if (!grepl("rustc", sysreqs, ignore.case = TRUE)) {
 }
 
 parts <- strsplit(sysreqs, ", ")[[1]]
-rustc_req <- parts[grepl("rustc", parts)]
+# Case-insensitive, like the presence check above: otherwise "Rustc >= 1.92"
+# passed that check and then matched nothing here.
+rustc_req <- parts[grepl("rustc", parts, ignore.case = TRUE)]
 
 no_cargo_msg <- c(
   "--------------------------- [CARGO NOT FOUND] ---------------------------",
@@ -88,6 +90,11 @@ cargo_version <- tryCatch(
 )
 
 extract_semver <- function(ver) {
+  # One string, whatever arrives: `if ()` on a zero-length or longer condition
+  # is an error, which is how a DESCRIPTION naming rustc twice, or not in a form
+  # the line above finds, crashed here before reaching the readable message
+  # below that exists for exactly those cases.
+  ver <- paste(ver, collapse = " ")
   if (grepl("\\d+\\.\\d+(\\.\\d+)?", ver)) {
     sub(".*?(\\d+\\.\\d+(\\.\\d+)?).*", "\\1", ver)
   } else {
@@ -98,7 +105,42 @@ extract_semver <- function(ver) {
 msrv <- extract_semver(rustc_req)
 current <- extract_semver(rustc_version)
 
-if (!is.na(msrv) && !is.na(current)) {
+# An unreadable floor is a mistake in DESCRIPTION, which is ours, so it stops
+# here. Previously both this and an unreadable `rustc --version` just skipped
+# the comparison, which meant a typo in SystemRequirements silently removed the
+# only version gate the package has and let any toolchain through. The CI job
+# that reads the same field already exits 1 when it cannot find
+# `rustc >= <version>`; this now agrees with it. Note "rustc >= 2" is one of the
+# strings that used to parse to NA.
+if (length(rustc_req) != 1L || is.na(msrv)) {
+  stop(paste(
+    c(
+      "",
+      "------------------- [UNREADABLE RUST REQUIREMENT] -------------------",
+      "Could not read a minimum version from the `rustc` entry in",
+      "`SystemRequirements`:",
+      "",
+      paste("  ", if (length(rustc_req)) paste(rustc_req, collapse = " | ") else "<none>"),
+      "",
+      "It has to look like `rustc >= 1.92`, with major and minor at least.",
+      "---------------------------------------------------------------------"
+    ),
+    collapse = "\n"
+  ))
+}
+
+# The installed version string is the toolchain's to format, not ours. If a
+# future rustc prints something this cannot parse, say so and carry on rather
+# than refusing to install over a cosmetic change: cargo still enforces what it
+# needs, and a warning is recoverable where a hard stop is not.
+if (is.na(current)) {
+  warning(sprintf(
+    "Could not read a version from `rustc --version` (%s); skipping the %s check.",
+    paste(rustc_version, collapse = " "), msrv
+  ))
+}
+
+if (!is.na(current)) {
   if (utils::compareVersion(msrv, current) == 1L) {
     stop(sprintf(paste(
       c(

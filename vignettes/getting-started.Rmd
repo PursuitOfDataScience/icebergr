@@ -33,9 +33,10 @@ library(icebergr)
 
 Iceberg [@icebergspec] is the open table format that Snowflake, Databricks,
 BigQuery, AWS and Dremio have all standardised on. Apache maintains clients for
-Java, Python, Rust and Go — but not R, which has been able to read Iceberg tables
-only by routing through DuckDB [@raasveldt2019duckdb]. That rules out writes,
-snapshot management, schema access and catalog integration.
+Java, Python, Rust and Go, but not for R, where Iceberg has been reached through
+a query engine such as DuckDB [@raasveldt2019duckdb]. A client is a different
+thing: it hands you the table itself, with its snapshots, its schema as of each
+of them and its scan plan, as R objects.
 
 `icebergr` binds `iceberg-rust` [@icebergrust] directly through extendr
 [@extendr]. Arrow is the interchange layer, so scan results arrive in R over the
@@ -56,8 +57,8 @@ show(tbl)
 ```
 
 It is generated rather than shipped because Iceberg records absolute paths in its
-metadata and its Avro manifests — a table built on one machine does not resolve
-on another.
+metadata and its Avro manifests, so a table built on one machine does not
+resolve on another.
 
 ## Inspecting a table
 
@@ -278,14 +279,14 @@ the `reason` column says which.
 
 ## Where next
 
-Five vignettes go deeper on one theme each:
+Six vignettes go deeper on one theme each:
 
-* `vignette("table-format")` — what Iceberg is, and what it fixes
-* `vignette("pushdown")` — how a filter prunes files and row groups
-* `vignette("time-travel")` — snapshots, timestamps and rollbacks
-* `vignette("writing")` — appends, table creation, and what is refused
-* `vignette("types")` — the R, Arrow and Iceberg type correspondence
-* `vignette("catalog-configuration")` — REST, AWS Glue, object storage,
+* `vignette("table-format")`: what Iceberg is, and what it fixes
+* `vignette("pushdown")`: how a filter prunes files and row groups
+* `vignette("time-travel")`: snapshots, timestamps and rollbacks
+* `vignette("writing")`: appends, table creation, and what is refused
+* `vignette("types")`: the R, Arrow and Iceberg type correspondence
+* `vignette("catalog-configuration")`: REST, AWS Glue, object storage,
   and how credentials are handled
 
 # References

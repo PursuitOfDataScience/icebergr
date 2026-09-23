@@ -360,9 +360,10 @@ fn rs_table_snapshots(tbl: ExternalPtr<RTable>) -> List {
     // metadata.snapshots() iterates a hash map, so the input order is arbitrary.
     // Timestamps are only millisecond-resolution and two commits can land in the
     // same millisecond, so the sequence number breaks the tie: without it the
-    // reported history -- and the snapshot that `as_of` resolves to -- would vary
-    // between calls.
-    snapshots.sort_by_key(|s| (s.timestamp_ms(), s.sequence_number()));
+    // reported history would vary between calls. A v1 table has no sequence
+    // numbers (every snapshot reads 0), so the id is the last resort, which is
+    // arbitrary but at least the same every time.
+    snapshots.sort_by_key(|s| (s.timestamp_ms(), s.sequence_number(), s.snapshot_id()));
 
     let ids: Vec<String> = snapshots
         .iter()
@@ -397,12 +398,15 @@ fn rs_table_snapshots(tbl: ExternalPtr<RTable>) -> List {
         .collect();
     // The free-form part of the summary carries row and file counts, which are
     // what makes a snapshot listing actually useful. Handed over as JSON so no
-    // information is dropped on the way.
+    // information is dropped on the way, with the keys sorted: the summary is a
+    // hash map, so serialising it directly gave the same snapshot a differently
+    // ordered string on every call.
     let summaries: Vec<String> = snapshots
         .iter()
         .map(|s| {
-            serde_json::to_string(&s.summary().additional_properties)
-                .unwrap_or_else(|_| "{}".to_string())
+            let sorted: std::collections::BTreeMap<_, _> =
+                s.summary().additional_properties.iter().collect();
+            serde_json::to_string(&sorted).unwrap_or_else(|_| "{}".to_string())
         })
         .collect();
 

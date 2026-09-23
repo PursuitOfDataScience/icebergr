@@ -104,3 +104,46 @@ test_that("a renamed metadata file reads, and its append is refused before writi
   )
   expect_equal(parquet(), before)
 })
+
+test_that("an object-storage location is left to the catalog, not refused as missing", {
+  warehouse <- withr::local_tempdir("warehouse")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  remote <- "s3://bucket/db/events/metadata/00001-3f2504e0-4f89-41d3-9a0c-0305e82c3301.metadata.json"
+
+  # file.exists() cannot see into a bucket, so this used to fail as "No
+  # metadata file" whatever the catalog could have found.
+  local_mocked_bindings(rs_register_table = function(...) stop("reached the catalog"))
+  expect_error(
+    icebergr_register_table(catalog, "db.events", remote, confine = FALSE),
+    "reached the catalog"
+  )
+  # Confinement still applies: a bucket is not inside a local warehouse.
+  expect_error(
+    icebergr_register_table(catalog, "db.events", remote),
+    "outside the catalog's warehouse"
+  )
+  # A directory is not a metadata file.
+  expect_error(
+    icebergr_register_table(catalog, "db.events", warehouse),
+    "No metadata file"
+  )
+})
+
+test_that("a warehouse that is a name, not a directory, does not confine", {
+  # A REST catalog's warehouse is often a name the server resolves. It has no
+  # scheme, so it was compared as the directory `analytics` under the working
+  # directory and every registration on such a catalog was refused. Building
+  # the handle does not contact the server.
+  catalog <- icebergr_catalog(
+    "rest",
+    uri = "https://catalog.example.com", warehouse = "analytics"
+  )
+  metadata <- withr::local_tempfile(fileext = ".metadata.json")
+  writeLines("{}", metadata)
+
+  local_mocked_bindings(rs_register_table = function(...) stop("reached the catalog"))
+  expect_error(
+    icebergr_register_table(catalog, "db.events", metadata),
+    "reached the catalog"
+  )
+})

@@ -20,9 +20,9 @@ error to be caught.
 }
 \details{
 A namespace that does not exist gives \code{FALSE} rather than an error, since it
-cannot hold the table either way. Any other failure -- an unreachable catalog,
-a rejected credential -- is still an error, because reporting one of those as
-"no such table" would be a confident wrong answer.
+cannot hold the table either way. Any other failure, such as an unreachable
+catalog or a rejected credential, is still an error, because reporting one of
+those as "no such table" would be a confident wrong answer.
 }
 \examples{
 warehouse <- tempfile("warehouse")

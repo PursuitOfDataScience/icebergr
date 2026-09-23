@@ -452,3 +452,22 @@ test_that("a scan prints whether the filter was pushed down", {
   # limit is not pushdown, and saying so avoids a performance trap.
   expect_match(printed, "not pushed down")
 })
+
+test_that("a property value reaches iceberg-rust spelled the way it parses", {
+  # as.character() gives "1e+05", which no integer parser reads, and "TRUE",
+  # where Iceberg's own properties say "true".
+  expect_identical(property_value(1e5), "100000")
+  expect_identical(property_value(123456789012), "123456789012")
+  expect_identical(property_value(0.25), "0.25")
+  expect_identical(property_value(8L), "8")
+  expect_identical(property_value(TRUE), "true")
+  expect_identical(property_value(FALSE), "false")
+  expect_identical(property_value("as-is"), "as-is")
+})
+
+test_that("a property passed twice through ... is refused, not last-wins", {
+  expect_error(
+    icebergr_catalog("rest", uri = "https://catalog.example.com", prefix = "a", prefix = "b"),
+    "more than once"
+  )
+})

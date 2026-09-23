@@ -269,3 +269,49 @@ test_that("append properties reach the snapshot summary, and only that snapshot"
   # The writer's own counts still parse out from alongside the custom keys.
   expect_equal(history$added_records, c(3, 3))
 })
+
+test_that("a summary key Iceberg writes itself cannot be set as a property", {
+  catalog <- local_namespace()
+  events <- data.frame(id = 1:5L)
+  tbl <- seed_table(catalog, "db.events", events)
+
+  # `operation` is a field of the summary, so it went out as a second
+  # "operation" key and the table's metadata no longer parsed: the append
+  # succeeded, and every later load, register and append failed.
+  expect_error(
+    icebergr_append(tbl, events, properties = c(operation = "delete")),
+    "writes that key into the snapshot summary itself"
+  )
+  # An append computes only the metrics that are positive, so this one used to
+  # survive and be subtracted into total-records: 5 + 5 - 7 recorded as 3.
+  expect_error(
+    icebergr_append(tbl, events, properties = c(`deleted-records` = "7")),
+    "deleted-records"
+  )
+  expect_error(
+    icebergr_append(tbl, events, properties = c(`partitions.day=1` = "x")),
+    "partitions.day=1"
+  )
+  expect_error(
+    icebergr_append(tbl, events, properties = c(source = "a", source = "b")),
+    "more than once"
+  )
+
+  # Nothing was committed by any of those, and a name that merely resembles a
+  # metric is an ordinary property.
+  expect_equal(nrow(icebergr_snapshots(tbl)), 1L)
+  tbl <- icebergr_append(tbl, events, properties = c(`added-by` = "nightly"))
+  history <- icebergr_snapshots(icebergr_reload(tbl))
+  expect_equal(history$total_records, c(5, 10))
+  expect_match(history$summary[[2L]], '"added-by":"nightly"', fixed = TRUE)
+})
+
+test_that("a data frame naming a column twice is refused, not half-appended", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(a = 1L, b = 2L))
+
+  # Matched by name, so the first `a` was written and the second dropped.
+  twice <- data.frame(a = 10L, b = 20L, a = 30L, check.names = FALSE)
+  expect_error(icebergr_append(tbl, twice), "more than one column named \"a\"")
+  expect_equal(nrow(icebergr_collect(icebergr_reload(tbl))), 1L)
+})

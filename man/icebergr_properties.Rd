@@ -15,7 +15,7 @@ properties returns zero rows.
 }
 \description{
 Table properties are the free-form key-value settings Iceberg stores in table
-metadata -- write defaults, compaction targets, engine-specific hints -- as
+metadata (write defaults, compaction targets, engine-specific hints), as
 whichever engine created or last configured the table left them.
 }
 \details{

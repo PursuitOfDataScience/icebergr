@@ -21,7 +21,7 @@ name: R-CMD-check
 
 permissions: read-all
 
-# A full run compiles ~308 crates per platform, so superseding an in-flight run
+# A full run compiles ~264 crates per platform, so superseding an in-flight run
 # avoids running a stale commit's matrix alongside the current one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -49,7 +49,7 @@ jobs:
   #   * Turning LTO off (CARGO_PROFILE_RELEASE_LTO=false, codegen-units 16) made
   #     it *worse*: install went 735s to 905s CPU with elapsed flat at ~480s,
   #     and the installed size went 27 Mb to 60 Mb. LTO is not the bottleneck --
-  #     compiling 308 dependency crates is, and the runner has two cores, so
+  #     compiling ~263 dependency crates is, and the runner has two cores, so
   #     raising CARGO_BUILD_JOBS does not help either.
   check:
     runs-on: ${{ matrix.config.os }}
@@ -138,8 +138,8 @@ jobs:
           build_args: 'c("--no-manual", "--no-build-vignettes")'
           args: 'c("--no-manual", "--as-cran", "--ignore-vignettes")'
 
-      # When the install step fails, R CMD check only says "see 00install.out"
-      # — and that file is inside the uploaded artefact, not the log. For a
+      # When the install step fails, R CMD check only says "see 00install.out",
+      # and that file is inside the uploaded artefact, not the log. For a
       # package whose install compiles Rust, the compiler errors are the whole
       # point, so print them.
       - name: Show install and test logs on failure
@@ -466,7 +466,7 @@ jobs:
   # build so its result lands as soon as it is known rather than after another
   # half-hour of compiling.
   #
-  # Our crate compiles last, after ~343 dependencies, so a type error in
+  # Our crate compiles last, after ~263 dependencies, so a type error in
   # src/rust/ only surfaces near the end. Budget accordingly.
   cargo-check:
     runs-on: ubuntu-latest
@@ -568,7 +568,7 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --manifest-path src/rust/Cargo.toml -- -D warnings
 
-      # Glue pulls in the AWS SDK and opendal, roughly 517 crates in total.
+      # Glue pulls in the AWS SDK and opendal, roughly 360 crates in total.
       - name: cargo check (glue feature)
         run: cargo check --manifest-path src/rust/Cargo.toml --features glue --all-targets
 

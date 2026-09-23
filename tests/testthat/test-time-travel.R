@@ -286,3 +286,25 @@ test_that("select and filter resolve against the snapshot being read", {
     "not in this table's history"
   )
 })
+
+test_that("as_of reads a POSIXlt in its own zone", {
+  catalog <- local_namespace()
+  tbl <- seed_table(catalog, "db.events", data.frame(id = 1:3L))
+  committed <- icebergr_snapshots(tbl)$timestamp[[1L]]
+
+  # The instant just after the commit, as New York wall-clock time. Read as UTC,
+  # which is what as.POSIXct(x, tz = "UTC") does to a POSIXlt, it lands four or
+  # five hours before the commit, and the scan found no snapshot.
+  after <- as.POSIXlt(committed + 1, tz = "America/New_York")
+  expect_equal(nrow(icebergr_collect(icebergr_scan(tbl, as_of = after))), 3L)
+
+  before <- as.POSIXlt(committed - 3600, tz = "America/New_York")
+  expect_error(icebergr_scan(tbl, as_of = before), "no snapshot at or before")
+
+  # A POSIXct in another zone resolves to the same snapshot, and quietly: the
+  # zones differing is a label, not something to warn about.
+  expect_no_warning(
+    elsewhere <- icebergr_scan(tbl, as_of = as.POSIXct(after))
+  )
+  expect_equal(nrow(icebergr_collect(elsewhere)), 3L)
+})

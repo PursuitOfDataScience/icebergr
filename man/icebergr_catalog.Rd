@@ -29,7 +29,10 @@ REST catalogs, the warehouse name or location the server expects.}
 
 \item{...}{Further catalog properties, passed through to \code{iceberg-rust} as
 name-value pairs. Use this for non-secret configuration such as
-\code{"s3.endpoint"} or \code{"rest.signing-region"}.}
+\code{"s3.path-style-access"} or \code{"prefix"}. \code{TRUE} and \code{FALSE} are sent as
+\code{"true"} and \code{"false"}, and a number is written out in full rather than in
+scientific notation. A property \code{iceberg-rust} does not know is ignored
+without a word, so check the spelling against its documentation.}
 
 \item{storage}{Storage backend. \code{"auto"} infers it from \code{warehouse},
 \code{"local"} forces the local filesystem, \code{"s3"} forces object storage. S3
@@ -41,7 +44,19 @@ requires the package to have been compiled with the \code{s3} Cargo feature.}
 An \code{icebergr_catalog} object.
 }
 \description{
-Connect to an Iceberg catalog
+Builds a catalog handle. For \code{type = "rest"} and \code{type = "glue"} this does
+\strong{not} contact the server: \code{iceberg-rust} opens the connection lazily, on the
+first operation that needs it. So a mistyped \code{uri}, an unreachable host or a
+missing credential all return a handle here and fail later, at
+\code{\link[=icebergr_list_namespaces]{icebergr_list_namespaces()}} or \code{\link[=icebergr_table]{icebergr_table()}}, which can look like a
+fault in those functions rather than in the connection.
+}
+\details{
+To find out straight away, ask the catalog something:
+\code{icebergr_list_namespaces(catalog)} is the cheapest round trip.
+
+\code{type = "memory"} is the exception, and is checked here: its \code{warehouse} has
+to be an existing directory, because there is no server to ask later.
 }
 \section{Credentials}{
 
@@ -61,14 +76,15 @@ but only for a connection that addresses object storage: \code{storage = "s3"},
 \code{type = "glue"}, or an \verb{s3://} \code{warehouse}. They are \emph{not} forwarded to a
 catalog that has no object storage in sight, because a third-party REST
 catalog controls each table's \code{location} and may answer with its own
-\code{s3.endpoint} -- at which point ambient keys would sign requests to a host it
+\code{s3.endpoint}, at which point ambient keys would sign requests to a host it
 chose. Set \code{storage = "s3"} if a REST catalog identified by name needs them.
 
 A credential is never sent over an unencrypted connection: an \verb{http://}
 \code{uri} or OAuth2 endpoint is an error whenever any credential property is
-populated. A loopback address is exempt, since developing against a local
-catalog is ordinary, and \code{ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true} overrides
-the check.
+populated. An \code{Authorization}, \code{Proxy-Authorization}, \code{Cookie} or \code{X-Api-Key}
+header passed as a \code{header.} property counts as one. A loopback address is
+exempt, since developing against a local catalog is ordinary, and
+\code{ICEBERGR_ALLOW_INSECURE_CREDENTIALS=true} overrides the check.
 
 Catalog properties are never printed, logged or included in error messages,
 and \verb{user:password@} in a \code{uri} is redacted when a catalog is printed. A

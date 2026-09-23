@@ -115,12 +115,18 @@ impl Iterator for BlockingBatchReader {
                 self.stream = None;
                 self.pending = None;
                 let what = panic_message(&*payload);
+                // One of our own deliberate aborts (an interrupt, a timeout, a
+                // forked process) already says what happened, and calling it a
+                // panic made pressing Ctrl-C mid-read look like a crash.
+                let message = if crate::panic::is_deliberate_message(Some(&what)) {
+                    what
+                } else {
+                    format!("icebergr: the Iceberg scan panicked while reading: {what}")
+                };
                 // ComputeError rather than ExternalError: the latter wants a
                 // Send + Sync payload, which extendr's Error is not (it can hold
                 // a SEXP).
-                Some(Err(ArrowError::ComputeError(format!(
-                    "icebergr: the Iceberg scan panicked while reading: {what}"
-                ))))
+                Some(Err(ArrowError::ComputeError(message)))
             }
         }
     }

@@ -35,10 +35,11 @@ column_ref <- function(e, columns, case_sensitive = TRUE,
 }
 
 #' @noRd
-unsupported_filter <- function(what, call) {
+unsupported_filter <- function(what, call, hint = NULL) {
   abort(
     c(
       paste0("Cannot push this filter down to Iceberg: ", what, "."),
+      i = hint,
       i = paste(
         "Supported: ==, !=, <, <=, >, >=, &, |, !, %in%, is.na(), is.nan()",
         "and startsWith()."
@@ -48,6 +49,55 @@ unsupported_filter <- function(what, call) {
     class = "icebergr_unsupported_filter",
     call = call
   )
+}
+
+#' The variables an expression reads, in the order they appear
+#'
+#' The field of `x$field` and the slot of `x@slot` are names rather than
+#' variables, so they are left out, and so is a function name in call position,
+#' which R looks up as a function rather than as data.
+#' @noRd
+expression_vars <- function(e) {
+  if (is.symbol(e)) {
+    name <- as.character(e)
+    return(if (nzchar(name)) name else character())
+  }
+  if (!is.call(e)) {
+    return(character())
+  }
+  parts <- as.list(e)
+  fn <- parts[[1L]]
+  args <- parts[-1L]
+  if (identical(fn, as.name("$")) || identical(fn, as.name("@"))) {
+    args <- args[1L]
+  }
+  # A call in function position, as in `f(x)(y)`, does read variables.
+  from_fn <- if (is.call(fn)) expression_vars(fn) else character()
+  unique(c(from_fn, unlist(lapply(args, expression_vars), use.names = FALSE)))
+}
+
+#' The table columns a value expression names
+#'
+#' A value is evaluated in the caller's environment, but a name that is a column
+#' of the table is a column wherever it appears in the filter: that is the rule
+#' the documentation states, and the one that makes a bare name mean anything.
+#' Evaluating such a name anyway compared the column against whatever a local
+#' variable of the same name happened to hold: `a > b` with a local `b` read as
+#' `a > <local b>`, silently, with no sign that column `b` had been ignored. With
+#' no such variable it failed with "object not found" beside advice saying the
+#' name was not a column when it was one.
+#' @noRd
+value_columns <- function(e, columns, case_sensitive = TRUE) {
+  vars <- expression_vars(e)
+  if (!length(vars)) {
+    return(character())
+  }
+  hit <- if (case_sensitive) {
+    vars %in% columns
+  } else {
+    tolower(vars) %in% tolower(columns)
+  }
+  vars[hit]
 }
 
 #' @noRd
@@ -77,19 +127,55 @@ translate_filter <- function(e, columns, env, case_sensitive = TRUE,
   recurse <- function(x) translate_filter(x, columns, env, case_sensitive, call)
   as_column <- function(x) column_ref(x, columns, case_sensitive, call = call)
 
+  # The value side of a comparison, evaluated in the caller's environment
+  # unless it names a column, which no evaluation can turn into a value. See
+  # value_columns() for what reading such a name as a local variable did.
+  literal <- function(x, whole) {
+    named <- value_columns(x, columns, case_sensitive)
+    if (length(named)) {
+      unsupported_filter(
+        paste0(
+          encodeString(named[[1L]], quote = "`"), " in ",
+          encodeString(deparse1(whole), quote = "`"),
+          " is a column of the table, and an Iceberg predicate compares a column ",
+          "with a value, never with another column"
+        ),
+        call,
+        hint = paste(
+          "To use a local variable of that name, give it one the table does not",
+          "have first."
+        )
+      )
+    }
+    eval_literal(x, env, call)
+  }
+
   # A literal TRUE/FALSE is a legitimate, if unusual, filter.
   if (is.logical(e) && length(e) == 1L && !is.na(e)) {
     return(list(op = if (e) "always_true" else "always_false"))
   }
 
   if (is.symbol(e)) {
+    name <- encodeString(as.character(e), quote = "`")
+    if (!is.null(as_column(e))) {
+      unsupported_filter(
+        paste0(
+          name, " is not a comparison. Iceberg has no boolean-column shorthand; write ",
+          encodeString(paste0(as.character(e), " == TRUE"), quote = "`")
+        ),
+        call
+      )
+    }
+    # Not a column, so most likely a filter built elsewhere and held in a
+    # variable. `filter` is captured unevaluated, so the variable's name is all
+    # that arrives, and the boolean-column advice above does not apply to it.
     unsupported_filter(
-      paste0(
-        encodeString(as.character(e), quote = "`"),
-        " is not a comparison. Iceberg has no boolean-column shorthand; write ",
-        encodeString(paste0(as.character(e), " == TRUE"), quote = "`")
-      ),
-      call
+      paste0(name, " is not a column of the table, and a filter has to be a comparison"),
+      call,
+      hint = paste0(
+        "`filter` is read unevaluated. To use one built in a variable, pass it ",
+        "in: do.call(icebergr_scan, list(tbl, filter = ", as.character(e), "))."
+      )
     )
   }
 
@@ -176,7 +262,7 @@ translate_filter <- function(e, columns, env, case_sensitive = TRUE,
     if (is.null(column)) {
       unsupported_filter("startsWith() must be applied to a column of the table", call)
     }
-    prefix <- eval_literal(e[[3L]], env, call)
+    prefix <- literal(e[[3L]], e)
     if (!is.character(prefix) || length(prefix) != 1L) {
       unsupported_filter("the prefix in startsWith() must be a single string", call)
     }
@@ -188,13 +274,24 @@ translate_filter <- function(e, columns, env, case_sensitive = TRUE,
     if (is.null(column)) {
       unsupported_filter("the left side of %in% must be a column of the table", call)
     }
-    values <- eval_literal(e[[3L]], env, call)
+    values <- literal(e[[3L]], e)
     if (anyNA(values)) {
+      # anyNA() is TRUE for NaN as well, and the advice differs: is.na() on a
+      # float column tests for null, not for NaN.
+      nan <- is.double(values) && is.null(attr(values, "class")) &&
+        any(is.nan(values))
       abort(
-        c(
-          "`%in%` with NA cannot be pushed down.",
-          i = "Iceberg set predicates have no NA member; combine with is.na() instead."
-        ),
+        if (nan) {
+          c(
+            "`%in%` with NaN cannot be pushed down.",
+            i = "Iceberg set predicates have no NaN member; combine with is.nan() instead."
+          )
+        } else {
+          c(
+            "`%in%` with NA cannot be pushed down.",
+            i = "Iceberg set predicates have no NA member; combine with is.na() instead."
+          )
+        },
         call = call
       )
     }
@@ -208,9 +305,9 @@ translate_filter <- function(e, columns, env, case_sensitive = TRUE,
 
     column <- as_column(lhs)
     if (!is.null(column)) {
-      value <- eval_literal(rhs, env, call)
+      value <- literal(rhs, e)
     } else if (!is.null(column <- as_column(rhs))) {
-      value <- eval_literal(lhs, env, call)
+      value <- literal(lhs, e)
       op <- flipped_ops[[op]]
     } else {
       unsupported_filter(
@@ -271,6 +368,32 @@ json_string <- function(x) {
   paste0('"', x, '"')
 }
 
+#' An instant as ISO-8601 in UTC, to the nearest microsecond
+#'
+#' Normalised to UTC and marked with `Z`, so there is no ambiguity about which
+#' zone the comparison happens in.
+#'
+#' Rounded rather than formatted with `%OS6`, which *truncates*. A `POSIXct` is
+#' a double of seconds, and the double nearest a microsecond timestamp is as
+#' often just below it as just above, so truncation sent `...00.009689` for an
+#' instant stored as `...00.009690`. A timestamp read back out of a table then
+#' failed to match itself: `ts == x` found no row for 83% of the values
+#' measured, and `>=` or `<` moved the boundary by a microsecond.
+#'
+#' Through `as.POSIXct(v)` with no `tz`, so that a `POSIXlt` (which is what
+#' `strptime()` returns) is read in its own zone. `as.POSIXct(v, tz = "UTC")`
+#' instead reinterprets its wall-clock fields *as* UTC, and moved
+#' `strptime("2024-06-01 09:00", tz = "America/New_York")` by four hours.
+#' @noRd
+iso_utc <- function(v) {
+  micros <- round(as.numeric(as.POSIXct(v)) * 1e6)
+  whole <- floor(micros / 1e6)
+  paste0(
+    format(.POSIXct(whole, tz = "UTC"), "%Y-%m-%dT%H:%M:%S", tz = "UTC"),
+    sprintf(".%06.0fZ", micros - whole * 1e6)
+  )
+}
+
 #' @noRd
 json_scalar <- function(v, call = rlang::caller_env()) {
   if (length(v) != 1L) {
@@ -315,9 +438,7 @@ json_scalar <- function(v, call = rlang::caller_env()) {
     return(json_string(format(v, "%Y-%m-%d")))
   }
   if (inherits(v, "POSIXt")) {
-    # Normalised to UTC and marked with Z, so there is no ambiguity about which
-    # zone the comparison happens in.
-    return(json_string(format(as.POSIXct(v, tz = "UTC"), "%Y-%m-%dT%H:%M:%OS6Z", tz = "UTC")))
+    return(json_string(iso_utc(v)))
   }
   if (inherits(v, "integer64")) {
     # As a digit string: an int64 beyond 2^53 cannot survive as a JSON number.

@@ -122,7 +122,19 @@ snapshot_as_of <- function(tbl, as_of, call = rlang::caller_env()) {
     )
   }
 
-  target <- as.POSIXct(as_of, tz = "UTC")
+  # A Date is that day's midnight UTC, as in Iceberg's `AS OF TIMESTAMP`. A
+  # date-time goes through as.POSIXct() with no `tz`, because given one it
+  # reads a POSIXlt's wall-clock fields *in* that zone rather than in the
+  # POSIXlt's own, which moved `strptime(..., tz = "America/New_York")` by
+  # several hours and resolved the wrong snapshot.
+  target <- if (inherits(as_of, "Date")) {
+    as.POSIXct(as_of, tz = "UTC")
+  } else {
+    as.POSIXct(as_of)
+  }
+  # Labelled the way `committed` is, which moves no instant and keeps the
+  # comparison below from warning that the two zones differ.
+  attr(target, "tzone") <- "UTC"
   eligible <- which(committed <= target)
 
   if (!length(eligible)) {

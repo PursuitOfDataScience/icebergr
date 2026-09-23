@@ -62,6 +62,9 @@ fn metadata_name_is_committable(file_name: &str) -> bool {
     version.parse::<i32>().is_ok() && uuid::Uuid::parse_str(id).is_ok()
 }
 
+/// Rows handed to the Parquet writer per call. See the write loop.
+const WRITE_SLICE_ROWS: usize = 64 * 1024;
+
 fn compression_from(name: &str) -> RResult<Compression> {
     Ok(match name.to_ascii_lowercase().as_str() {
         "zstd" => Compression::ZSTD(ZstdLevel::default()),
@@ -85,6 +88,31 @@ fn compression_from(name: &str) -> RResult<Compression> {
 /// R `Date` or `POSIXct` land in the right Iceberg type.
 fn align_batch(batch: &RecordBatch, target: &SchemaRef) -> RResult<RecordBatch> {
     let incoming = batch.schema();
+
+    // Columns are looked up by name below, and a name lookup finds the first of
+    // two columns that share one: `data.frame(a = 1, a = 2, check.names = FALSE)`
+    // appended the first `a`, and the second, a column the caller supplied and
+    // the table has, was dropped without a word.
+    let mut seen = std::collections::HashSet::new();
+    let mut repeated: Vec<&str> = incoming
+        .fields()
+        .iter()
+        .map(|f| f.name().as_str())
+        .filter(|n| !seen.insert(*n))
+        .collect();
+    if !repeated.is_empty() {
+        repeated.sort_unstable();
+        repeated.dedup();
+        return Err(extendr_api::Error::Other(format!(
+            "the data has more than one column named {}.\n\
+             Each column of the table has to be supplied exactly once.",
+            repeated
+                .iter()
+                .map(|n| format!("{n:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
 
     // A column the table does not have is almost always a typo or a stale
     // data frame, and silently dropping it would lose data without a word.
@@ -281,14 +309,25 @@ fn rs_table_append(
     );
     let data_file_writer_builder = DataFileWriterBuilder::new(rolling_writer_builder);
 
-    let data_files = block_on(async {
-        let mut writer = data_file_writer_builder.build(None).await?;
-        for batch in batches {
-            writer.write(batch).await?;
+    // One block_on per slice of rows rather than one around the whole write.
+    // The timeout in block_on bounds a single call, and is documented as
+    // bounding one unit of work; wrapped around everything, it bounded the whole
+    // upload, so an append big enough to take longer than the ceiling to reach
+    // object storage was abandoned part-way: reported as the storage not
+    // responding, with its Parquet already in the warehouse. A slice is a view,
+    // not a copy, and Parquet row groups are sized by the writer rather than by
+    // the calls it receives, so the files come out the same.
+    let write_err = |e| ctx("could not write the data files", e);
+    let mut writer = block_on(data_file_writer_builder.build(None)).map_err(write_err)?;
+    for batch in batches {
+        let mut offset = 0;
+        while offset < batch.num_rows() {
+            let len = WRITE_SLICE_ROWS.min(batch.num_rows() - offset);
+            block_on(writer.write(batch.slice(offset, len))).map_err(write_err)?;
+            offset += len;
         }
-        writer.close().await
-    })
-    .map_err(|e| ctx("could not write the data files", e))?;
+    }
+    let data_files = block_on(writer.close()).map_err(write_err)?;
 
     let snapshot_properties: HashMap<String, String> =
         property_keys.into_iter().zip(property_values).collect();

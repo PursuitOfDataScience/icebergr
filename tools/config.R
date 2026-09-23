@@ -199,6 +199,32 @@ new_txt <- gsub("@PROFILE@", .profile, new_txt)
 new_txt <- gsub("@CLEAN_TARGET@", .clean_targets, new_txt)
 new_txt <- gsub("@LIBDIR@", .libdir, new_txt)
 
+# Every placeholder has to have been substituted. An unsubstituted one is not
+# inert: it survives into src/Makevars as a literal, make passes it to cargo as
+# an argument, and the build fails several minutes later complaining about
+# something like `@NEW_THING@` with no hint that a template and this script have
+# drifted apart. The two sets agree today; this is what keeps them agreeing when
+# the next option is added to one and not the other.
+leftover <- unique(unlist(regmatches(
+  new_txt, gregexpr("@[A-Z_][A-Z_0-9]*@", new_txt)
+)))
+if (length(leftover)) {
+  stop(paste(
+    c(
+      "",
+      "-------------------- [UNSUBSTITUTED PLACEHOLDER] --------------------",
+      paste0("`", mv_fp, "` contains placeholders that `tools/config.R` does"),
+      "not substitute:",
+      "",
+      paste("  ", leftover, collapse = "\n"),
+      "",
+      "Add a `gsub()` for each, next to the others above.",
+      "---------------------------------------------------------------------"
+    ),
+    collapse = "\n"
+  ))
+}
+
 message("Writing `", mv_ofp, "`.")
 con <- file(mv_ofp, open = "wb")
 writeLines(new_txt, con, sep = "\n")

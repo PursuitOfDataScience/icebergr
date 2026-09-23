@@ -23,10 +23,10 @@ show <- function(x) {
 }
 ```
 
-Writing is the capability that routing through a query engine does not give you
-[@raasveldt2019duckdb]: a commit is a table-format operation, not a query. This
-version writes appends, creates tables and namespaces, and registers existing
-tables. Everything it will not do, it refuses before writing anything.
+Writing is where a table format earns its keep: a commit is a table-format
+operation, not a query [@icebergspec]. This version writes appends, creates
+tables and namespaces, and registers existing tables. Everything it will not do,
+it refuses before writing anything.
 
 Every example here runs against a local warehouse on your own machine.
 
@@ -50,7 +50,7 @@ icebergr_create_namespace(catalog, "shop")
 icebergr_list_namespaces(catalog)
 ```
 
-`icebergr_create_table()` takes a data frame, but **only to read its schema off —
+`icebergr_create_table()` takes a data frame, but **only to read its schema off:
 no rows are written**. The new table is empty, with no snapshot at all:
 
 ```{r}
@@ -66,7 +66,7 @@ show(orders)
 ```
 
 `snapshot: <none>` is the tell. An Iceberg table with no commits is a legitimate
-state — schema and no data — and it is what you get here. The rows come next.
+state, a schema with no data, and it is what you get here. The rows come next.
 
 ## Appending
 
@@ -82,7 +82,7 @@ icebergr_collect(orders)
 ```
 
 `icebergr_append()` returns a *new* handle, pointing at the snapshot the append
-created. Reassigning is not optional bookkeeping — the old handle still reads the
+created. Reassigning is not optional bookkeeping; the old handle still reads the
 old snapshot, by design:
 
 ```{r}
@@ -117,8 +117,8 @@ most of the work, and block compression on top of it buys less than it used to.
 ## Commits are atomic, and optimistic
 
 An append writes its Parquet, writes new manifests, and then swaps the table
-pointer — one atomic step, whose failure mode is that nothing happened rather than
-that half of it did. If another writer committed in between, the swap is rejected
+pointer in one atomic step, whose failure mode is that nothing happened rather
+than that half of it did. If another writer committed in between, the swap is rejected
 and retried against the new state, which is how all three lakehouse formats
 handle concurrency [@armbrust2020delta; @jain2023lakehouse].
 
@@ -135,28 +135,28 @@ file, without moving or rewriting data:
 ```{r, eval = FALSE}
 icebergr_register_table(
   catalog, "shop.archive",
-  "s3://warehouse/shop/archive/metadata/00007-8b1c….metadata.json"
+  file.path(warehouse, "shop/archive/metadata/00007-8b1c….metadata.json")
 )
 ```
 
-The file has to be named the way every Iceberg engine names them —
+The file has to be named the way every Iceberg engine names them,
 `<version>-<uuid>.metadata.json`, because the next version number is derived
 from that name. A renamed file registers and reads perfectly well; it is the
 *append* that cannot work.
 
 That append is refused at the start, before any Parquet is written, and the error
 names the file. Left to Iceberg the name is only inspected when the commit is
-attempted — by which point the data files are already in the warehouse, and this
+attempted, by which point the data files are already in the warehouse, and this
 package exposes no maintenance operation to clear them.
 
-It also has to sit inside the catalog's warehouse, which is what `confine =
-TRUE` — the default — requires. A metadata file names absolute paths for its
+It also has to sit inside the catalog's warehouse, which is what the default,
+`confine = TRUE`, requires. A metadata file names absolute paths for its
 data, so one from an untrusted source reads whatever its author chose; pass
 `confine = FALSE` only for a file you trust.
 
 ## What is refused, and why that is the design
 
-Three write operations are unavailable, and each fails before touching the
+Several write operations are unavailable, and each fails before touching the
 warehouse:
 
 ```{r}
@@ -179,12 +179,13 @@ partitioned table works, and `icebergr_partitions()` reports its spec.
 
 **Row-level deletes and `MERGE`.** `iceberg-rust` 0.10.0 can write an equality
 delete file but has no transaction action that commits one. Reading merge-on-read
-tables another engine wrote works — both positional and equality deletes are
+tables another engine wrote works: both positional and equality deletes are
 applied.
 
 **Overwrites.** `fast_append` is the only way 0.10.0 can add files to a table.
 
-That split — refuse loudly here, read whatever anyone else wrote — is deliberate.
+That split, refusing loudly here while reading whatever anyone else wrote, is
+deliberate.
 A narrow surface that is correct is worth more than a broad one that commits
 something subtly wrong, and the format is designed so that a client which does
 not implement a feature can still read tables that use it [@icebergspec].
@@ -199,7 +200,7 @@ icebergr_list_tables(catalog, "shop")
 ```
 
 `icebergr_properties()` reads the table's properties, and returns a zero-row
-tibble when it has none — as a freshly created table does:
+tibble when it has none, as a freshly created table does:
 
 ```{r}
 icebergr_properties(orders)

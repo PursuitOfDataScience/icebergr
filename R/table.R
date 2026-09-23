@@ -69,9 +69,9 @@ icebergr_table <- function(catalog, table) {
 #'
 #' @details
 #' A namespace that does not exist gives `FALSE` rather than an error, since it
-#' cannot hold the table either way. Any other failure -- an unreachable catalog,
-#' a rejected credential -- is still an error, because reporting one of those as
-#' "no such table" would be a confident wrong answer.
+#' cannot hold the table either way. Any other failure, such as an unreachable
+#' catalog or a rejected credential, is still an error, because reporting one of
+#' those as "no such table" would be a confident wrong answer.
 #'
 #' @examples
 #' warehouse <- tempfile("warehouse")
@@ -128,7 +128,7 @@ icebergr_reload <- function(tbl) {
 #' The properties of an Iceberg table
 #'
 #' Table properties are the free-form key-value settings Iceberg stores in table
-#' metadata -- write defaults, compaction targets, engine-specific hints -- as
+#' metadata (write defaults, compaction targets, engine-specific hints), as
 #' whichever engine created or last configured the table left them.
 #'
 #' @param tbl An `icebergr_table` from [icebergr_table()].

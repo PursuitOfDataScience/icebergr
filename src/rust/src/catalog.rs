@@ -36,9 +36,22 @@ pub struct RCatalog {
     pub inner: Arc<dyn Catalog>,
 }
 
+/// Whether `w` starts with `scheme://`, ignoring case.
+///
+/// A URI scheme is case-insensitive, and iceberg-rust's `FileIO` treats it so,
+/// since it parses locations as URLs: `S3://bucket` is an S3 location to it. The
+/// R side already matched `s3://` case-insensitively when deciding whether to
+/// forward AWS credentials, so a case-sensitive test here disagreed with it and
+/// put an `S3://` warehouse on the local filesystem.
+fn has_scheme(w: &str, scheme: &str) -> bool {
+    w.len() > scheme.len() + 3
+        && w.as_bytes()[..scheme.len()].eq_ignore_ascii_case(scheme.as_bytes())
+        && w.as_bytes()[scheme.len()..].starts_with(b"://")
+}
+
 fn looks_like_local_path(w: &str) -> bool {
     let b = w.as_bytes();
-    w.starts_with("file://")
+    has_scheme(w, "file")
         || w.starts_with('/')
         // Windows drive letter, e.g. C:\warehouse. The leading byte has to be a
         // letter: without that check any string with a colon in second position
@@ -74,17 +87,7 @@ fn storage_factory(
     storage: &str,
     warehouse: Option<&str>,
 ) -> RResult<Option<Arc<dyn StorageFactory>>> {
-    let resolved = if storage == "auto" {
-        match warehouse {
-            Some(w) if w.starts_with("s3://") || w.starts_with("s3a://") => "s3",
-            Some(w) if looks_like_local_path(w) => "local",
-            _ => "default",
-        }
-    } else {
-        storage
-    };
-
-    match resolved {
+    match resolve_storage(storage, warehouse) {
         "local" => Ok(Some(
             Arc::new(LocalFsStorageFactory) as Arc<dyn StorageFactory>
         )),
@@ -93,6 +96,18 @@ fn storage_factory(
         other => Err(extendr_api::Error::Other(format!(
             "unknown storage backend {other:?}; expected \"auto\", \"local\" or \"s3\""
         ))),
+    }
+}
+
+/// Which backend `storage` names, reading `"auto"` off the warehouse.
+fn resolve_storage<'a>(storage: &'a str, warehouse: Option<&str>) -> &'a str {
+    if storage != "auto" {
+        return storage;
+    }
+    match warehouse {
+        Some(w) if has_scheme(w, "s3") || has_scheme(w, "s3a") => "s3",
+        Some(w) if looks_like_local_path(w) => "local",
+        _ => "default",
     }
 }
 
@@ -227,4 +242,37 @@ extendr_module! {
     fn rs_list_tables;
     fn rs_namespace_exists;
     fn rs_create_namespace;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_scheme_matches_in_any_case_and_only_as_a_scheme() {
+        assert!(has_scheme("s3://bucket/wh", "s3"));
+        assert!(has_scheme("S3://bucket/wh", "s3"));
+        assert!(has_scheme("File:///data/wh", "file"));
+        // A prefix of the scheme, or the scheme with nothing after it, is not.
+        assert!(!has_scheme("s3a://bucket/wh", "s3"));
+        assert!(!has_scheme("s3://", "s3"));
+        assert!(!has_scheme("s3", "s3"));
+        assert!(!has_scheme("", "s3"));
+    }
+
+    #[test]
+    fn auto_reads_the_backend_off_the_warehouse() {
+        // The case that disagreed with the R side: an upper-case scheme was not
+        // object storage here, so a memory catalog put it on the local disk.
+        assert_eq!(resolve_storage("auto", Some("S3://bucket/wh")), "s3");
+        assert_eq!(resolve_storage("auto", Some("s3a://bucket/wh")), "s3");
+        assert_eq!(resolve_storage("auto", Some("/data/wh")), "local");
+        assert_eq!(resolve_storage("auto", Some("C:/data/wh")), "local");
+        assert_eq!(resolve_storage("auto", Some("FILE:///data/wh")), "local");
+        // A REST warehouse identified by name leaves the builder's default.
+        assert_eq!(resolve_storage("auto", Some("analytics")), "default");
+        assert_eq!(resolve_storage("auto", None), "default");
+        // An explicit choice is never second-guessed.
+        assert_eq!(resolve_storage("local", Some("s3://bucket/wh")), "local");
+    }
 }
