@@ -56,23 +56,34 @@
   </div>
 </nav><div class="container template-home">
 <div class="row">
-  <main id="main" class="col-md-9"><p align="center">
-<img src="reference/figures/logo.png" height="140" alt=""></p>
+  <main id="main" class="col-md-9"><div class="section level1">
 <div class="page-header">
-<img src="logo.svg" class="logo" alt=""><h1 align="center">
-icebergr
+<img src="logo.svg" class="logo" alt=""><h1 id="icebergr-">icebergr <a class="anchor" aria-label="anchor" href="#icebergr-"></a>
 </h1>
 </div>
-<p align="center">
-<b>Read, time-travel and append to Apache Iceberg tables, straight from R.</b><br> No Spark, no JVM, no SQL engine in the middle. 🧊
-</p>
 <!-- badges: start -->
 
-<!-- badges: end -->
+<p><strong>Read, time-travel and append to Apache Iceberg tables, straight from R.</strong><br>
+No Spark, no JVM, no SQL engine in the middle. 🧊</p>
+<div class="section level2">
+<h2 id="package-installation">📦 Installation<a class="anchor" aria-label="anchor" href="#package-installation"></a>
+</h2>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># the CRAN release</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"icebergr"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># or the development version, from r-universe</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"icebergr"</span>, repos <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span></span>
+<span>  <span class="st">"https://pursuitofdatascience.r-universe.dev"</span>,</span>
+<span>  <span class="st">"https://cloud.r-project.org"</span></span>
+<span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<p>On Windows and macOS that is a prebuilt binary. On Linux, R compiles it, so install <a href="https://rustup.rs" class="external-link">Rust</a> 1.92 or newer first:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="ex">curl</span> <span class="at">--proto</span> <span class="st">'=https'</span> <span class="at">--tlsv1.2</span> <span class="at">-sSf</span> https://sh.rustup.rs <span class="kw">|</span> <span class="fu">sh</span></span></code></pre></div>
+</div>
 <div class="section level2">
 <h2 id="mag-read">🔍 Read<a class="anchor" aria-label="anchor" href="#mag-read"></a>
 </h2>
-<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://pursuitofdatascience.github.io/icebergr/">icebergr</a></span><span class="op">)</span></span>
 <span><span class="va">tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/icebergr_example_table.html">icebergr_example_table</a></span><span class="op">(</span><span class="op">)</span> <span class="co"># a real Iceberg table, built on your machine</span></span>
 <span></span>
@@ -89,7 +100,7 @@ icebergr
 <div class="section level2">
 <h2 id="hourglass_flowing_sand-time-travel-and-writing_hand-appends">⏳ Time travel and ✍️ appends<a class="anchor" aria-label="anchor" href="#hourglass_flowing_sand-time-travel-and-writing_hand-appends"></a>
 </h2>
-<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">first</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/icebergr_snapshots.html">icebergr_snapshots</a></span><span class="op">(</span><span class="va">tbl</span><span class="op">)</span><span class="op">$</span><span class="va">snapshot_id</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="fu"><a href="reference/icebergr_collect.html">icebergr_collect</a></span><span class="op">(</span><span class="fu"><a href="reference/icebergr_scan.html">icebergr_scan</a></span><span class="op">(</span><span class="va">tbl</span>, snapshot_id <span class="op">=</span> <span class="va">first</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 500</span></span>
@@ -99,15 +110,13 @@ icebergr
 <span><span class="co">#&gt; [1] 1002</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="rocket-setup">🚀 Setup<a class="anchor" aria-label="anchor" href="#rocket-setup"></a>
+<h2 id="electric_plug-your-own-catalog">🔌 Your own catalog<a class="anchor" aria-label="anchor" href="#electric_plug-your-own-catalog"></a>
 </h2>
-<ol style="list-style-type: decimal">
-<li><code>install.packages("icebergr")</code></li>
-<li>Building from source (Linux, or the GitHub version)? Get Rust first: <code>curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh</code>
-</li>
-<li>Put your token in <code>~/.Renviron</code> as <code>ICEBERGR_REST_TOKEN=...</code>, then connect: <code>icebergr_table(icebergr_catalog("rest", uri = "https://your.catalog"), "db.events")</code>
-</li>
-</ol>
+<p>Put your token in <code>~/.Renviron</code> as <code>ICEBERGR_REST_TOKEN=...</code> and restart R, then:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">catalog</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/icebergr_catalog.html">icebergr_catalog</a></span><span class="op">(</span><span class="st">"rest"</span>, uri <span class="op">=</span> <span class="st">"https://your.catalog"</span><span class="op">)</span></span>
+<span><span class="va">tbl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/icebergr_table.html">icebergr_table</a></span><span class="op">(</span><span class="va">catalog</span>, <span class="st">"db.events"</span><span class="op">)</span></span></code></pre></div>
+<p>AWS Glue, S3 and every other setting: <a href="https://pursuitofdatascience.github.io/icebergr/articles/catalog-configuration.html">catalog configuration</a>.</p>
 </div>
 <div class="section level2">
 <h2 id="world_map-what-works">🗺️ What works<a class="anchor" aria-label="anchor" href="#world_map-what-works"></a>
@@ -187,7 +196,7 @@ icebergr
 </h2>
 <p>GPL (&gt;= 3); bundled Rust crates keep their own licences (<code>inst/NOTICE</code>, <code>LICENSE.note</code>). Apache, Apache Iceberg and Iceberg are trademarks of The Apache Software Foundation; icebergr is a community package, not affiliated with or endorsed by the ASF.</p>
 </div>
-
+</div>
   </main><aside class="col-md-3"><div class="links">
 <h2 data-toc-skip>Links</h2>
 <ul class="list-unstyled">

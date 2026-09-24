@@ -1,10 +1,29 @@
 # icebergr
 
-![](reference/figures/logo.png)
-
 **Read, time-travel and append to Apache Iceberg tables, straight from
 R.**  
 No Spark, no JVM, no SQL engine in the middle. 🧊
+
+## 📦 Installation
+
+``` r
+
+# the CRAN release
+install.packages("icebergr")
+
+# or the development version, from r-universe
+install.packages("icebergr", repos = c(
+  "https://pursuitofdatascience.r-universe.dev",
+  "https://cloud.r-project.org"
+))
+```
+
+On Windows and macOS that is a prebuilt binary. On Linux, R compiles it,
+so install [Rust](https://rustup.rs) 1.92 or newer first:
+
+``` sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 ## 🔍 Read
 
@@ -43,14 +62,19 @@ nrow(icebergr_collect(tbl))
 #> [1] 1002
 ```
 
-## 🚀 Setup
+## 🔌 Your own catalog
 
-1.  `install.packages("icebergr")`
-2.  Building from source (Linux, or the GitHub version)? Get Rust first:
-    `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-3.  Put your token in `~/.Renviron` as `ICEBERGR_REST_TOKEN=...`, then
-    connect:
-    `icebergr_table(icebergr_catalog("rest", uri = "https://your.catalog"), "db.events")`
+Put your token in `~/.Renviron` as `ICEBERGR_REST_TOKEN=...` and restart
+R, then:
+
+``` r
+
+catalog <- icebergr_catalog("rest", uri = "https://your.catalog")
+tbl <- icebergr_table(catalog, "db.events")
+```
+
+AWS Glue, S3 and every other setting: [catalog
+configuration](https://pursuitofdatascience.github.io/icebergr/articles/catalog-configuration.html).
 
 ## 🗺️ What works
 

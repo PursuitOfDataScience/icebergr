@@ -41,9 +41,9 @@ tbl <- icebergr_example_table(rows = 200)
 show(tbl)
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: <tempdir>/icebergr-warehouse2ae6583e1c83/db/events
+#>   location: <tempdir>/icebergr-warehouse2c0e3cdaafde/db/events
 #>   format:   v2
-#>   snapshot: 8533004476597629907
+#>   snapshot: 6525123310428547275
 #>   columns:  5
 #>     id <int>
 #>     event <string>
@@ -97,11 +97,11 @@ icebergr_collect(icebergr_scan(tbl, limit = 5))
 #> # A tibble: 5 × 5
 #>      id event    amount day        recorded_at        
 #>   <int> <chr>     <dbl> <date>     <dttm>             
-#> 1     1 click      0.5  2024-01-01 2024-01-01 00:00:00
-#> 2     2 view       1.75 2024-01-02 2024-01-01 01:00:00
-#> 3     3 purchase   3.01 2024-01-03 2024-01-01 02:00:00
-#> 4     4 scroll     4.26 2024-01-04 2024-01-01 03:00:00
-#> 5     5 click      5.52 2024-01-05 2024-01-01 04:00:00
+#> 1  1001 purchase   500  2024-06-01 2024-06-01 00:00:00
+#> 2  1002 refund     503. 2024-06-02 2024-06-01 01:00:00
+#> 3  1003 purchase   505. 2024-06-03 2024-06-01 02:00:00
+#> 4  1004 refund     508. 2024-06-04 2024-06-01 03:00:00
+#> 5  1005 purchase   510. 2024-06-05 2024-06-01 04:00:00
 ```
 
 Scanning the whole table is common enough to have a shorthand:
@@ -241,8 +241,8 @@ history[, c("snapshot_id", "operation", "added_records", "total_records")]
 #> # A tibble: 2 × 4
 #>   snapshot_id         operation added_records total_records
 #>   <chr>               <chr>             <dbl>         <dbl>
-#> 1 3169512677046540111 append              200           200
-#> 2 8533004476597629907 append              200           400
+#> 1 7476869258786989771 append              200           200
+#> 2 6525123310428547275 append              200           400
 ```
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as
