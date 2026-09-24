@@ -11,20 +11,36 @@ knitr::opts_chunk$set(
 )
 ```
 
-<p align="center"><img src="man/figures/logo.png" height="140" alt="" /></p>
-
-<h1 align="center">icebergr</h1>
-
-<p align="center"><b>Read, time-travel and append to Apache Iceberg tables, straight from R.</b><br>
-No Spark, no JVM, no SQL engine in the middle. 🧊</p>
+# icebergr <img src="man/figures/logo.png" align="right" height="139" alt="" />
 
 <!-- badges: start -->
-<p align="center">
-<a href="https://CRAN.R-project.org/package=icebergr"><img src="https://www.r-pkg.org/badges/version/icebergr" alt="CRAN status" /></a>
-<a href="https://CRAN.R-project.org/package=icebergr"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcranlogs.r-pkg.org%2Fdownloads%2Ftotal%2F1990-01-01%3A2030-01-01%2Ficebergr&amp;query=%24%5B0%5D.downloads&amp;label=downloads&amp;color=blue" alt="CRAN downloads" /></a>
-<a href="https://github.com/PursuitOfDataScience/icebergr/actions/workflows/R-CMD-check.yaml"><img src="https://github.com/PursuitOfDataScience/icebergr/actions/workflows/R-CMD-check.yaml/badge.svg" alt="R-CMD-check" /></a>
-</p>
+[![CRAN status](https://www.r-pkg.org/badges/version/icebergr)](https://CRAN.R-project.org/package=icebergr)
+[![CRAN downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcranlogs.r-pkg.org%2Fdownloads%2Ftotal%2F1990-01-01%3A2030-01-01%2Ficebergr&query=%24%5B0%5D.downloads&label=downloads&color=blue)](https://CRAN.R-project.org/package=icebergr)
+[![R-CMD-check](https://github.com/PursuitOfDataScience/icebergr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/PursuitOfDataScience/icebergr/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
+
+**Read, time-travel and append to Apache Iceberg tables, straight from R.**\
+No Spark, no JVM, no SQL engine in the middle. 🧊
+
+## 📦 Installation
+
+```{r}
+# the CRAN release
+install.packages("icebergr")
+
+# or the development version, from r-universe
+install.packages("icebergr", repos = c(
+  "https://pursuitofdatascience.r-universe.dev",
+  "https://cloud.r-project.org"
+))
+```
+
+On Windows and macOS that is a prebuilt binary. On Linux, R compiles it, so install
+[Rust](https://rustup.rs) 1.92 or newer first:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 ## 🔍 Read
 
@@ -57,13 +73,17 @@ nrow(icebergr_collect(tbl))
 #> [1] 1002
 ```
 
-## 🚀 Setup
+## 🔌 Your own catalog
 
-1. `install.packages("icebergr")`
-2. Building from source (Linux, or the GitHub version)? Get Rust first:
-   `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-3. Put your token in `~/.Renviron` as `ICEBERGR_REST_TOKEN=...`, then connect:
-   `icebergr_table(icebergr_catalog("rest", uri = "https://your.catalog"), "db.events")`
+Put your token in `~/.Renviron` as `ICEBERGR_REST_TOKEN=...` and restart R, then:
+
+```{r}
+catalog <- icebergr_catalog("rest", uri = "https://your.catalog")
+tbl <- icebergr_table(catalog, "db.events")
+```
+
+AWS Glue, S3 and every other setting:
+[catalog configuration](https://pursuitofdatascience.github.io/icebergr/articles/catalog-configuration.html).
 
 ## 🗺️ What works
 

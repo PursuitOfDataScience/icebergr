@@ -1,4 +1,4 @@
-# Generates man/figures/data-path.png and .svg -- the diagram that replaces the
+# Generates man/figures/data-path.png and .svg: the diagram that replaces the
 # README's paragraphs about pushdown and the Arrow interchange layer.
 #
 # Same approach as data-raw/logo.R: one geometry definition, two writers, no
@@ -95,7 +95,7 @@ for (i in seq_along(FILES)) {
 }
 note(
   X0, ROW3$y + ROW3$h + 32,
-  "two files read, four skipped — and within those two, only the row groups the filter can match", MUTED
+  "two files read, four skipped, and within those two, only the row groups the filter can match", MUTED
 )
 
 chip(X0, BACK$y, CW, BACK$h, PANEL, CYAN)
@@ -195,7 +195,7 @@ for (i in seq_along(FILES)) {
 }
 say(
   X0, ROW3$y + ROW3$h + 32,
-  "two files read, four skipped — and within those two, only the row groups the filter can match",
+  "two files read, four skipped, and within those two, only the row groups the filter can match",
   20, MUTED
 )
 
