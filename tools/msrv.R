@@ -9,9 +9,10 @@
 # This is the *only* version gate: src/Makevars{,.win} pass
 # --ignore-rust-version to cargo, because four crates in the tree declare
 # rust-version = "1.94" under iceberg-rust's rolling-MSRV policy without needing
-# it, and cargo would otherwise refuse to build on the 1.92 toolchain CRAN's
-# Windows farm carries. So the floor in DESCRIPTION has to be a version the
-# package has really been checked against, not an aspiration.
+# it, and cargo would otherwise refuse to build on the 1.91 and 1.92 toolchains
+# CRAN's oldest macOS and Windows builders carry. So the floor in DESCRIPTION
+# has to be a version the package has really been checked against, not an
+# aspiration.
 
 desc <- read.dcf("DESCRIPTION")
 
@@ -19,7 +20,7 @@ if (!"SystemRequirements" %in% colnames(desc)) {
   stop(paste(
     c(
       "`SystemRequirements` not found in `DESCRIPTION`.",
-      "Please specify `SystemRequirements: Cargo (Rust's package manager), rustc >= 1.92`"
+      "Please specify `SystemRequirements: Cargo (Rust's package manager), rustc >= 1.88`"
     ),
     collapse = "\n"
   ))
@@ -36,7 +37,7 @@ if (!grepl("rustc", sysreqs, ignore.case = TRUE)) {
 }
 
 parts <- strsplit(sysreqs, ", ")[[1]]
-# Case-insensitive, like the presence check above: otherwise "Rustc >= 1.92"
+# Case-insensitive, like the presence check above: otherwise "Rustc >= 1.88"
 # passed that check and then matched nothing here.
 rustc_req <- parts[grepl("rustc", parts, ignore.case = TRUE)]
 
@@ -122,7 +123,7 @@ if (length(rustc_req) != 1L || is.na(msrv)) {
       "",
       paste("  ", if (length(rustc_req)) paste(rustc_req, collapse = " | ") else "<none>"),
       "",
-      "It has to look like `rustc >= 1.92`, with major and minor at least.",
+      "It has to look like `rustc >= 1.88`, with major and minor at least.",
       "---------------------------------------------------------------------"
     ),
     collapse = "\n"

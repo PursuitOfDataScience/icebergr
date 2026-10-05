@@ -1,11 +1,54 @@
 # icebergr 0.2.0
 
-`iceberg-rust` is unmoved at 0.10.0, and no function was gained or lost. This
-release fixes an append that could leave a table unreadable, filters that
-returned the wrong rows without saying so, and a hang in forked workers, and it
-stops handing credentials to things that should not have them.
+No function was gained or lost. This release fixes an append that could leave a
+table unreadable, filters that returned the wrong rows without saying so,
+including on any table whose schema another engine has changed, and a hang in
+forked workers. It stops handing credentials to things that should not have
+them, and it installs where 0.1.0 could not: on Alpine Linux, and with the
+older Rust toolchain on CRAN's oldest macOS builder.
 
 ## Bug fixes
+
+* **A filter on a column that older data files lack returned rows R would
+  not.** After another engine adds a column, the files written before it do
+  not have one, and `iceberg-rust` 0.10 answers a predicate on such a file
+  with a fixed value per operator, some of them TRUE: `b < 15` returned every
+  row of every older file, each with `b` `NA`, and so did `b <= 15`,
+  `!(b > 15)`, `s < "y"` and `!startsWith(s, "x")`. Each comparison now also
+  requires a value to be present, which is what R and Iceberg's own null rules
+  both say. Of 100 random filters over such a table, 15 disagreed with R
+  before and none do now.
+* **A read made after another engine changed the schema without writing
+  checked names against the wrong schema.** An `ALTER TABLE ... RENAME COLUMN`
+  makes a new schema current while the current snapshot still names the old
+  one, and `iceberg-rust` reads with the snapshot's. `filter` and `select`
+  were checked against the table's current schema instead, so the renamed
+  column could be selected by neither name, an added one passed the check and
+  failed in planning, and a read that found no rows reported columns one that
+  found rows did not. Names now resolve against the current snapshot's schema,
+  and selecting a column only the newer schema has says why it is refused.
+* **`case_sensitive = FALSE` broke filters on a table with both `id` and
+  `ID`.** Each name was resolved to the right column here, then bound again by
+  `iceberg-rust`, whose case-insensitive index keeps only one of the two, so a
+  filter on the other failed with "Can't convert datum", or, between columns
+  of the same type, read the wrong one. An empty result could also report the
+  wrong one of the pair.
+* **A decimal filter value below about 1e-5, or of 1e16 or more, was refused**
+  as "exponent notation" although R had written it out in full, so a
+  `decimal(18, 8)` column could not be compared with `0.00000002` at all.
+* **An append to a table registered from a metadata file outside the table's
+  `metadata` directory** wrote its Parquet and then failed to commit, leaving
+  the files behind. It is now refused before anything is written, as a
+  misnamed file already was. Both checks are now skipped for a REST catalog,
+  whose server chooses metadata locations itself and may name them as it
+  likes.
+* **`icebergr_create_table(location =)` recorded the path as typed.**
+  `"~/tables/events"` created a directory literally called `~` in the working
+  directory, a relative path left the table readable only from there, and
+  `""` tried to create `/metadata` at the filesystem root. A local path is now
+  expanded and made absolute, and an empty one is refused.
+* An infinite `Date` or `POSIXct` in a filter is refused as infinite, rather
+  than reaching `iceberg-rust` as a date to parse spelled "Inf".
 
 * **`icebergr_append(properties =)` could make a table unreadable.** A property
   named `operation` was written as a second `"operation"` key in the table's
@@ -87,8 +130,10 @@ Closing the review findings tracked in
   behaviour.
 * An error carrying an upstream message no longer leaks a credential the
   upstream echoed: `user:password@` in a URL, and the value of a secret query
-  or form parameter such as `client_secret` or `X-Amz-Signature`, are redacted.
-  The module already promised this and only delivered it for the key list.
+  or form parameter such as `client_secret` or `X-Amz-Signature`, are redacted,
+  whether it is written `key=value`, `key = value` or as a JSON field,
+  `"client_secret": "..."`. The module already promised this and only
+  delivered it for the key list.
 * `print()` on a catalog redacts `user:password@` in its `uri`.
 * **Every await now has a five-minute ceiling.** A catalog that accepted the
   connection and never answered used to wedge the session permanently, since
@@ -119,6 +164,29 @@ Closing the review findings tracked in
   recognises this package's own deliberate aborts and stays quiet for them. A
   genuine bug, such as an index out of bounds or an `unwrap()` on `NULL`, still
   prints in full.
+
+## Installation
+
+* **Installs on Alpine Linux and other musl systems.** `vendor.tar.xz` was
+  compressed with a 128 MiB dictionary, and BusyBox's `tar`, which those
+  systems use, refuses anything over 64 MiB, reporting only "corrupted data".
+  CRAN's musl check recorded exactly that for 0.1.0. It is now 64 MiB, and
+  `tools/vendor.R` checks the archive it writes.
+* **`rustc` 1.88 or newer, down from 1.92**, measured by building the vendored
+  tree with 1.88.0 and running the test suite on it. CRAN's r-oldrel-macos-arm64
+  builder carries 1.91.1, so 0.1.0 could not be installed there. `uuid` is held
+  below 1.27, the first release to need 1.89.
+* Every Rust dependency is at its latest compatible version. `iceberg-rust` is
+  0.10.1, whose Rust code is identical to 0.10.0's. `rustls` 0.23.45 fixes
+  RUSTSEC-2026-0285, `tokio` 1.53.2 fixes several runtime and timer bugs, and
+  for the optional `s3` and `glue` features `h2` 0.4.19 fixes RUSTSEC-2026-0258.
+  Those two features still carry `quick-xml` 0.39.4, affected by
+  RUSTSEC-2026-0194 and RUSTSEC-2026-0195, because `opendal` 0.57, the version
+  `iceberg-rust` 0.10 requires, depends on it.
+* `icebergr_spec_support()` now reads the `iceberg-rust` and `arrow` versions
+  it reports out of `Cargo.lock` when the package is built, rather than from
+  strings typed into the source that a dependency bump could leave stale, and
+  `arrow_version` carries the patch number.
 
 ## Documentation
 

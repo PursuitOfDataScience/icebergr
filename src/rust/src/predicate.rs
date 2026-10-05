@@ -94,7 +94,7 @@ pub struct BuiltPredicate {
     pub predicate: Predicate,
     /// Whether any column the predicate references is a `decimal`.
     ///
-    /// iceberg-rust 0.10.0's row-selection filter drops *every* row for an
+    /// iceberg-rust 0.10's row-selection filter drops *every* row for an
     /// ordering comparison against a decimal column. On a `decimal(10, 2)`
     /// holding 1.50, 2.25, 10.00 and 99.99, `price > 2.25` returns nothing and
     /// `price <= 10` returns nothing, while the same scans with row selection
@@ -342,20 +342,44 @@ fn float_compare(op: Cmp, r: &Reference, d: &Datum, ty: &PrimitiveType) -> Predi
     }
 }
 
+/// The rows where `col` holds a value R can compare: not null, and for a float
+/// not NaN either, since a comparison with NaN is NA in R.
+///
+/// `IS NOT NULL` looks redundant beside a comparison, which is already null for
+/// a null row, and in a file that has the column it is. It is there for a file
+/// that does not. A column another engine added after a file was written is
+/// absent from that file, and iceberg-rust 0.10's row filter reads an absent
+/// column as "treat it as null" by answering each predicate outright, from a
+/// table of constants in `predicate_visitor.rs` that disagrees with itself:
+/// `<`, `<=`, `NOT STARTS WITH`, `NOT IN` and `NOT NAN` answer TRUE, the rest
+/// FALSE. So `b < 15` returned every row of every older file, each with `b` NA,
+/// which neither R nor Iceberg's own null semantics would. `IS NOT NULL` is one
+/// of the constants it gets right (FALSE), so the conjunction is FALSE there,
+/// and costs nothing where the column is present.
+fn comparable(r: &Reference, ty: &PrimitiveType) -> Predicate {
+    let present = r.clone().is_not_null();
+    if is_float(ty) {
+        present.and(r.clone().is_not_nan())
+    } else {
+        present
+    }
+}
+
 /// `col <op> value`: TRUE where R says TRUE, FALSE where R says FALSE, and
 /// neither for a null, or for a NaN, which compares as NA in R.
 fn compare(op: Cmp, col: &str, value: &Json, schema: &Schema, cs: bool) -> RResult<Truth> {
     let (r, ty) = reference(col, schema, cs)?;
     let d = datum(value, &ty, col)?;
+    let guard = comparable(&r, &ty);
     if !is_float(&ty) {
         return Ok(Truth::new(
-            op.apply(r.clone(), d.clone()),
-            op.negate().apply(r, d),
+            op.apply(r.clone(), d.clone()).and(guard.clone()),
+            op.negate().apply(r, d).and(guard),
         ));
     }
     Ok(Truth::new(
-        float_compare(op, &r, &d, &ty).and(r.clone().is_not_nan()),
-        float_compare(op.negate(), &r, &d, &ty).and(r.clone().is_not_nan()),
+        float_compare(op, &r, &d, &ty).and(guard.clone()),
+        float_compare(op.negate(), &r, &d, &ty).and(guard),
     ))
 }
 
@@ -374,6 +398,11 @@ fn missing(col: &str, schema: &Schema, cs: bool) -> RResult<Truth> {
 
 /// `col %in% values`, which in R is TRUE or FALSE and never NA: a missing
 /// value, or a NaN, is simply not in the set.
+///
+/// Unlike `compare()`, this needs no guard for a file that lacks the column.
+/// There every row is NA, so R's answer is FALSE, and iceberg-rust's constants
+/// agree: `IN` and the zero range are FALSE, `IS NULL` is TRUE, so the TRUE half
+/// is empty and the FALSE half is everything.
 fn membership(col: &str, values: &[Json], schema: &Schema, cs: bool) -> RResult<Truth> {
     let (r, ty) = reference(col, schema, cs)?;
     let datums = values
@@ -424,8 +453,9 @@ fn membership(col: &str, values: &[Json], schema: &Schema, cs: bool) -> RResult<
 /// though the filter had been applied. The column and the operator are both in
 /// hand here, so say so here instead.
 ///
-/// `startsWith(NA, p)` is NA in R, and both halves are null for a null row, so
-/// the pair needs nothing added.
+/// `startsWith(NA, p)` is NA in R. Both halves are null for a null row, but not
+/// for a file that lacks the column, where iceberg-rust answers `NOT STARTS
+/// WITH` with TRUE; see `comparable()`.
 fn prefix(col: &str, value: &Json, schema: &Schema, cs: bool) -> RResult<Truth> {
     let (r, ty) = reference(col, schema, cs)?;
     if !matches!(ty, PrimitiveType::String) {
@@ -437,9 +467,10 @@ fn prefix(col: &str, value: &Json, schema: &Schema, cs: bool) -> RResult<Truth> 
         )));
     }
     let d = datum(value, &ty, col)?;
+    let guard = comparable(&r, &ty);
     Ok(Truth::new(
-        r.clone().starts_with(d.clone()),
-        r.not_starts_with(d),
+        r.clone().starts_with(d.clone()).and(guard.clone()),
+        r.not_starts_with(d).and(guard),
     ))
 }
 
@@ -614,8 +645,18 @@ fn datum(value: &Json, ty: &PrimitiveType, col: &str) -> RResult<Datum> {
         PrimitiveType::Decimal { scale, .. } => {
             // Going through the decimal string avoids a binary-float detour that
             // would silently perturb the value.
+            //
+            // But not through serde_json's own spelling of a float, which uses an
+            // exponent whenever that is shorter: R writes 0.00000002 and 1e20 out
+            // in full, and they arrived here as "2e-8" and "1e+20", which
+            // rescale_decimal() rightly refuses to read, so a decimal(18, 8)
+            // column could not be compared with any value below 1e-5 at all.
+            // Rust's `Display` for f64 never uses an exponent and is the
+            // shortest string that reads back as the same double, which is the
+            // number R sent.
             let s = match value {
                 Json::String(s) => s.clone(),
+                Json::Number(n) if n.is_f64() => format!("{}", n.as_f64().unwrap_or_default()),
                 other => other.to_string(),
             };
             // Datum::decimal_from_str types the literal by however many decimal
@@ -820,5 +861,31 @@ mod tests {
         let err =
             datum(&json("2.5"), &PrimitiveType::Long, "id").expect_err("2.5 is not a whole number");
         assert!(err.to_string().contains("expected a whole number"), "{err}");
+    }
+
+    #[test]
+    fn a_decimal_literal_is_read_as_r_wrote_it_not_as_serde_would() {
+        // The exact text R sends for 2e-8 and for 1e20. serde_json holds both
+        // as f64, and its own to_string() gave "2e-8" and "1e+20", which were
+        // then refused as exponent notation.
+        let small = PrimitiveType::Decimal {
+            precision: 18,
+            scale: 8,
+        };
+        assert_eq!(
+            datum(&json("0.000000020000000000000001"), &small, "rate").unwrap(),
+            datum(&json("\"0.00000002\""), &small, "rate").unwrap()
+        );
+        let big = PrimitiveType::Decimal {
+            precision: 38,
+            scale: 2,
+        };
+        assert_eq!(
+            datum(&json("100000000000000000000"), &big, "amount").unwrap(),
+            datum(&json("\"100000000000000000000\""), &big, "amount").unwrap()
+        );
+        // A value with more places than the scale is still refused, as before.
+        let err = datum(&json("0.000000025"), &small, "rate").expect_err("9 places, scale 8");
+        assert!(err.to_string().contains("decimal places"), "{err}");
     }
 }

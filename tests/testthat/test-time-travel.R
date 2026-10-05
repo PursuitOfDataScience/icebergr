@@ -308,3 +308,53 @@ test_that("as_of reads a POSIXlt in its own zone", {
   )
   expect_equal(nrow(icebergr_collect(elsewhere)), 3L)
 })
+
+test_that("a read follows the current snapshot's schema, not one made since", {
+  # ALTER TABLE in another engine makes a new schema current without writing
+  # anything, and iceberg-rust plans a scan against the snapshot's schema.
+  # Resolving names against the table's current schema instead refused the old
+  # name of a renamed column while the scan refused the new one, so it could
+  # not be selected at all.
+  warehouse <- withr::local_tempdir("renamed")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  seed_table(catalog, "db.t", data.frame(a = 1:3))
+  tbl <- with_schema(warehouse, "db.t", paste0("[", schema_field(1L, "a2", "int"), "]"), 1L)
+
+  expect_equal(icebergr_schema(tbl)$name, "a2")
+  expect_named(icebergr_collect(tbl), "a")
+  expect_equal(sort(icebergr_collect(icebergr_scan(tbl, select = "a"))$a), 1:3)
+  expect_equal(sort(icebergr_collect(icebergr_scan(tbl, filter = a > 1L))$a), 2:3)
+  # An empty result reports the columns a non-empty one would.
+  expect_named(icebergr_collect(icebergr_scan(tbl, filter = a > 100L)), "a")
+  # And the new name is refused by R, saying why, rather than by the planner.
+  expect_error(
+    icebergr_scan(tbl, select = "a2"),
+    "current snapshot was written with"
+  )
+
+  # The next commit is written with the new schema, after which only the new
+  # name reads, and it reads the older file's values too.
+  tbl <- icebergr_append(tbl, data.frame(a2 = 4L))
+  expect_equal(sort(icebergr_collect(icebergr_scan(tbl, select = "a2"))$a2), 1:4)
+  expect_error(icebergr_scan(tbl, select = "a"), "Available columns: a2")
+})
+
+test_that("a column added since the last write is refused until there is one", {
+  warehouse <- withr::local_tempdir("added")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  seed_table(catalog, "db.t", data.frame(a = 1:3))
+  tbl <- with_schema(
+    warehouse, "db.t",
+    paste0("[", schema_field(1L, "a", "int"), ",", schema_field(2L, "b", "int"), "]"),
+    2L
+  )
+
+  expect_equal(icebergr_schema(tbl)$name, c("a", "b"))
+  # The empty-result fallback used to report `b` while a non-empty read did not.
+  expect_named(icebergr_collect(tbl), "a")
+  expect_named(icebergr_collect(icebergr_scan(tbl, filter = a > 100L)), "a")
+  expect_error(icebergr_scan(tbl, select = "b"), "current snapshot was written with")
+  expect_error(icebergr_scan(tbl, filter = b > 1L), class = "icebergr_unsupported_filter")
+})

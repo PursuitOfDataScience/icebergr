@@ -7,15 +7,24 @@ edition = "2024"
 # with SystemRequirements in ../../DESCRIPTION; tools/msrv.R reads that field and
 # is what turns too old a toolchain into a readable error.
 #
-# It sits deliberately *below* what iceberg-rust declares. `iceberg`,
+# It sits deliberately *below* what the tree declares. `iceberg`,
 # `iceberg-catalog-rest`, `iceberg-catalog-glue` and `fastnum` each set
-# rust-version = "1.94" under upstream's rolling-MSRV policy, but none of them
-# uses a language or library feature newer than this: the whole tree compiles,
-# and the test suite passes, on 1.92. CRAN's Windows build farm carries 1.92, so
-# src/Makevars{,.win} pass --ignore-rust-version rather than let a declared
-# floor veto a build that demonstrably works. Raise this only to a version the
-# package has actually been checked against.
-rust-version = "1.92"
+# rust-version = "1.94" under upstream's rolling-MSRV policy, and a few AWS
+# crates more, but nothing the default build compiles uses a language or library
+# feature newer than this: the whole tree compiles, and the test suite passes,
+# on 1.88. CRAN's oldest macOS builder carries 1.91.1 and its Windows farm 1.92,
+# so src/Makevars{,.win} pass --ignore-rust-version rather than let a declared
+# floor veto a build that demonstrably works. 1.87 cannot be the floor: `let`
+# chains, which this crate and `icu_locale_core` both use, are stable from
+# 1.88. Raise this only to a version the package has actually been checked
+# against.
+#
+# Because the declared floor is below what the newest dependencies declare,
+# cargo's MSRV-aware resolver would *downgrade* fastnum, roaring and the AWS
+# crates on `cargo update`. Update with
+# CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=allow instead, and let the msrv CI
+# job say whether the floor still holds; see DEVELOPMENT.md.
+rust-version = "1.88"
 
 [lib]
 crate-type = ["staticlib"]
@@ -38,10 +47,10 @@ extendr-api = "0.9"
 
 # Pinned deliberately. iceberg-rust is under active development with breaking
 # changes between minor versions; see ../../FEASIBILITY.md.
-iceberg = "=0.10.0"
-iceberg-catalog-rest = "=0.10.0"
-iceberg-catalog-glue = { version = "=0.10.0", optional = true }
-iceberg-storage-opendal = { version = "=0.10.0", optional = true }
+iceberg = "=0.10.1"
+iceberg-catalog-rest = "=0.10.1"
+iceberg-catalog-glue = { version = "=0.10.1", optional = true }
+iceberg-storage-opendal = { version = "=0.10.1", optional = true }
 
 # Must match the arrow version iceberg-rust builds against, or the Arrow types
 # are distinct at the type level and nothing lines up. The "ffi" feature is what
@@ -57,7 +66,10 @@ parquet = "58.4"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 chrono = "0.4"
-uuid = "1"
+# Held below 1.27, which calls `eq_ignore_ascii_case` in a const fn and so needs
+# rustc 1.89: one minor past the floor above. This constrains iceberg's copy
+# too, since cargo unifies them. Relax it when the floor is raised.
+uuid = "~1.26"
 
 # Filters arrive from R as a small JSON predicate tree, because iceberg-rust has
 # no expression parser: predicates must be constructed programmatically.

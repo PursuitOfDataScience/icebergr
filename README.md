@@ -25,7 +25,7 @@ install.packages("icebergr", repos = c(
 ```
 
 On Windows and macOS that is a prebuilt binary. On Linux, R compiles it, so install
-[Rust](https://rustup.rs) 1.92 or newer first:
+[Rust](https://rustup.rs) 1.88 or newer first:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

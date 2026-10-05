@@ -6,7 +6,10 @@ test_that("spec support reports versions, catalogs and features", {
 
   expect_s3_class(support, "icebergr_spec_support")
   expect_equal(support$spec_versions, c(1L, 2L))
-  expect_equal(support$iceberg_rust_version, "0.10.0")
+  expect_equal(support$iceberg_rust_version, "0.10.1")
+  # Both are read out of Cargo.lock by build.rs, so each is a real version and
+  # never the "unknown" it falls back to.
+  expect_match(support$arrow_version, "^[0-9]+[.][0-9]+[.][0-9]+$")
   expect_true(all(c("rest", "memory") %in% support$catalogs))
   expect_s3_class(support$features, "tbl_df")
   expect_setequal(names(support$features), c("feature", "supported", "reason"))
@@ -43,7 +46,7 @@ test_that("an upstream gap is not reported as our scope choice", {
   # These are the matrix's whole purpose: a user deciding whether to wait for the
   # next icebergr or to reach for another engine needs to know which gap is
   # whose. Overwrite was filed under "Out of scope for icebergr 0.1.0", but
-  # iceberg-rust 0.10.0 has no overwrite or rewrite transaction action at all --
+  # iceberg-rust 0.10 has no overwrite or rewrite transaction action at all --
   # fast_append is the only way it can add files -- so waiting on us would not
   # have helped.
   expect_match(reason_for("Overwrite writes"), "iceberg-rust")

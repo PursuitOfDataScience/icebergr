@@ -199,3 +199,50 @@ with_properties <- function(warehouse, table, properties) {
   icebergr_create_namespace(reopened, sub("[.][^.]*$", "", table))
   icebergr_register_table(reopened, table, path)
 }
+
+# Make a new schema current, as an ALTER TABLE in another engine would, and hand
+# back a handle.
+#
+# icebergr has no schema evolution of its own, yet two behaviours can only be
+# seen on a table that has had some: a schema changed with no write since, so
+# that the current snapshot still names the old one, and a column that older
+# data files predate. `fields` is the JSON of the new schema's field list,
+# keeping the field id of every column that persists, and `last_column_id` is
+# the highest id now in use. The snapshot is left alone, as ALTER TABLE leaves
+# it. Relies on iceberg-rust writing "current-schema-id" straight after the
+# "schemas" array, which the stopifnot() below turns into a loud failure if it
+# ever stops doing so.
+with_schema <- function(warehouse, table, fields, last_column_id) {
+  files <- list.files(warehouse,
+    pattern = "metadata\\.json$",
+    recursive = TRUE, full.names = TRUE
+  )
+  newest <- files[order(file.mtime(files))][length(files)]
+  json <- paste(readLines(newest, warn = FALSE), collapse = "")
+
+  ids <- regmatches(json, gregexpr('(?<="schema-id":)[0-9]+', json, perl = TRUE))
+  new_id <- max(as.integer(ids[[1L]])) + 1L
+  replaced <- sub(
+    '("schemas":\\[.*?)\\](,"current-schema-id":)[0-9]+',
+    sprintf('\\1,{"schema-id":%d,"type":"struct","fields":%s}]\\2%d', new_id, fields, new_id),
+    json,
+    perl = TRUE
+  )
+  stopifnot(!identical(replaced, json))
+  replaced <- sub(
+    '"last-column-id":[0-9]+',
+    sprintf('"last-column-id":%d', last_column_id), replaced
+  )
+
+  path <- file.path(dirname(newest), metadata_file_name())
+  writeLines(replaced, path)
+
+  reopened <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(reopened, sub("[.][^.]*$", "", table))
+  icebergr_register_table(reopened, table, path)
+}
+
+# The JSON for one optional field of a schema, for with_schema().
+schema_field <- function(id, name, type) {
+  sprintf('{"id":%d,"name":"%s","required":false,"type":"%s"}', id, name, type)
+}

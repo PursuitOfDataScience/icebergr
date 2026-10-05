@@ -499,11 +499,15 @@ message("  cargo metadata --offline --locked: OK")
 if (file.exists(archive)) invisible(file.remove(archive))
 
 # pb=0 tells LZMA2 that matches are not aligned to a 4-byte boundary, which is
-# true of text and worth ~1% here; the dictionary is sized to hold the whole
-# tree in one window so that the four hundred near-identical licence files and
-# the repeated generated code deduplicate against each other. Decompression
-# needs the dictionary in memory, so it is capped at 128 MiB rather than raised
-# to fit with room to spare.
+# true of text and worth ~1% here.
+#
+# The dictionary is 64 MiB, the -9 preset's own, and must not be raised.
+# BusyBox's xz decoder, which is what `tar` uses on Alpine and the other musl
+# systems, refuses any stream whose dictionary is larger than that, and says so
+# only as "tar: corrupted data" followed by "tar: short read". 0.1.0 shipped
+# with a 128 MiB dictionary, sized to hold the whole tree in one window, and
+# that is exactly the failure CRAN's musl check recorded for it. The bigger
+# window was worth 80 KB of archive.
 message("Creating ", archive)
 tarball <- tempfile(fileext = ".tar")
 status <- system2(
@@ -517,7 +521,7 @@ if (status != 0L) {
 status <- system2(
   "xz",
   c(
-    "--check=crc32", "--lzma2=preset=9e,dict=128MiB,pb=0", "--threads=1",
+    "--check=crc32", "--lzma2=preset=9e,dict=64MiB,pb=0", "--threads=1",
     "--stdout", shQuote(tarball)
   ),
   stdout = archive
@@ -526,6 +530,27 @@ unlink(tarball)
 if (status != 0L) {
   stop("`xz` failed with status ", status)
 }
+
+# Read back off the archive rather than trusted to the flag above, which is one
+# edit away from undoing the musl fix without any build here noticing: GNU tar
+# and every other xz decoder accept a larger dictionary without complaint.
+listing <- system2("xz", c("--robot", "--list", "-vv", shQuote(archive)), stdout = TRUE)
+blocks <- grep("^block\t", listing, value = TRUE)
+dicts <- regmatches(blocks, regexec("dict=([0-9]+)([KMG])iB", blocks))
+dict_bytes <- vapply(dicts, function(m) {
+  if (length(m) != 3L) {
+    return(NA_real_)
+  }
+  as.numeric(m[[2L]]) * 1024^match(m[[3L]], c("K", "M", "G"))
+}, numeric(1))
+if (!length(dict_bytes) || anyNA(dict_bytes) || any(dict_bytes > 64 * 1024^2)) {
+  stop(
+    "vendor.tar.xz must be compressed with an xz dictionary of at most 64 MiB, ",
+    "or BusyBox tar cannot unpack it. `xz --robot -lvv` reported:\n",
+    paste(blocks, collapse = "\n")
+  )
+}
+message("  xz dictionary: ", max(dict_bytes) / 1024^2, " MiB (BusyBox's limit is 64)")
 
 archive_bytes <- file.size(archive)
 size_mb <- archive_bytes / 1024^2

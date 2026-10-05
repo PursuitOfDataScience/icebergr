@@ -9,7 +9,7 @@ worth understanding before the first thing goes wrong.
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup update stable
-rustc --version   # must be >= 1.92
+rustc --version   # must be >= 1.88
 ```
 
 That is the whole toolchain. `cargo` fetches and compiles dependencies itself; it
@@ -214,27 +214,43 @@ R CMD check --as-cran icebergr_*.tar.gz
 exemption request rests on. See `FEASIBILITY.md` §8d for what it is made of and
 what does and does not reduce it.
 
-**On any `iceberg-rust` or `arrow` bump, the version is carried by hand in
-thirteen files and nothing will catch a stale one.** Two of them are reported to
-users: `rs_build_info()` in `src/rust/src/lib.rs`, which is what
-`icebergr_spec_support()` prints, and the `reason` strings in `feature_matrix()`
-that name the version a gap belongs to. The test for it compares one hardcoded
-string against another, so it passes either way. `grep -rn '0\.10\.0'` before
-tagging, and check the reported version against `src/rust/Cargo.lock` rather than
-against `Cargo.toml`, since a caret requirement can resolve higher than it reads.
-The rustc MSRV does not have this problem: `tools/msrv.R` reads it from
-`SystemRequirements` in `DESCRIPTION`, which is its single source of truth.
+**On an `iceberg-rust` or `arrow` bump, the versions `icebergr_spec_support()`
+reports take care of themselves:** `src/rust/build.rs` reads both out of
+`Cargo.lock` at build time. The prose does not. The `reason` strings in
+`feature_matrix()`, the vignettes and the comments name the series a behaviour
+belongs to (`iceberg-rust` 0.10), so a patch release needs nothing, but a new
+minor one means re-checking every claim they make; `grep -rn 'iceberg-rust.\? 0\.10'`
+finds them. `test-spec-support.R` pins the exact version, which is what makes a
+bump a deliberate act. The rustc MSRV has a single source of truth too:
+`tools/msrv.R` reads it from `SystemRequirements` in `DESCRIPTION`.
+
+**Updating the Rust dependencies.** Run
+
+```sh
+CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=allow cargo update --manifest-path src/rust/Cargo.toml
+```
+
+not a bare `cargo update`. The floor in `Cargo.toml` sits below what several
+dependencies declare, so cargo's MSRV-aware resolver would otherwise downgrade
+`fastnum`, `roaring` and the AWS crates to releases declaring less, all of which
+the floor builds anyway. Then check the floor on the new lock (`cargo +1.88.0
+check --ignore-rust-version --all-targets`, which the `msrv` CI job also does)
+and audit it (`cargo audit`). A dependency that really does need a newer
+compiler is held back in `Cargo.toml` with a comment saying why, as `uuid` is,
+or the floor is raised. Re-run `tools/vendor.R` afterwards.
 
 **But that value is the floor the package has been *checked* against, which is
 not the maximum `rust-version` declared in the tree.** Conflating the two is what
 broke the first CRAN submission. `iceberg`, `iceberg-catalog-rest`,
 `iceberg-catalog-glue` and `fastnum` all declare 1.94 under iceberg-rust's
-rolling-MSRV policy, nothing else in the tree exceeds 1.91.1, and none of the
-four uses a language or library feature newer than 1.92. But CRAN's Windows
-farm carries 1.92.0, and cargo refuses a build outright when a *dependency*
-declares more than the active toolchain, so the install never reached the
-compiler. `src/Makevars{,.win}` therefore pass `--ignore-rust-version`, which
-makes `tools/msrv.R` the only gate.
+rolling-MSRV policy, and the AWS crates behind `glue` 1.94.1, while nothing in
+any build uses a language or library feature newer than 1.88. But CRAN's Windows
+farm carried 1.92.0 and its r-oldrel-macos-arm64 builder 1.91.1, and cargo
+refuses a build outright when a *dependency* declares more than the active
+toolchain, so the install never reached the compiler. `src/Makevars{,.win}`
+therefore pass `--ignore-rust-version`, which makes `tools/msrv.R` the only
+gate. 0.1.0 declared 1.92 and so failed on that macOS builder; 0.2.0 measured
+1.88, and 1.87 cannot build the `let` chains this crate uses.
 
 The consequence for maintenance: raise `SystemRequirements` only after building
 and running the test suite on the new floor, and lower it whenever a measurement
@@ -267,6 +283,9 @@ Things that need a human, and cannot be done by CI:
 - [ ] Re-run `Rscript tools/vendor.R` so `vendor.tar.xz` and `LICENSE.note` match
       the `Cargo.lock` being shipped, and update the measured figures in
       `cran-comments.md`, `NEWS.md` and the README if they have moved.
+- [ ] Read the current release's CRAN check page, "Additional issues" included,
+      and say in `cran-comments.md` what the submission does about each item.
+      0.1.0's musl failure appeared only there.
 - [ ] Fill in the "Test environments" and "R CMD check results" sections of
       `cran-comments.md` from the actual submission run.
 
@@ -284,9 +303,11 @@ Things that need a human, and cannot be done by CI:
 | Tests hang | A `block_on` was reached from inside the tokio runtime. Every entry point must be called from R's thread; see `src/rust/src/runtime.rs` |
 | `this process was forked from one that had already used icebergr` | A forked child, such as a `parallel::mclapply()` worker, called into icebergr after the parent had started the runtime. Its worker threads do not survive `fork()`, so in 0.1.0 `block_on` in the child waited forever, with no error and no way to interrupt it. `tokio_runtime()` in `runtime.rs` now records the process id that started the runtime and refuses in any other. Forking *before* any call is fine. Rebuilding the runtime in the child is not a fix: every catalog handle holds the parent's runtime, and its HTTP pool shares sockets with the parent. `check_live_ptr()` cannot catch it, because after a fork the pointer really is valid |
 | `Failed to convert between uuid und iceberg value, invalid character: found \`x\`` | Not a data problem. A metadata file whose name is not `<version>-<uuid>.metadata.json`; the stray character is the first letter of the file name. Iceberg derives the next name from the current one. Test fixtures must use `metadata_file_name()` |
-| A `decimal` filter returns no rows | `iceberg-rust` 0.10.0's row-selection filter discards every row of an ordering comparison on a decimal. `configure()` in `scan.rs` turns that stage off when the predicate touches one; do not remove it |
+| A `decimal` filter returns no rows | `iceberg-rust` 0.10's row-selection filter discards every row of an ordering comparison on a decimal. `configure()` in `scan.rs` turns that stage off when the predicate touches one; do not remove it |
 | `struct<doubledouble>` in a schema | `iceberg::spec::Type`'s own `Display` runs a struct's child types together with no names. `table.rs::type_label()` exists for this; do not replace it with `to_string()` |
 | Hidden-file NOTE naming a dot-directory | It is in the tarball but not in `.Rbuildignore`. Local tooling state belongs in both that and `.gitignore` |
+| `tar: corrupted data` then `tar: short read`, on Alpine or another musl system | BusyBox's xz decoder refuses a dictionary over 64 MiB. `tools/vendor.R` compresses with exactly 64 MiB and checks the archive it writes; do not raise it for the few KB it would save |
+| `Metadata location not under "/metadata" subdirectory` after the data was written | A memory or Glue table registered from a metadata file outside the table's `metadata` directory. `uncommittable_because()` in `write.rs` now refuses it before writing; if it reaches the commit, that check and `MetadataLocation::from_str` have drifted apart |
 
 ## Design decisions worth not undoing
 
@@ -325,7 +346,7 @@ Things that need a human, and cannot be done by CI:
   remove it. `metadata_name_is_committable()` deliberately mirrors
   `MetadataLocation::parse_file_name` rather than being stricter.
 - **Row selection is disabled for a decimal predicate**, in `scan.rs::configure`.
-  In `iceberg-rust` 0.10.0 that stage discards every row of an ordering comparison
+  In `iceberg-rust` 0.10 that stage discards every row of an ordering comparison
   against a decimal while leaving equality alone, so `price > 2.25` silently
   returned nothing. File and row-group pruning still apply. Re-measure before
   assuming a newer upstream has fixed it.
@@ -354,6 +375,23 @@ Things that need a human, and cannot be done by CI:
   the same total order puts -0.0 below 0.0. `test-pushdown.R` checks 150 random
   filters against R's own evaluation. After touching this, run it with more
   seeds.
+- **Every comparison also requires `IS NOT NULL`**, in `predicate.rs::comparable`.
+  It looks redundant and is not: for a data file that predates a column,
+  `iceberg-rust` 0.10's row filter answers each predicate from a table of
+  constants, and answers TRUE for `<`, `<=`, `NOT STARTS WITH`, `NOT IN` and
+  `NOT NAN`, so without it `b < 15` returned every row of every older file.
+  `test-pushdown.R` checks random filters over such a table against R.
+- **The scan is planned case-sensitively, always.** `case_sensitive = FALSE` is
+  honoured by resolving every name to the table's spelling first, in R and in
+  `predicate::reference`. Passing it on to `iceberg-rust` made it bind the
+  predicate again through its own case-insensitive index, which keeps one of
+  `id` and `ID` and loses the other.
+- **A read resolves names against its snapshot's schema, the current snapshot's
+  for a read of the current state** (`table_columns()` in R,
+  `RTable::read_schema` in Rust), not against the table's current schema.
+  `iceberg-rust` plans with the snapshot's, and the two differ after another
+  engine changes the schema without writing. `icebergr_schema()` is the one
+  place that reports the current schema.
 - **A `long` filter literal is range-checked, not cast.** `f as i64` *saturates*
   in Rust, so `id == 1e19` quietly became `id == 9223372036854775807` and returned
   whichever rows hold `i64::MAX`. `as_i64()` in `predicate.rs` bounds against
@@ -370,7 +408,7 @@ no overwrite action at all. Two habits follow.
 
 - **Attribute the gap to whoever owns it.** A user deciding whether to wait for
   the next `icebergr` or reach for another engine needs to know which. Check the
-  vendored source before writing "not implemented in iceberg-rust": as of 0.10.0
+  vendored source before writing "not implemented in iceberg-rust": as of 0.10
   the transaction API has exactly eight actions, none of which overwrites or
   rewrites, but an `equality_delete_writer` *does* exist; the gap there is the
   commit path, not the writer.

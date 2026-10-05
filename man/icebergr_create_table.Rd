@@ -16,7 +16,8 @@ already exist; see \code{\link[=icebergr_create_namespace]{icebergr_create_names
 only the column names and types are used. An Arrow schema is also accepted.}
 
 \item{location}{Where to store the table. \code{NULL} lets the catalog decide,
-which is almost always what you want.}
+which is almost always what you want. A local path is expanded and made
+absolute first, since it is recorded in the table's metadata as written.}
 }
 \value{
 An \code{icebergr_table} handle for the new, empty table.

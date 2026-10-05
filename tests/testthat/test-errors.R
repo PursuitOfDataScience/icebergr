@@ -99,6 +99,48 @@ test_that("create_table requires a data frame or a schema", {
   expect_error(icebergr_create_table(catalog, "db.x", 42), "data frame")
 })
 
+test_that("a table location is recorded absolute, whatever form it was given in", {
+  catalog <- local_namespace()
+
+  # An empty one reached the memory catalog as the table's root, which then
+  # tried to create /metadata at the top of the filesystem.
+  expect_error(
+    icebergr_create_table(catalog, "db.empty", data.frame(x = 1L), location = ""),
+    "must not be empty"
+  )
+
+  # A relative one was recorded as written, so the data files it named
+  # resolved only from the directory the table was created in.
+  first <- withr::local_tempdir("first")
+  second <- withr::local_tempdir("second")
+  withr::with_dir(first, {
+    tbl <- icebergr_create_table(
+      catalog, "db.relative", data.frame(x = 1L),
+      location = "tables/relative"
+    )
+    tbl <- icebergr_append(tbl, data.frame(x = 1:3))
+  })
+  location <- rs_table_location(tbl$ptr)
+  expect_match(location, "/tables/relative$")
+  expect_true(dir.exists(location))
+  withr::with_dir(second, expect_equal(sort(icebergr_collect(tbl)$x), 1:3))
+
+  # And `~` was not expanded, so "~/tables" created a directory called `~`.
+  # Checked without creating a table in the real home directory.
+  expect_equal(
+    absolute_path("~/tables/events"),
+    normalizePath(path.expand("~/tables/events"), mustWork = FALSE)
+  )
+  expect_false(startsWith(absolute_path("~/tables/events"), "~"))
+  # A drive-letter path is absolute on Windows, whichever platform asks.
+  expect_equal(
+    absolute_path("C:/tables/events", windows = TRUE),
+    normalizePath("C:/tables/events", mustWork = FALSE)
+  )
+  # A URI is not a local path, and is not touched.
+  expect_false(is_local_dir("s3://bucket/tables/events"))
+})
+
 test_that("a failure names the table the way the caller spelled it", {
   catalog <- local_namespace()
 

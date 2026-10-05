@@ -215,15 +215,27 @@ icebergr_partitions <- function(tbl) {
   as_result_tbl(rs_table_partitions(tbl$ptr))
 }
 
-#' The column names of a table, as of `snapshot_id`
+#' The column names a read of `snapshot_id` resolves against
 #'
 #' Snapshot-aware because a read is: `icebergr_scan()` resolves `filter` and
 #' `select` against the schema of the snapshot it is going to read, not against
 #' the current one. Resolving against the current schema refused a column the
 #' snapshot did have, accepted one it did not, and read a filter naming a
 #' since-renamed column as an ordinary local variable.
+#'
+#' That holds for a read of the current state too, which reads the current
+#' *snapshot*: `iceberg-rust` plans every scan with the schema its snapshot
+#' names, and another engine can make a new schema current without writing
+#' anything (`ALTER TABLE ... RENAME COLUMN`). Resolving against the table's
+#' current schema in that window refused the old name of a renamed column while
+#' the scan refused the new one, so the column could not be selected at all.
+#' Only a table with no snapshot falls back to the current schema, since there
+#' is no other.
 #' @noRd
 table_columns <- function(tbl, snapshot_id = NULL) {
+  if (is.null(snapshot_id)) {
+    snapshot_id <- rs_table_current_snapshot(tbl$ptr)
+  }
   rs_table_schema(tbl$ptr, snapshot_id)$name
 }
 

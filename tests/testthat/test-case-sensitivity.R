@@ -1,9 +1,11 @@
 # `case_sensitive` has to be honoured in R, not delegated.
 #
 # iceberg-rust looks a projected column up case-sensitively whatever a scan's
-# `case_sensitive` setting says, and binds the snapshot-level predicate with
-# case sensitivity hard-coded on. So a differently-cased name has to be resolved
-# to the table's own spelling here, before anything reaches Rust.
+# `case_sensitive` setting says, and its case-insensitive predicate binding
+# keys on the lowercased name, so of `id` and `ID` one simply overwrites the
+# other. So a differently-cased name is resolved to the table's own spelling
+# here, before anything reaches Rust, and the scan is then planned
+# case-sensitively.
 
 mixed_case_table <- function(env = parent.frame()) {
   catalog <- local_namespace(env = env)
@@ -167,4 +169,33 @@ test_that("an empty case-sensitive scan reports the selected columns too", {
   )
   expect_equal(nrow(got), 0L)
   expect_equal(names(got), c("label", "id"))
+})
+
+test_that("a case-insensitive filter binds to the column it names, in either order", {
+  # The two columns have different types, so binding to the wrong one fails
+  # rather than quietly reading the other's values. iceberg-rust re-bound each
+  # predicate through its own case-insensitive index, in which the later of
+  # `id` and `ID` won, so in each column order one of these failed with "Can't
+  # convert datum".
+  catalog <- local_namespace()
+  orders <- list(forward = c("id", "ID"), reverse = c("ID", "id"))
+  # Named apart by more than case, which a macOS or Windows filesystem ignores.
+  for (name in names(orders)) {
+    data <- data.frame(id = 1:3, ID = c("a", "b", "c"))[orders[[name]]]
+    tbl <- seed_table(catalog, paste0("db.", name), data)
+
+    got <- icebergr_collect(icebergr_scan(tbl, filter = id > 1L, case_sensitive = FALSE))
+    expect_equal(sort(got$id), 2:3)
+    got <- icebergr_collect(icebergr_scan(tbl, filter = ID == "a", case_sensitive = FALSE))
+    expect_equal(got$id, 1L)
+    plan <- icebergr_scan_plan(icebergr_scan(tbl, filter = id > 100L, case_sensitive = FALSE))
+    expect_equal(nrow(plan), 0L)
+
+    # An empty result reports the column selected, not its namesake.
+    empty <- icebergr_collect(
+      icebergr_scan(tbl, select = "ID", filter = id > 100L, case_sensitive = FALSE)
+    )
+    expect_named(empty, "ID")
+    expect_type(empty$ID, "character")
+  }
 })

@@ -63,7 +63,7 @@ identical(back$s, plain$s)
 identical(back$day, plain$day)
 ```
 
-A `POSIXct` is normalised to UTC — the instant is preserved, the printed time zone
+A `POSIXct` is normalised to UTC: the instant is preserved, the printed time zone
 is not. That is Iceberg's `timestamptz` semantics, not a lossy conversion.
 
 ## The five that need care
@@ -92,14 +92,14 @@ str(icebergr_collect(fac_tbl)$g)
 ```
 
 Iceberg has no dictionary type, so the levels have nowhere to live. Restore them
-in R with `factor()` and your own level order — which is the honest outcome,
+in R with `factor()` and your own level order. That is the honest outcome,
 because a round trip that invented a level order would be worse.
 
 ### `long` needs `bit64`
 
 Iceberg's `long` is 64-bit. An R double holds 53 bits of mantissa, so a value past
 $2^{53}$ cannot survive as a `numeric`. With `bit64` installed it comes back
-exact, at any depth — including inside a `struct`:
+exact, at any depth, including inside a `struct`:
 
 ```{r, eval = has_bit64}
 big <- bit64::as.integer64("9007199254740993") # 2^53 + 1
@@ -116,8 +116,8 @@ identical(as.character(got), "9007199254740993")
 ```
 
 Without `bit64`, Arrow's `int64` narrows to a `double` and that value reads back
-as 9007199254740992. The package does not error on this — it is Arrow's
-documented fallback — so if you handle 64-bit keys, put `bit64` in your own
+as 9007199254740992. The package does not error on this, since it is Arrow's
+documented fallback, so if you handle 64-bit keys, put `bit64` in your own
 `Imports`.
 
 ### `timestamp_ns` loses sub-microsecond precision
@@ -175,7 +175,7 @@ subset(icebergr_collect(nest_tbl), geo$lat > 41)
 
 A `map` column can be created, but writing map *values* from R needs the `arrow`
 package, because `nanoarrow` cannot build a map array on its own. If you do,
-`nanoarrow::na_map()` needs its key type built non-nullable —
+`nanoarrow::na_map()` needs its key type built non-nullable:
 `na_map(na_string(nullable = FALSE), …)`.
 
 ## Reading the schema rather than guessing it
@@ -187,7 +187,7 @@ schema evolution possible in the format:
 icebergr_schema(nest_tbl)
 ```
 
-Field ids, not names, are what a manifest refers to — which is why Iceberg can
+Field ids, not names, are what a manifest refers to. That is why Iceberg can
 rename a column without rewriting data, and why the Hive convention could not
 [@icebergspec; @thusoo2009hive].
 

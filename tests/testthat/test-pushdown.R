@@ -152,7 +152,7 @@ test_that("a decimal filter returns the rows it should", {
     data.frame(id = 1:4L, price = c(1.50, 2.25, 10.00, 99.99))
   )
 
-  # Every one of these returned zero rows. iceberg-rust 0.10.0's row-selection
+  # Every one of these returned zero rows. iceberg-rust 0.10's row-selection
   # filter discards every row of an ordering comparison against a decimal
   # column, so the scan now runs with that stage off when a decimal is involved.
   # Equality was unaffected, which is what made it easy to miss.
@@ -490,4 +490,107 @@ test_that("random filters return exactly the rows R's own evaluation does", {
       }
     })
   })
+})
+
+# A table whose first data file predates three of its columns, as one is after
+# another engine runs ALTER TABLE ADD COLUMN and then writes more.
+evolved_table <- function(env = parent.frame()) {
+  warehouse <- withr::local_tempdir("evolved", .local_envir = env)
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  seed_table(catalog, "db.t", data.frame(a = 1:4))
+  tbl <- with_schema(
+    warehouse, "db.t",
+    paste0("[", paste(
+      schema_field(1L, "a", "int"), schema_field(2L, "b", "int"),
+      schema_field(3L, "s", "string"), schema_field(4L, "f", "double"),
+      sep = ","
+    ), "]"),
+    4L
+  )
+  icebergr_append(tbl, data.frame(
+    a = 5:9, b = c(10L, 20L, NA, 30L, 5L), s = c("xa", "ya", NA, "xb", "b"),
+    f = c(0.5, -0, NA, 2, -1.5)
+  ))
+}
+
+test_that("a filter on a column older files lack keeps the rows R would", {
+  # iceberg-rust's row filter answers a predicate on a column a file does not
+  # have from a table of constants, and answered TRUE for <, <=, NOT STARTS WITH,
+  # NOT IN and NOT NAN. So `b < 15` returned every row of the older file, each
+  # with `b` NA, which neither R nor Iceberg's own null rules would.
+  tbl <- evolved_table()
+  ids <- function(scan) sort(icebergr_collect(scan)$a)
+
+  expect_equal(ids(icebergr_scan(tbl, filter = b < 15L)), c(5L, 9L))
+  expect_equal(ids(icebergr_scan(tbl, filter = b <= 15L)), c(5L, 9L))
+  expect_equal(ids(icebergr_scan(tbl, filter = !(b > 15L))), c(5L, 9L))
+  expect_equal(ids(icebergr_scan(tbl, filter = !(b >= 15L))), c(5L, 9L))
+  expect_equal(ids(icebergr_scan(tbl, filter = s < "y")), c(5L, 8L, 9L))
+  expect_equal(ids(icebergr_scan(tbl, filter = !startsWith(s, "x"))), c(6L, 9L))
+  expect_equal(ids(icebergr_scan(tbl, filter = f < 1)), c(5L, 6L, 9L))
+  expect_equal(ids(icebergr_scan(tbl, filter = f != 0)), c(5L, 8L, 9L))
+  # Unchanged, and right before too: these already treated the absent column as
+  # NA, which is what it reads back as.
+  expect_equal(ids(icebergr_scan(tbl, filter = is.na(b))), c(1:4, 7L))
+  expect_equal(ids(icebergr_scan(tbl, filter = !(b %in% 10L))), c(1:4, 6:9))
+  expect_equal(ids(icebergr_scan(tbl, filter = b > 15L)), c(6L, 8L))
+})
+
+test_that("random filters over older files agree with R as well", {
+  tbl <- evolved_table()
+  back <- icebergr_collect(tbl)
+  withr::with_seed(20261005, {
+    atom <- function() {
+      switch(sample(7L, 1L),
+        call(sample(c(">", ">=", "<", "<=", "==", "!="), 1L), quote(b), sample(c(5L, 10L, 25L), 1L)),
+        call(sample(c(">", ">=", "<", "<=", "==", "!="), 1L), quote(f), sample(c(-1.5, 0, 1), 1L)),
+        call(sample(c(">", "<", "==", "!="), 1L), quote(s), sample(c("b", "xa", "y"), 1L)),
+        call(sample(c(">", "<=", "!="), 1L), quote(a), sample(c(2L, 6L), 1L)),
+        call("is.na", as.name(sample(c("b", "s", "f"), 1L))),
+        call("%in%", quote(b), sample(c(5L, 10L, 30L), 2L)),
+        call("startsWith", quote(s), sample(c("x", "y"), 1L))
+      )
+    }
+    generate <- function(depth = 0L) {
+      r <- stats::runif(1L)
+      if (depth >= 2L || r < 0.45) {
+        return(atom())
+      }
+      if (r < 0.65) {
+        return(call("!", generate(depth + 1L)))
+      }
+      call(if (r < 0.85) "&" else "|", generate(depth + 1L), generate(depth + 1L))
+    }
+    withr::with_collate("C", {
+      for (k in seq_len(100L)) {
+        e <- generate()
+        want <- sort(back$a[which(eval(e, back))])
+        got <- sort(icebergr_collect(do.call(icebergr_scan, list(tbl, filter = e)))$a)
+        expect_identical(got, want, info = deparse1(e))
+      }
+    })
+  })
+})
+
+test_that("a decimal compares against a value too small or too large for short JSON", {
+  # serde_json rewrote both of these with an exponent, "2e-8" and "1e+20", and
+  # they were then refused as exponent notation although R had written them
+  # out in full. A decimal(18, 8) could not be compared below 1e-5 at all.
+  catalog <- local_namespace()
+  schema <- nanoarrow::na_struct(list(
+    id = nanoarrow::na_int32(),
+    rate = nanoarrow::na_decimal128(precision = 18, scale = 8),
+    big = nanoarrow::na_decimal128(precision = 38, scale = 2)
+  ))
+  tbl <- icebergr_create_table(catalog, "db.rates", schema)
+  tbl <- icebergr_append(tbl, data.frame(
+    id = 1:3, rate = c(0.00000001, 0.00000005, 1), big = c(1, 1e19, 1e21)
+  ))
+  ids <- function(scan) sort(icebergr_collect(scan)$id)
+
+  expect_equal(ids(icebergr_scan(tbl, filter = rate > 0.00000002)), 2:3)
+  expect_equal(ids(icebergr_scan(tbl, filter = rate == 0.00000005)), 2L)
+  expect_equal(ids(icebergr_scan(tbl, filter = big > 1e20)), 3L)
+  expect_equal(ids(icebergr_scan(tbl, filter = big < 1e20)), 1:2)
 })

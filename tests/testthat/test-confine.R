@@ -105,6 +105,42 @@ test_that("a renamed metadata file reads, and its append is refused before writi
   expect_equal(parquet(), before)
 })
 
+test_that("a metadata file outside a metadata directory is refused before writing", {
+  # A conforming name was all the early check looked at. Iceberg also writes the
+  # next file beside the current one and requires that to be <table>/metadata,
+  # so a file copied anywhere else read normally, wrote its Parquet, and only
+  # then failed the commit with "Metadata location not under /metadata",
+  # leaving the data files behind.
+  warehouse <- withr::local_tempdir("warehouse")
+  catalog <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(catalog, "db")
+  seed_table(catalog, "db.events", data.frame(id = 1:3))
+
+  files <- list.files(warehouse,
+    pattern = "metadata\\.json$", recursive = TRUE,
+    full.names = TRUE
+  )
+  newest <- files[order(file.mtime(files))][length(files)]
+  exported <- file.path(warehouse, "db", "events", "exported")
+  dir.create(exported)
+  moved <- file.path(exported, metadata_file_name(5L))
+  expect_true(file.copy(newest, moved))
+
+  reopened <- icebergr_catalog("memory", warehouse = warehouse)
+  icebergr_create_namespace(reopened, "db")
+  tbl <- icebergr_register_table(reopened, "db.events", moved)
+  expect_equal(nrow(icebergr_collect(tbl)), 3L)
+
+  parquet <- function() list.files(warehouse, pattern = "\\.parquet$", recursive = TRUE)
+  before <- parquet()
+  expect_error(
+    icebergr_append(tbl, data.frame(id = 4L)),
+    "not in a directory named `metadata`",
+    fixed = TRUE
+  )
+  expect_equal(parquet(), before)
+})
+
 test_that("an object-storage location is left to the catalog, not refused as missing", {
   warehouse <- withr::local_tempdir("warehouse")
   catalog <- icebergr_catalog("memory", warehouse = warehouse)

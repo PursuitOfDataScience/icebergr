@@ -83,9 +83,9 @@ rs_scan_plan <- function(tbl, select, filter_json, snapshot_id, case_sensitive) 
 }
 
 rs_table_append <- function(tbl, stream_addr, compression, property_keys,
-                            property_values) {
+                            property_values, catalog_kind) {
   .Call(
     wrap__rs_table_append, tbl, stream_addr, compression, property_keys,
-    property_values
+    property_values, catalog_kind
   )
 }

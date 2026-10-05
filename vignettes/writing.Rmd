@@ -140,12 +140,14 @@ icebergr_register_table(
 ```
 
 The file has to be named the way every Iceberg engine names them,
-`<version>-<uuid>.metadata.json`, because the next version number is derived
-from that name. A renamed file registers and reads perfectly well; it is the
-*append* that cannot work.
+`<version>-<uuid>.metadata.json`, and sit in the table's own `metadata`
+directory, because a `memory` or `glue` catalog writes the next file beside it
+and derives the next version number from its name. A renamed or moved file
+registers and reads perfectly well; it is the *append* that cannot work. A REST
+catalog's server chooses its own locations, so this does not apply to one.
 
 That append is refused at the start, before any Parquet is written, and the error
-names the file. Left to Iceberg the name is only inspected when the commit is
+names the file and its directory. Left to Iceberg the name is only inspected when the commit is
 attempted, by which point the data files are already in the warehouse, and this
 package exposes no maintenance operation to clear them.
 
@@ -177,12 +179,12 @@ report the cause in terms of neither the table nor the file. So the partition sp
 is checked first, and the append is refused with nothing written. Reading a
 partitioned table works, and `icebergr_partitions()` reports its spec.
 
-**Row-level deletes and `MERGE`.** `iceberg-rust` 0.10.0 can write an equality
+**Row-level deletes and `MERGE`.** `iceberg-rust` 0.10 can write an equality
 delete file but has no transaction action that commits one. Reading merge-on-read
 tables another engine wrote works: both positional and equality deletes are
 applied.
 
-**Overwrites.** `fast_append` is the only way 0.10.0 can add files to a table.
+**Overwrites.** `fast_append` is the only way 0.10 can add files to a table.
 
 That split, refusing loudly here while reading whatever anyone else wrote, is
 deliberate.

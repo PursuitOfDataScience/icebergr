@@ -129,7 +129,7 @@ included, even where Iceberg's rules differ: `NaN` matches no comparison,
 
 ## Three things that do not push down
 
-**`limit` bounds decoding, not planning.** `iceberg-rust` 0.10.0 has no row limit
+**`limit` bounds decoding, not planning.** `iceberg-rust` 0.10 has no row limit
 in its scan API, so every file the predicate admits is still planned:
 
 ```{r}
@@ -144,7 +144,7 @@ inside a `struct`; read the parent column and subset it in R.
 
 **A `decimal` ordering comparison, at the row level only.** It is pushed down, but
 with `iceberg-rust`'s row-level selection turned off for that scan, because in
-0.10.0 that stage drops every row of an ordering comparison against a decimal.
+0.10 that stage drops every row of an ordering comparison against a decimal.
 File and row-group pruning still apply, so the scan is slightly less selective and
 still correct. `icebergr_spec_support()` records this as a known upstream
 limitation rather than leaving it to be discovered:

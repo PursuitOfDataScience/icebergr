@@ -25,9 +25,9 @@ VENDOR_DIR = $(CURDIR)/vendor
 # tree -- iceberg, iceberg-catalog-rest, iceberg-catalog-glue and fastnum --
 # declare rust-version = "1.94" under iceberg-rust's rolling-MSRV policy, and
 # cargo treats a dependency's declaration as a hard error rather than a warning.
-# None of them actually needs it: the tree compiles and the tests pass on 1.92,
-# which is what CRAN's Windows build farm carries. Without this flag that farm
-# cannot build the package at all. tools/msrv.R still refuses anything below the
+# None of them actually needs it: the tree compiles and the tests pass on 1.88,
+# below the 1.91 and 1.92 that CRAN's oldest macOS and Windows builders carry.
+# Without this flag neither could build the package at all. tools/msrv.R still refuses anything below the
 # floor in DESCRIPTION, so nothing is silently unchecked.
 #
 # tools/config.R decides @USE_VENDOR@: true for a CRAN build that has

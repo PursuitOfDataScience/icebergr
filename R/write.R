@@ -46,7 +46,8 @@ icebergr_create_namespace <- function(catalog, namespace) {
 #' @param data A data frame whose columns define the schema. No rows are written;
 #'   only the column names and types are used. An Arrow schema is also accepted.
 #' @param location Where to store the table. `NULL` lets the catalog decide,
-#'   which is almost always what you want.
+#'   which is almost always what you want. A local path is expanded and made
+#'   absolute first, since it is recorded in the table's metadata as written.
 #'
 #' @return An `icebergr_table` handle for the new, empty table.
 #'
@@ -75,13 +76,28 @@ icebergr_create_table <- function(catalog, table, data, location = NULL) {
     abort("`data` must be a data frame, or an Arrow schema.")
   }
 
+  if (!is.null(location)) {
+    # An empty one reached iceberg-rust as the table's root, so the memory
+    # catalog tried to create `/metadata` at the top of the filesystem.
+    if (!nzchar(trimws(location))) {
+      abort(c(
+        "`location` must not be empty.",
+        i = "Use `location = NULL` to let the catalog decide."
+      ))
+    }
+    # A caller-supplied location may be a local path or a URI. Only a path has
+    # anything to normalise: made absolute and expanded, see absolute_path(),
+    # and with its separators forward, which is how Iceberg wants them.
+    if (is_local_dir(location)) {
+      location <- absolute_path(location)
+    }
+    location <- as_iceberg_location(location)
+  }
+
   # The schema object has to outlive the call: Rust only borrows it.
   holder <- export_schema(data)
   ptr <- rs_create_table(
-    catalog$ptr, ident$namespace, ident$name, holder$addr,
-    # A caller-supplied location may be a Windows path or a URI. Only the former
-    # has separators to normalise, and Iceberg wants them forward.
-    if (is.null(location)) NULL else as_iceberg_location(location)
+    catalog$ptr, ident$namespace, ident$name, holder$addr, location
   )
   new_icebergr_table(ptr, catalog)
 }
@@ -205,7 +221,7 @@ icebergr_register_table <- function(catalog, table, metadata_location,
 # not reloaded, not registered, not appended to, by this package or any other
 # engine, since the file no longer parses.
 #
-# The rest are the metrics iceberg-rust 0.10.0 computes (the constants in its
+# The rest are the metrics iceberg-rust 0.10 computes (the constants in its
 # `spec/snapshot_summary.rs`, which are private, hence the copy). A computed one
 # overwrites a colliding user value, but an append computes only what is
 # positive, so a user-supplied `deleted-records` survived and was subtracted
@@ -267,9 +283,12 @@ is_reserved_summary_key <- function(keys) {
 #'
 #' A table registered with [icebergr_register_table()] must also have been
 #' registered from a metadata file named the way Iceberg names them,
-#' `<version>-<uuid>.metadata.json`, because the next one is derived from that
-#' name. Every engine writes conforming names; a renamed or hand-made file reads
-#' fine and is refused here, again before anything is written.
+#' `<version>-<uuid>.metadata.json`, inside the table's own `metadata`
+#' directory, because a `memory` or `glue` catalog writes the next one beside it
+#' and derives its name from that one. Every engine writes files like that; a
+#' renamed, moved or hand-made one reads fine and is refused here, again before
+#' anything is written. A REST catalog's server chooses the next location
+#' itself, so its tables are not held to this.
 #'
 #' This is an append. Row-level deletes, overwrites and MERGE are not supported;
 #' see [icebergr_spec_support()].
@@ -335,7 +354,10 @@ icebergr_append <- function(tbl,
     stream_addr = holder$addr,
     compression = compression,
     property_keys = keys,
-    property_values = values
+    property_values = values,
+    # Whether the commit derives the next metadata file from the current one,
+    # which only some catalogs do; see derives_next_metadata_location().
+    catalog_kind = tbl$catalog$type
   )
 
   # Reported from what Rust actually did rather than from nrow(data), which only

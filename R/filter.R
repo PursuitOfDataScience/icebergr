@@ -422,12 +422,21 @@ json_scalar <- function(v, call = rlang::caller_env()) {
     )
   }
   # JSON has no token for an infinity, so letting one through would emit a
-  # document the Rust side cannot parse.
-  if (bare_double && is.infinite(v)) {
+  # document the Rust side cannot parse. A Date or a POSIXct can be infinite
+  # too, and format() spells that "Inf", which reached iceberg-rust as a date
+  # to parse and came back as "Can't parse date from string: Inf".
+  infinite <- if (bare_double) {
+    is.infinite(v)
+  } else if (inherits(v, "Date") || inherits(v, "POSIXt")) {
+    is.infinite(as.numeric(v))
+  } else {
+    FALSE
+  }
+  if (infinite) {
     abort(
       c(
         "A filter compared a column against an infinite value.",
-        i = "JSON has no representation for Inf, so it cannot be pushed down.",
+        i = "An Iceberg literal cannot be infinite, so it cannot be pushed down.",
         i = "Drop the bound, or apply it in R after icebergr_collect()."
       ),
       call = call

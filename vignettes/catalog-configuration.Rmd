@@ -129,7 +129,7 @@ catalog <- icebergr_catalog(
 ```
 
 A property it does not know is ignored without a word, so check the spelling.
-There is no SigV4 request signing in `iceberg-rust` 0.10.0, so a REST endpoint
+There is no SigV4 request signing in `iceberg-rust` 0.10, so a REST endpoint
 that requires it, such as AWS Glue's, is out of reach with `type = "rest"`; use
 `type = "glue"`, which goes through the AWS SDK, instead.
 
@@ -353,7 +353,7 @@ behind in the warehouse. Write to such a table with an engine that supports
 partitioned writes.
 
 Writing to a partitioned table is one of several operations Iceberg's spec
-defines [@icebergspec] that `iceberg-rust` 0.10.0 does not yet implement;
+defines [@icebergspec] that `iceberg-rust` 0.10 does not yet implement;
 `vignette("writing")` lists the rest and says which side each gap is on.
 
 # References

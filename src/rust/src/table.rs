@@ -95,6 +95,24 @@ impl RTable {
             None => Ok(metadata.current_schema().clone()),
         }
     }
+
+    /// The schema a read of `snapshot` plans with: that snapshot's own, and for
+    /// `None` the *current snapshot's*, which is not always the table's current
+    /// schema.
+    ///
+    /// Another engine can change the schema without writing anything: an
+    /// `ALTER TABLE ... ADD COLUMN` or `RENAME COLUMN` makes a new schema
+    /// current while the current snapshot still names the old one. iceberg-rust
+    /// plans every scan against the snapshot's schema, so resolving a read's
+    /// names against `current_schema()` disagreed with the scan itself: a
+    /// renamed column could be selected by neither name, an added one passed
+    /// every check here and then failed in planning, and a read that found no
+    /// rows reported the added column while one that found rows did not. With
+    /// no snapshot at all there is no data either, and the current schema is the
+    /// only one there is.
+    pub fn read_schema(&self, snapshot: Option<i64>) -> RResult<IcebergSchemaRef> {
+        self.schema_at(snapshot.or_else(|| self.metadata().current_snapshot_id()))
+    }
 }
 
 /// Render an Iceberg type for the `type` column of `icebergr_schema()`.

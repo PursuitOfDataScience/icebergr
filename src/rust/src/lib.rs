@@ -41,8 +41,9 @@ fn enabled_features() -> Vec<String> {
 #[extendr]
 fn rs_build_info() -> List {
     list!(
-        iceberg_rust_version = "0.10.0",
-        arrow_version = "58.4",
+        // From Cargo.lock, by build.rs, so neither can go stale on a bump.
+        iceberg_rust_version = env!("ICEBERGR_ICEBERG_VERSION"),
+        arrow_version = env!("ICEBERGR_ARROW_VERSION"),
         features = enabled_features(),
         catalogs = {
             // As above: the only push is cfg-gated behind the glue feature.

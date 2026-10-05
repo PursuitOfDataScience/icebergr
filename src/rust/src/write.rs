@@ -33,17 +33,6 @@ use crate::errors::{RResult, ctx};
 use crate::runtime::block_on;
 use crate::table::RTable;
 
-/// The file name part of a metadata location.
-///
-/// Both separators, because both occur. iceberg-rust builds its own locations
-/// with `/`, but a location that came from R has been through `normalizePath()`,
-/// which on Windows returns `C:\warehouse\db\events\metadata\...`. Splitting on
-/// `/` alone left the whole path as the "file name", so the check below saw a
-/// version of `C:\...\99999` and refused every legitimate append on Windows.
-fn metadata_file_name(location: &str) -> &str {
-    location.rsplit(['/', '\\']).next().unwrap_or(location)
-}
-
 /// Whether iceberg-rust will be able to derive the *next* metadata file name from
 /// this one.
 ///
@@ -60,6 +49,31 @@ fn metadata_name_is_committable(file_name: &str) -> bool {
         return false;
     };
     version.parse::<i32>().is_ok() && uuid::Uuid::parse_str(id).is_ok()
+}
+
+/// Why iceberg-rust could not commit a successor to the metadata at `location`,
+/// or `None` if it can.
+///
+/// Mirrors `MetadataLocation::from_str`, which the commit runs on the current
+/// location to name the next file: split on the last `/`, require the directory
+/// to end in `/metadata`, then the file name rules above. Checking the name
+/// alone missed the directory, so a table registered from a conforming file
+/// that sat anywhere else read normally, wrote its Parquet, and only then failed
+/// with "Metadata location not under \"/metadata\" subdirectory", leaving the
+/// data files behind on every attempt. Only `/` counts as a separator here,
+/// because only `/` counts there; R hands every Windows path over with forward
+/// slashes for exactly this reason.
+fn uncommittable_because(location: &str) -> Option<&'static str> {
+    let Some((dir, file)) = location.rsplit_once('/') else {
+        return Some("it is not a slash-separated location");
+    };
+    if !dir.ends_with("/metadata") {
+        return Some("it is not in a directory named `metadata`");
+    }
+    if !metadata_name_is_committable(file) {
+        return Some("its name is not <version>-<uuid>.metadata.json");
+    }
+    None
 }
 
 /// Rows handed to the Parquet writer per call. See the write loop.
@@ -185,6 +199,19 @@ fn align_batch(batch: &RecordBatch, target: &SchemaRef) -> RResult<RecordBatch> 
         .map_err(|e| ctx("the data does not fit the table schema", e))
 }
 
+/// Whether a catalog of this kind names the next metadata file itself.
+///
+/// The memory and Glue catalogs commit by running `TableCommit::apply`, which
+/// parses the current metadata location to derive the next one, so for them a
+/// location iceberg-rust cannot parse fails the commit after the data is
+/// written. A REST catalog sends the commit to the server and takes back
+/// whatever location the server chose, never parsing the current one, so its
+/// tables are not held to the convention: a server that names its files
+/// differently is entitled to.
+fn derives_next_metadata_location(catalog_kind: &str) -> bool {
+    matches!(catalog_kind, "memory" | "glue")
+}
+
 #[extendr]
 fn rs_table_append(
     tbl: ExternalPtr<RTable>,
@@ -192,6 +219,7 @@ fn rs_table_append(
     compression: &str,
     property_keys: Vec<String>,
     property_values: Vec<String>,
+    catalog_kind: &str,
 ) -> RResult<ExternalPtr<RTable>> {
     if property_keys.len() != property_values.len() {
         return Err("internal error: snapshot property keys and values differ in length".into());
@@ -234,26 +262,32 @@ fn rs_table_append(
     }
 
     // Also before writing, and for the same reason. Iceberg names each metadata
-    // file <version>-<uuid>.metadata.json and derives the next one by parsing the
-    // current one -- during the *commit*, once the data files are already on disk.
-    // So a table registered from a metadata file that does not follow the
-    // convention reads perfectly well and then fails its first append with
-    // "Failed to convert between uuid und iceberg value ... invalid character",
-    // which names neither the file nor the convention, and leaves orphan Parquet
-    // behind each time it is retried.
-    if let Some(location) = table.metadata_location() {
-        let file_name = metadata_file_name(location);
-        if !metadata_name_is_committable(file_name) {
-            return Err(extendr_api::Error::Other(format!(
-                "cannot append to {:?}: its metadata file is named {file_name:?}, \
-                 and Iceberg derives the next one from that name, which has to be \
-                 <version>-<uuid>.metadata.json.\n\
-                 Reading such a table works; only a commit needs the name. \
-                 Re-register it from the file the writing engine produced, for \
-                 example 00003-3f2504e0-4f89-41d3-9a0c-0305e82c3301.metadata.json.",
-                table.identifier().name()
-            )));
-        }
+    // file <table>/metadata/<version>-<uuid>.metadata.json and derives the next
+    // one by parsing the current one -- during the *commit*, once the data files
+    // are already on disk. So a table registered from a metadata file that does
+    // not follow the convention reads perfectly well and then fails its first
+    // append with "Failed to convert between uuid und iceberg value ... invalid
+    // character", or "Metadata location not under \"/metadata\" subdirectory",
+    // neither of which names the file or the convention, and leaves orphan
+    // Parquet behind each time it is retried.
+    if derives_next_metadata_location(catalog_kind)
+        && let Some(location) = table.metadata_location()
+        && let Some(why) = uncommittable_because(location)
+    {
+        // Split for the message only, on either separator, so that the file
+        // name is quoted on its own whichever way the path is written.
+        let (dir, file) = location.rsplit_once(['/', '\\']).unwrap_or(("", location));
+        return Err(extendr_api::Error::Other(format!(
+            "cannot append to {:?}: its metadata file is {file:?} in {dir:?}, \
+             and {why}.\n\
+             Iceberg writes the next metadata file beside the current one and \
+             derives its name from the current name, so a commit needs \
+             <table>/metadata/<version>-<uuid>.metadata.json. Reading such a \
+             table works. Re-register it from the file the writing engine \
+             produced, in its own metadata directory, for example \
+             metadata/00003-3f2504e0-4f89-41d3-9a0c-0305e82c3301.metadata.json.",
+            table.identifier().name()
+        )));
     }
 
     // The Iceberg schema converted to Arrow carries the field-id metadata that
@@ -356,34 +390,11 @@ extendr_module! {
 
 #[cfg(test)]
 mod tests {
-    use super::{metadata_file_name, metadata_name_is_committable};
+    use super::{
+        derives_next_metadata_location, metadata_name_is_committable, uncommittable_because,
+    };
 
     const UUID: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
-
-    #[test]
-    fn file_name_handles_both_separators() {
-        // A Windows path reached this as one undivided string, so the whole thing
-        // was tested as a file name and every append to a registered table was
-        // refused. R's normalizePath() produces these.
-        assert_eq!(
-            metadata_file_name("C:\\warehouse\\db\\events\\metadata\\00003-x.metadata.json"),
-            "00003-x.metadata.json"
-        );
-        assert_eq!(
-            metadata_file_name("/warehouse/db/events/metadata/00003-x.metadata.json"),
-            "00003-x.metadata.json"
-        );
-        // Mixed, which is what a Windows warehouse path joined to iceberg-rust's
-        // own forward-slash suffix actually looks like.
-        assert_eq!(
-            metadata_file_name("C:\\warehouse\\db\\events/metadata/00003-x.metadata.json"),
-            "00003-x.metadata.json"
-        );
-        assert_eq!(
-            metadata_file_name("00003-x.metadata.json"),
-            "00003-x.metadata.json"
-        );
-    }
 
     #[test]
     fn accepts_the_names_iceberg_writes() {
@@ -420,11 +431,67 @@ mod tests {
     }
 
     #[test]
-    fn a_windows_location_is_committable_end_to_end() {
-        // The regression itself: this exact shape failed on Windows CI.
-        let location = format!(
-            "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\db\\events\\metadata\\99999-{UUID}.metadata.json"
+    fn a_location_has_to_be_in_a_metadata_directory() {
+        // The case the name check alone let through: a conforming file that
+        // sits anywhere else read normally and failed only at the commit, with
+        // the data already written.
+        let elsewhere = format!("/wh/db/events/exported/00003-{UUID}.metadata.json");
+        assert!(
+            uncommittable_because(&elsewhere)
+                .is_some_and(|why| why.contains("directory named `metadata`"))
         );
-        assert!(metadata_name_is_committable(metadata_file_name(&location)));
+        assert!(uncommittable_because(&format!("00003-{UUID}.metadata.json")).is_some());
+        assert!(
+            uncommittable_because("/wh/db/events/metadata/v3.metadata.json")
+                .is_some_and(|why| why.contains("<version>-<uuid>"))
+        );
+        // What iceberg-rust writes, locally and in object storage.
+        assert_eq!(
+            uncommittable_because(&format!(
+                "/wh/db/events/metadata/00003-{UUID}.metadata.json"
+            )),
+            None
+        );
+        assert_eq!(
+            uncommittable_because(&format!(
+                "s3://bucket/db/events/metadata/00003-{UUID}.gz.metadata.json"
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn a_windows_location_is_committable_only_with_forward_slashes() {
+        // The shape R hands over: normalizePath() through as_iceberg_location().
+        assert_eq!(
+            uncommittable_because(&format!(
+                "C:/Users/runneradmin/AppData/Local/Temp/db/events/metadata/99999-{UUID}.metadata.json"
+            )),
+            None
+        );
+        // A warehouse given with backslashes, joined to iceberg-rust's own
+        // forward-slash suffix, still parses there, so it is not refused here.
+        assert_eq!(
+            uncommittable_because(&format!(
+                "C:\\warehouse\\db\\events/metadata/00003-{UUID}.metadata.json"
+            )),
+            None
+        );
+        // Backslashes alone do not: iceberg-rust splits on `/` only, so this
+        // would fail its commit, and refusing it first saves the data files.
+        assert!(
+            uncommittable_because(&format!(
+                "C:\\warehouse\\db\\events\\metadata\\00003-{UUID}.metadata.json"
+            ))
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn only_catalogs_that_name_their_own_metadata_are_checked() {
+        assert!(derives_next_metadata_location("memory"));
+        assert!(derives_next_metadata_location("glue"));
+        // A REST server chooses the next location itself.
+        assert!(!derives_next_metadata_location("rest"));
     }
 }

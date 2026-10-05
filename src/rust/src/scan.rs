@@ -35,7 +35,16 @@ fn configure(
     row_group_filtering: bool,
     mut row_selection: bool,
 ) -> RResult<TableScan> {
-    let mut builder = tbl.table.scan().with_case_sensitive(case_sensitive);
+    // Always case-sensitive upstream, whatever the caller asked for. Every name
+    // that reaches the builder has already been resolved to the table's own
+    // spelling: `select` by icebergr_scan() in R, and each predicate column by
+    // `predicate::reference`, which prefers an exact match. Passing
+    // `case_sensitive = false` on made iceberg-rust bind the predicate a second
+    // time through its case-insensitive index, a map keyed on the lowercased
+    // name in which one of `id` and `ID` simply overwrites the other, so on a
+    // table holding both, `id > 1` was bound to the string column `ID` and the
+    // scan failed with "Can't convert datum from int type to string type".
+    let mut builder = tbl.table.scan().with_case_sensitive(true);
 
     // Projection pushdown: only the requested columns are read from Parquet.
     builder = match select {
@@ -49,7 +58,7 @@ fn configure(
 
     // Predicate pushdown: used to prune manifests, files and row groups.
     if let Some(json) = filter_json {
-        let schema = tbl.schema_at(snapshot)?;
+        let schema = tbl.read_schema(snapshot)?;
         let built = build_predicate(json, &schema, case_sensitive)?;
         // A decimal comparison and iceberg-rust's row-selection filter cannot
         // both be had: see BuiltPredicate::has_decimal for what that filter does
@@ -78,35 +87,33 @@ fn configure(
 
 /// The schema to report when a scan yields no batches at all.
 ///
-/// Derived from the schema of the snapshot being read, not from the current
-/// one: a time-travel read of a table whose columns have since changed must
-/// report the columns that snapshot had, whether or not it happens to be empty.
+/// Derived from the schema of the snapshot being read, which for a read of the
+/// current state is the current snapshot's (see `RTable::read_schema`): a read
+/// of a table whose columns have since changed must report the columns that
+/// snapshot had, whether or not it happens to be empty.
 fn fallback_schema(
     tbl: &RTable,
     select: &Option<Vec<String>>,
     snapshot: Option<i64>,
-    case_sensitive: bool,
 ) -> RResult<SchemaRef> {
-    let full = schema_to_arrow_schema(tbl.schema_at(snapshot)?.as_ref())
+    let full = schema_to_arrow_schema(tbl.read_schema(snapshot)?.as_ref())
         .map_err(|e| ctx("could not convert the Iceberg schema to Arrow", e))?;
 
     match select {
         Some(cols) if !cols.is_empty() => {
             let mut fields = Vec::with_capacity(cols.len());
             for c in cols {
-                // Matched the same way the scan itself matches, so that an empty
+                // Matched the way the scan itself matches, so that an empty
                 // result does not fail where a non-empty one would have
-                // succeeded.
+                // succeeded, nor succeed with a different column: exactly, since
+                // iceberg-rust looks a projected name up case-sensitively and R
+                // has already resolved it to the table's spelling. A
+                // case-insensitive search here picked whichever of `id` and `ID`
+                // came first, so an empty `select = "ID"` came back as `id`.
                 let f = full
                     .fields()
                     .iter()
-                    .find(|f| {
-                        if case_sensitive {
-                            f.name() == c
-                        } else {
-                            f.name().eq_ignore_ascii_case(c)
-                        }
-                    })
+                    .find(|f| f.name() == c)
                     .ok_or_else(|| {
                         let mut names: Vec<&str> =
                             full.fields().iter().map(|f| f.name().as_str()).collect();
@@ -153,7 +160,7 @@ fn rs_scan_to_stream(
     )?;
 
     let stream = block_on(scan.to_arrow()).map_err(|e| ctx("could not start the scan", e))?;
-    let fallback = fallback_schema(&tbl, &select, snapshot, case_sensitive)?;
+    let fallback = fallback_schema(&tbl, &select, snapshot)?;
     let reader = BlockingBatchReader::new(stream, fallback)?;
 
     export_reader(stream_addr, Box::new(reader))

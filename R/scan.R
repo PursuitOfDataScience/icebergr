@@ -63,7 +63,7 @@
 #' defines a prefix comparison for no other type.
 #'
 #' A filter on a `decimal` column is pushed down, but with `iceberg-rust`'s
-#' row-level selection turned off for that scan: in 0.10.0 that stage drops every
+#' row-level selection turned off for that scan: in 0.10 that stage drops every
 #' row of an ordering comparison against a decimal, so `price > 2.25` returned
 #' nothing at all. File and row-group pruning still apply, so such a scan is a
 #' little less selective and still correct.
@@ -71,11 +71,17 @@
 #' @section Column names and time travel:
 #' Iceberg records a schema per snapshot, so `filter` and `select` are resolved
 #' against the schema of the snapshot actually being read: the one named by
-#' `snapshot_id` or `as_of`, and otherwise the current one. A column another
+#' `snapshot_id` or `as_of`, and otherwise the current snapshot. A column another
 #' engine has since renamed or dropped is therefore still nameable as of a
 #' snapshot that had it, and one added afterwards is refused for a snapshot that
 #' did not. [icebergr_schema()] takes the same `snapshot_id` and reports what
 #' those columns are.
+#'
+#' The current snapshot's schema is usually the table's current schema, but not
+#' straight after another engine changes the schema without writing anything,
+#' such as an `ALTER TABLE ... ADD COLUMN`. Until the next commit, a read still
+#' has the columns the current snapshot was written with, under their old names,
+#' while [icebergr_schema()] already reports the new ones.
 #'
 #' @examples
 #' tbl <- icebergr_example_table(rows = 10)
@@ -198,6 +204,17 @@ icebergr_scan <- function(tbl,
       # ("not a direct child of schema"), so name the actual limitation.
       nested <- missing[sub("[.].*$", "", missing) %in% available &
         grepl(".", missing, fixed = TRUE)]
+      # A name icebergr_schema() does list, because the schema changed after the
+      # current snapshot was written, needs saying why: otherwise the two
+      # functions look as though they disagree about the same table.
+      newer <- if (is.null(snapshot)) {
+        current <- rs_table_schema(tbl$ptr, NULL)$name
+        missing[if (case_sensitive) {
+          missing %in% current
+        } else {
+          tolower(missing) %in% tolower(current)
+        }]
+      }
       abort(c(
         paste0(
           "Cannot select column(s) not in the table: ",
@@ -209,6 +226,14 @@ icebergr_scan <- function(tbl,
             "Iceberg cannot project a nested field on its own. Select ",
             paste0("\"", unique(sub("[.].*$", "", nested)), "\"", collapse = ", "),
             " and take the field from the data frame column it arrives as."
+          )
+        },
+        i = if (length(newer)) {
+          paste0(
+            paste(newer, collapse = ", "), " is in the table's current schema but ",
+            "not in the one its current snapshot was written with, which is what a ",
+            "read follows. The schema changed after the last write; the next ",
+            "commit makes it readable."
           )
         }
       ))

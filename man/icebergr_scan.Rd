@@ -87,7 +87,7 @@ follows Iceberg's byte order; that agrees with R only in the C locale.
 defines a prefix comparison for no other type.
 
 A filter on a \code{decimal} column is pushed down, but with \code{iceberg-rust}'s
-row-level selection turned off for that scan: in 0.10.0 that stage drops every
+row-level selection turned off for that scan: in 0.10 that stage drops every
 row of an ordering comparison against a decimal, so \code{price > 2.25} returned
 nothing at all. File and row-group pruning still apply, so such a scan is a
 little less selective and still correct.
@@ -97,11 +97,17 @@ little less selective and still correct.
 
 Iceberg records a schema per snapshot, so \code{filter} and \code{select} are resolved
 against the schema of the snapshot actually being read: the one named by
-\code{snapshot_id} or \code{as_of}, and otherwise the current one. A column another
+\code{snapshot_id} or \code{as_of}, and otherwise the current snapshot. A column another
 engine has since renamed or dropped is therefore still nameable as of a
 snapshot that had it, and one added afterwards is refused for a snapshot that
 did not. \code{\link[=icebergr_schema]{icebergr_schema()}} takes the same \code{snapshot_id} and reports what
 those columns are.
+
+The current snapshot's schema is usually the table's current schema, but not
+straight after another engine changes the schema without writing anything,
+such as an \verb{ALTER TABLE ... ADD COLUMN}. Until the next commit, a read still
+has the columns the current snapshot was written with, under their old names,
+while \code{\link[=icebergr_schema]{icebergr_schema()}} already reports the new ones.
 }
 
 \examples{

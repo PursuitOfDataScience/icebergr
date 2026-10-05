@@ -53,6 +53,25 @@ fn scrub_userinfo(text: &str) -> String {
     out
 }
 
+/// How many ASCII whitespace bytes `bytes` starts with.
+fn ascii_spaces(bytes: &[u8]) -> usize {
+    bytes.iter().take_while(|b| b.is_ascii_whitespace()).count()
+}
+
+/// The length of a quoted value up to its closing `quote`, which a backslash
+/// escapes. All of it if the quote never closes.
+fn quoted_len(value: &[u8], quote: u8) -> usize {
+    let mut i = 0;
+    while i < value.len() {
+        match value[i] {
+            b'\\' => i += 2,
+            c if c == quote => return i,
+            _ => i += 1,
+        }
+    }
+    value.len()
+}
+
 /// Replace the value of any `SECRET_PARAMS` key with a placeholder.
 fn scrub_params(text: &str) -> String {
     let lower = text.to_ascii_lowercase();
@@ -69,26 +88,45 @@ fn scrub_params(text: &str) -> String {
                     continue;
                 }
             }
-            let after_key = &text[from..];
-            // Allow `key = value` as well as `key=value`.
-            let sep = after_key.find(|c: char| !c.is_whitespace()).unwrap_or(0);
-            let bytes = after_key.as_bytes();
-            if bytes.get(sep) != Some(&b'=') && bytes.get(sep) != Some(&b':') {
+            let bytes = text.as_bytes();
+            let mut i = from;
+            // A quoted key, as in a JSON body, closes its quote before the
+            // separator: `"client_secret": "..."` was not recognised at all.
+            let quoted_key = matches!(bytes.get(i), Some(b'"' | b'\''));
+            if quoted_key {
+                i += 1;
+            }
+            i += ascii_spaces(&bytes[i..]);
+            let sep = bytes.get(i).copied();
+            if sep != Some(b'=') && sep != Some(b':') {
                 continue;
             }
-            let vstart = from + sep + 1;
+            i += 1;
+            // Space after `=` is the `key = value` this always meant to allow,
+            // and which used to stop at the space and redact nothing. After `:`
+            // only for a quoted key: unquoted, `password: too short` is prose
+            // far more often than it is a credential.
+            if sep == Some(b'=') || quoted_key {
+                i += ascii_spaces(&bytes[i..]);
+            }
+            let quote = match bytes.get(i) {
+                Some(&q @ (b'"' | b'\'')) => {
+                    i += 1;
+                    Some(q)
+                }
+                _ => None,
+            };
+            let vstart = i;
             let value = &text[vstart..];
-            let vlen = value
-                .find(|c: char| {
-                    c == '&'
-                        || c == '"'
-                        || c == '\''
-                        || c == ')'
-                        || c == ','
-                        || c == ';'
-                        || c.is_whitespace()
-                })
-                .unwrap_or(value.len());
+            let vlen = match quote {
+                // A quoted value runs to its closing quote, spaces included.
+                Some(q) => quoted_len(value.as_bytes(), q),
+                None => value
+                    .find(|c: char| {
+                        matches!(c, '&' | '"' | '\'' | ')' | ',' | ';' | '}') || c.is_whitespace()
+                    })
+                    .unwrap_or(value.len()),
+            };
             if vlen > 0 {
                 cuts.push((vstart, vstart + vlen));
             }
@@ -213,6 +251,36 @@ mod tests {
         let got = scrub("invalid_client: client_secret=hunter2, grant_type=client_credentials");
         assert!(!got.contains("hunter2"), "{got}");
         assert!(got.contains("grant_type=client_credentials"), "{got}");
+    }
+
+    #[test]
+    fn spaces_around_an_equals_sign_still_redact() {
+        // The documented `key = value`, which used to stop at the space after
+        // `=` and redact an empty string.
+        let got = scrub("form: client_secret = hunter2&grant_type=x");
+        assert!(!got.contains("hunter2"), "{got}");
+        assert!(got.contains("grant_type=x"), "{got}");
+    }
+
+    #[test]
+    fn a_secret_in_a_json_body_is_removed() {
+        let got = scrub(r#"{"client_secret": "hunter 2", "access_token":"zq\"xw", "scope": "s"}"#);
+        assert!(!got.contains("hunter"), "{got}");
+        // An escaped quote does not end the value early.
+        assert!(!got.contains("zq") && !got.contains("xw"), "{got}");
+        assert!(
+            got.contains(r#""scope": "s""#),
+            "the innocent field survives: {got}"
+        );
+    }
+
+    #[test]
+    fn prose_with_a_colon_is_not_mistaken_for_a_credential() {
+        // An unquoted key and a space after the colon reads as a sentence.
+        let text = "password: too short";
+        assert_eq!(scrub(text), text);
+        // Without the space it is the key:value it always was.
+        assert!(!scrub("password:hunter2").contains("hunter2"));
     }
 
     #[test]

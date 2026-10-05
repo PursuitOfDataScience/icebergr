@@ -144,6 +144,14 @@ test_that("infinite and NaN bounds are refused, not turned into invalid JSON", {
   expect_error(js(amount > -Inf), "infinite")
   expect_error(js(amount == NaN), "NaN")
   expect_error(js(amount == NaN), "is.nan")
+  # A Date or a POSIXct can be infinite as well. format() spells one "Inf",
+  # which used to reach iceberg-rust as a date to parse.
+  never <- as.Date(Inf)
+  expect_error(js(day < never), "infinite")
+  forever <- .POSIXct(-Inf, tz = "UTC")
+  expect_error(js(ts > forever), "infinite")
+  # A finite one is unaffected.
+  expect_equal(js(day < as.Date("2024-01-02")), '{"op":"lt","col":"day","value":"2024-01-02"}')
 })
 
 test_that("dates and timestamps are sent as unambiguous ISO-8601", {

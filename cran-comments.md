@@ -4,10 +4,27 @@
 
 `icebergr` 0.1.0 has been on CRAN since 2026-09-10. This is 0.2.0.
 
-**It fixes faults that affect users of 0.1.0, hardens credential handling, and
-adds no dependency.** `iceberg-rust` is unmoved at 0.10.0 and no function was
-added or removed, so code written against 0.1.0 needs no revision unless it
-relied on one of the faults. Each fix is in `NEWS.md`, with a test:
+**It fixes the two problems CRAN's own checks record for 0.1.0**, faults that
+affect users of 0.1.0, and hardens credential handling. It adds no R
+dependency and no function was added or removed, so code written against 0.1.0
+needs no revision unless it relied on one of the faults.
+
+The two check results:
+
+* **r-oldrel-macos-arm64: ERROR, installation failed.** That machine carries
+  rustc 1.91.1 and `SystemRequirements` declared rustc >= 1.92, so `configure`
+  refused, correctly, by its own rule. The declaration was a measured floor, not
+  a need: the tree now builds and passes the test suite on rustc **1.88.0**, and
+  that is what `SystemRequirements` declares. 1.87 is the first release it does
+  not build on.
+* **Additional issues: musl.** The install failed with `tar: corrupted data`
+  while unpacking `vendor.tar.xz`. That archive was compressed with a 128 MiB
+  dictionary, and BusyBox's xz decoder, which is what `tar` is on Alpine,
+  refuses anything over 64 MiB. Reproduced with BusyBox's own binary, and fixed
+  by compressing with 64 MiB: the same BusyBox now unpacks it, and
+  `tools/vendor.R` checks the dictionary of the archive it writes.
+
+The faults, each with a test that fails without its fix:
 
 * An append given a snapshot property named `operation` wrote table metadata
   that no engine could parse again, after which the table could not be loaded
@@ -18,6 +35,10 @@ relied on one of the faults. Each fix is in `NEWS.md`, with a test:
   column on the value side of a comparison read as a local variable, and `NA`
   and `NaN` handled by Iceberg's rules rather than R's, so that whether a `NaN`
   row matched `x > 1` depended on which file it was in.
+* On a table whose schema another engine had changed, `x < 5` returned every
+  row of the data files written before `x` existed, a renamed column could not
+  be selected by either name, and `case_sensitive = FALSE` could bind a filter
+  to the wrong one of two columns differing only in case.
 * A forked worker, such as one from `parallel::mclapply()`, hung forever once
   the parent had used the package. It now fails at once, naming the alternative.
 
@@ -30,39 +51,49 @@ Three credential-handling changes, each with a documented escape hatch:
 * `icebergr_register_table()` gained `confine = TRUE`, requiring the metadata
   file to sit inside the catalog's own warehouse.
 
-The rest is documentation: five further vignettes (seven in total, each with a
-bibliography), a `pkgdown` site, and a package logo.
+The Rust dependencies are at their latest compatible versions. `iceberg-rust`
+moves from 0.10.0 to 0.10.1, whose Rust code is identical, and among the rest
+`rustls` moves to 0.23.45 for RUSTSEC-2026-0285. The rest is documentation:
+five further vignettes (seven in total, each with a bibliography), a `pkgdown`
+site, and a package logo.
 
 ### On the timing of this submission
 
 CRAN policy asks that updates not be submitted more often than every one to two
-months, and 0.1.0 was published very recently. The credential changes are
-hardening, but the first fault above is a repair: from a call that reports
-success, it leaves a table's metadata unparseable, and a 0.1.0 user can reach it
-today. That is the case for not waiting. If the reviewer would rather this were
-held for the usual interval, it can be.
+months, and 0.1.0 was published on 2026-09-10. Two things make the case for not
+waiting. The first fault above is a repair: from a call that reports success,
+it leaves a table's metadata unparseable, and a 0.1.0 user can reach it today.
+And this release is what clears the ERROR and the musl issue on 0.1.0's own
+check page. If the reviewer would rather this were held for the usual interval,
+it can be.
 
 ### Size
 
-The tarball is 11,420,018 bytes, against 11,170,566 for 0.1.0: **249,452 bytes
-larger.** The five new vignettes account for 223,397 bytes of that, measured when
-they were the only change, and this release's code, tests and documentation for
-the rest. `vendor.tar.xz` is byte-identical, because no dependency changed.
+The tarball is 11,722,495 bytes, against 11,170,566 for 0.1.0: **551,929
+bytes larger.** Of that, `vendor.tar.xz` accounts for 290,212 bytes: 80,492 for
+the smaller dictionary that musl needs, measured by recompressing the 0.1.0 tree
+alone, and the rest for routine version updates, the largest being
+`zerocopy-derive`; no new dependency subtree arrived. The five new vignettes
+account for 223,397 bytes, and this release's code, tests and documentation for
+the remainder.
 
 This remains above CRAN's 10 MB guideline, for the reasons accepted at 0.1.0 and
 restated under "The size request" below. Nothing further can be pruned without
 giving up function: the one feature-shaped lever left is Parquet's Brotli codec,
 worth roughly 0.6 MB, and dropping it would make a Brotli-compressed data file
-written by another engine unreadable. CI now fails the build if the tarball grows
+written by another engine unreadable. CI fails the build if the tarball grows
 past a ceiling, and reports the delta against 0.1.0 on every run, so this figure
 cannot drift unnoticed.
 
 ## Test environments
 
-- Local: CentOS Linux 8 (x86_64), R 4.6.0, rustc 1.97.1: a vendored, offline
-  build, the same path a CRAN build takes.
-- Local: the same machine and R, with **rustc 1.92.0**, the version the Windows
-  farm reported, again vendored and offline.
+- Local: CentOS Linux 8 (x86_64), R 4.6.0, rustc 1.97.1: `R CMD build` and
+  `R CMD check --as-cran` on a vendored, offline build, the same path a CRAN
+  build takes.
+- Local: the same machine and R with **rustc 1.88.0**, the declared floor: the
+  vendored tree installed offline, and the full test suite run against it.
+- Local: BusyBox 1.35.0's `tar` unpacks the new `vendor.tar.xz`, and fails on
+  0.1.0's with the `corrupted data` the musl check reported.
 - GitHub Actions: ubuntu-latest (R release and R oldrel-1), macos-latest
   (R release), windows-latest (R release), building against crates.io.
 - GitHub Actions: one job vendors every dependency and publishes the resulting
@@ -70,30 +101,26 @@ cannot drift unnoticed.
   windows-latest) then builds and checks **that same archive** with no network
   access at all, reproducing the CRAN build path. Extended to macOS and Windows
   because the reductions described below prune crates that only those two
-  platforms compile, and Linux alone cannot show that to be safe. The vendoring job re-derives the archive from scratch on a clean runner
-  and arrives at the same 10.47 MB and the same per-stage figures quoted below.
+  platforms compile, and Linux alone cannot show that to be safe.
 - GitHub Actions: a job that reads the floor out of `SystemRequirements` and
-  type-checks the whole tree on exactly that toolchain, so the declared minimum
-  cannot drift without CI going red. It installs rustc 1.92.0 and processes the
-  whole default graph with no warnings. Every job above passed on the submitted
-  tree, both windows-latest jobs included.
+  type-checks the whole tree on exactly that toolchain, rustc 1.88.0, so the
+  declared minimum cannot drift without CI going red. Every job above passed on
+  the submitted tree, both windows-latest jobs included.
 
 ## R CMD check results
 
 0 errors | 0 warnings | 1 note
 
-The note is CRAN incoming feasibility: the size of the tarball, and the number of
-days since the last update. Both are addressed in the preamble above.
+The note is CRAN incoming feasibility, for the size of the tarball, which is
+addressed under "Size" above.
 
-Two warnings and two further notes appear on the local machine only, and none is
-a property of the package: each is a tool that is simply not installed there.
-`checking top-level files` wants `checkbashisms` (the package's own shell scripts
-are `configure` and `configure.win`, both two lines and both POSIX);
-`checking HTML version of manual` wants `tidy`; and with no `pdflatex` on the
-machine, `checking PDF version of manual without index` fails outright and leaves
-an `icebergr-manual.tex` behind, which then raises `non-standard things in the
-check directory`. Passing `--no-manual` removes all of the LaTeX ones. The
-GitHub Actions runners have the full set, and the numbers above are from there.
+On the local machine the result is 1 warning and 2 notes, and beyond the
+incoming-feasibility note neither is a property of the package: each is a tool
+that is not installed there. `checking top-level files` wants `checkbashisms`
+(the package's own shell scripts are `configure` and `configure.win`, both two
+lines and both POSIX), and `checking HTML version of manual` wants `tidy`. The
+PDF manual checks cleanly. The GitHub Actions runners have the full set, and the
+numbers above are from there.
 
 Check also reports the installed size, essentially all of it `libs`: one
 statically linked Rust library of about 28 MB, holding Apache Iceberg's Rust
@@ -134,7 +161,7 @@ The package follows "Using Rust in CRAN packages" in full:
 - Authorship, repository and licence for every vendored crate are recorded in
   `LICENSE.note`, generated from the vendor tree itself so the inventory
   describes exactly what ships.
-- Every one of those 442 crates is under a permissive licence, and none states no
+- Every one of those 441 crates is under a permissive licence, and none states no
   licence at all: MIT, Apache-2.0, BSD-2/3-Clause, ISC, Zlib, 0BSD, Unlicense,
   CC0-1.0, MIT-0, BSL-1.0, Unicode-3.0, Apache-2.0 WITH LLVM-exception, and
   CDLA-Permissive-2.0 for one crate that carries CA root *data* rather than code.
@@ -146,8 +173,9 @@ The package follows "Using Rust in CRAN packages" in full:
 #### The size request, as answered at 0.1.0
 
 Kept here because it is the basis on which 0.1.0 was accepted, and 0.2.0 does not
-change it: `vendor.tar.xz` is byte-identical, and the tarball is 249,452 bytes
-larger, mostly because there are now seven vignettes rather than two.
+change it: the same stages now prune 441 crates rather than 442, and the tarball
+is 551,929 bytes larger for the reasons given under "Size" above. The
+figures below are 0.1.0's.
 
 At 0.1.0 you asked me to bring the tarball under 10 MB, and to explain the Rust
 crates if they really were all needed. Both, in that order.
@@ -259,36 +287,42 @@ codec.
 That was the request 0.1.0 was accepted on: 10.65 MiB rather than the 31.52 MiB
 of the submission before it (33,048,416 bytes; the units are MiB throughout
 this section, since `du` and the check's byte count disagree by 5% and mixing
-them is how a 21 KB delta once read as 1.55 MB). 0.2.0 stands at 10.89 MiB, the
-difference being mostly built vignettes, so I am not asking for anything further
-here. If the
-figure should stop growing at some particular number, I would value knowing it:
+them is how a 21 KB delta once read as 1.55 MB). 0.2.0 stands at 11.18
+MiB, the difference being built vignettes, dependency updates and the musl fix,
+so I am not asking for anything further here. If the figure should stop growing
+at some particular number, I would value knowing it:
 CI now fails the build when the tarball passes a ceiling, and that ceiling is a
 constant I can set to whatever you name.
 
 ### Rust version
 
-`SystemRequirements` declares rustc >= 1.92. That is a measured floor: the
-complete vendored tree was built offline with rustc 1.92.0 (the version
-`00install.out` reported from the Windows farm), and `R CMD check --as-cran` was
-run against the result.
+`SystemRequirements` declares rustc >= 1.88. That is a measured floor: the
+complete vendored tree was built offline with rustc 1.88.0 and the full test
+suite run against the result, and a CI job type-checks the tree on exactly the
+version `SystemRequirements` names. It is also tight: on 1.87 the package's own
+code, and `icu_locale_core`, use `let` chains, which 1.88 stabilised.
 
-What went wrong last time is worth stating precisely, because the number I
-declared was not a compiler requirement at all. Four crates in the tree declare
-`rust-version = "1.94"` (`iceberg`, `iceberg-catalog-rest`,
+0.1.0 declared 1.92, the version `00install.out` reported from the Windows farm
+at the time, and the r-oldrel-macos-arm64 builder's 1.91.1 is below that, which
+is the ERROR on 0.1.0's check page. 1.88 covers every toolchain the CRAN builders
+have reported.
+
+What went wrong at the first submission of 0.1.0 is worth restating, because the
+number declared then was not a compiler requirement at all. Four crates in the
+tree declare `rust-version = "1.94"` (`iceberg`, `iceberg-catalog-rest`,
 `iceberg-catalog-glue` and `fastnum`) under `iceberg-rust`'s rolling-MSRV
 policy, which bumps the declaration on most releases whether or not the code
-needs it. Nothing else in the tree exceeds 1.91.1. None of those four uses a
-language or library feature newer than 1.92. Edition 2024 itself needs only 1.85.
+needs it, and the AWS crates behind the optional `glue` feature declare 1.94.1.
+None of them uses a language or library feature newer than 1.88. One dependency
+does need more: `uuid` 1.27 uses a `const fn` that 1.88 does not have, so the
+package holds `uuid` below 1.27, and says why in `Cargo.toml`.
 
-Two things carry that measurement over to Windows, which I have no 1.92 Windows
-machine to check directly. None of the four contains any Windows-specific code
-(no `cfg(windows)` or `cfg(target_os = "windows")` anywhere in their sources), so
-they have no platform-gated path that a Linux build would have skipped. And of
-the crates that *do* carry Windows-specific code, not one declares a floor above
-1.91.1 (the highest are `aws-config`, `aws-runtime` and `aws-smithy-http-client`),
-so nothing on the Windows-only side of the tree claims to need more than 1.92
-either.
+Two things carry the measurement over to Windows and macOS, which I have no
+1.88 machines to check directly. None of the four 1.94-declaring crates contains
+any platform-specific code (no `cfg(windows)` or `cfg(target_os = ...)` in their
+sources), so they have no platform-gated path a Linux build would have skipped.
+And the seven crates a default build compiles only on macOS or Windows, from
+`windows-sys` to `security-framework`, declare 1.85 at most.
 
 Cargo, however, treats a *dependency's* `rust-version` as a hard error rather
 than a warning:
@@ -309,22 +343,13 @@ unmodified, and `tools/vendor.R` needs no patch step.
 That leaves `tools/msrv.R`, run from `configure`, as the single version gate. It
 reads the floor from `SystemRequirements` so `DESCRIPTION` stays the source of
 truth, and fails early with a message naming both the required and the installed
-version rather than failing partway through a compile. The trade is deliberate:
-the gate is now a floor the package has actually been checked against instead of
-one inherited from an upstream policy, and `DEVELOPMENT.md` records that it may
-only be raised after building and testing on the new value.
+version rather than failing partway through a compile. `DEVELOPMENT.md` records
+that it may only be raised after building and testing on the new value.
 
 The optional backends were checked on the same floor, not just the default
-build: `cargo check --features glue` (which adds the AWS SDK and opendal, around
-360 crates in total, and includes the fourth 1.94-declaring crate
-`iceberg-catalog-glue`) also succeeds on 1.92.0. So the declared floor holds for
+build: `cargo check --features glue`, which adds the AWS SDK and opendal, around
+360 crates in total, also succeeds on 1.88.0. So the declared floor holds for
 every configuration the package can be built in, not only the one CRAN compiles.
-
-Should a future `iceberg-rust` release genuinely need a newer compiler, the
-fallback is to pin an earlier one: 0.9.1 declares 1.92 and costs only
-`CatalogBuilder::with_runtime`, which this package does not use. It was not
-needed here, so no dependency was downgraded and no functionality was traded
-away.
 
 ### Examples, tests and vignettes are fully offline
 

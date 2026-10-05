@@ -52,9 +52,12 @@ files already left in the warehouse. Partitioned tables can still be read; see
 
 A table registered with \code{\link[=icebergr_register_table]{icebergr_register_table()}} must also have been
 registered from a metadata file named the way Iceberg names them,
-\verb{<version>-<uuid>.metadata.json}, because the next one is derived from that
-name. Every engine writes conforming names; a renamed or hand-made file reads
-fine and is refused here, again before anything is written.
+\verb{<version>-<uuid>.metadata.json}, inside the table's own \code{metadata}
+directory, because a \code{memory} or \code{glue} catalog writes the next one beside it
+and derives its name from that one. Every engine writes files like that; a
+renamed, moved or hand-made one reads fine and is refused here, again before
+anything is written. A REST catalog's server chooses the next location
+itself, so its tables are not held to this.
 
 This is an append. Row-level deletes, overwrites and MERGE are not supported;
 see \code{\link[=icebergr_spec_support]{icebergr_spec_support()}}.

@@ -174,6 +174,30 @@ as_iceberg_location <- function(path, windows = .Platform$OS.type == "windows") 
   if (windows) gsub("\\", "/", path, fixed = TRUE) else path
 }
 
+#' A local path in the absolute, expanded form a table location has to take
+#'
+#' `iceberg-rust` records a location verbatim, as the root of every file the
+#' table's metadata names. So `"~/tables/events"` created a directory literally
+#' called `~` under the working directory, and a relative path stored a
+#' location that resolved only from wherever R happened to be running: the next
+#' session, started elsewhere, could not read the table back. `normalizePath()`
+#' alone does neither for a path that does not exist yet, which is every path a
+#' new table is created at, so the working directory is joined on by hand.
+#' `windows` is an argument so that both branches are testable anywhere.
+#' @noRd
+absolute_path <- function(path, windows = .Platform$OS.type == "windows") {
+  path <- path.expand(path)
+  absolute <- if (windows) {
+    grepl("^([A-Za-z]:)?[/\\\\]", path)
+  } else {
+    startsWith(path, "/")
+  }
+  if (!absolute) {
+    path <- file.path(getwd(), path)
+  }
+  normalizePath(path, mustWork = FALSE)
+}
+
 #' Is an environment variable set to something meaning "yes"?
 #'
 #' `as.logical()` alone is not enough: it maps "true", "TRUE" and "T" but
