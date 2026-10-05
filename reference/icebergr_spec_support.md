@@ -51,8 +51,8 @@ A list with class `icebergr_spec_support`:
 support <- icebergr_spec_support()
 support
 #> <icebergr_spec_support>
-#>   iceberg-rust:   0.10.0
-#>   arrow (Rust):   58.4
+#>   iceberg-rust:   0.10.1
+#>   arrow (Rust):   58.4.0
 #>   spec versions:  v1, v2
 #>   catalogs:       rest, memory
 #>   cargo features: <none>
@@ -96,12 +96,12 @@ support
 #>         'memory'
 #>     - Row limit pushdown - iceberg-rust has no row limit in its scan API; limit
 #>         is applied after the scan
-#>     - Row-level deletes (write) - iceberg-rust 0.10.0 can write an equality
+#>     - Row-level deletes (write) - iceberg-rust 0.10 can write an equality
 #>         delete file but its transaction API has no action that commits one, so
 #>         there is no path to a snapshot
 #>     - MERGE / upsert - Needs row-level deletes plus an overwrite, neither of
-#>         which iceberg-rust 0.10.0 can commit
-#>     - Overwrite writes - iceberg-rust 0.10.0 has no overwrite or rewrite
+#>         which iceberg-rust 0.10 can commit
+#>     - Overwrite writes - iceberg-rust 0.10 has no overwrite or rewrite
 #>         transaction action; fast_append is the only way to add files
 #>     - Schema evolution - Out of scope for this version of icebergr
 #>     - Partitioned table creation - Out of scope for this version of icebergr
@@ -110,7 +110,7 @@ support
 #>         before anything is written
 #>     - Partition evolution - Out of scope for this version of icebergr
 #>     - Compaction / maintenance - Compaction needs a rewrite action iceberg-rust
-#>         0.10.0 does not have. Snapshot expiry it does have, and that one is out
+#>         0.10 does not have. Snapshot expiry it does have, and that one is out
 #>         of scope for this version of icebergr
 #>     - dbplyr lazy verbs - Out of scope for this version of icebergr
 #>     - Table encryption - Not exposed by this version of icebergr

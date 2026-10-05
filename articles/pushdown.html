@@ -230,7 +230,7 @@ string ordering.</p>
 <h3 id="three-things-that-do-not-push-down">Three things that do not push down<a class="anchor" aria-label="anchor" href="#three-things-that-do-not-push-down"></a>
 </h3>
 <p><strong><code>limit</code> bounds decoding, not planning.</strong>
-<code>iceberg-rust</code> 0.10.0 has no row limit in its scan API, so
+<code>iceberg-rust</code> 0.10 has no row limit in its scan API, so
 every file the predicate admits is still planned:</p>
 <div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="fu"><a href="../reference/icebergr_scan_plan.html">icebergr_scan_plan</a></span><span class="op">(</span><span class="fu"><a href="../reference/icebergr_scan.html">icebergr_scan</a></span><span class="op">(</span><span class="va">tbl</span>, limit <span class="op">=</span> <span class="fl">1</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
@@ -242,12 +242,11 @@ predicate onto a field inside a <code>struct</code>; read the parent
 column and subset it in R.</p>
 <p><strong>A <code>decimal</code> ordering comparison, at the row level
 only.</strong> It is pushed down, but with <code>iceberg-rust</code>’s
-row-level selection turned off for that scan, because in 0.10.0 that
-stage drops every row of an ordering comparison against a decimal. File
-and row-group pruning still apply, so the scan is slightly less
-selective and still correct. <code><a href="../reference/icebergr_spec_support.html">icebergr_spec_support()</a></code>
-records this as a known upstream limitation rather than leaving it to be
-discovered:</p>
+row-level selection turned off for that scan, because in 0.10 that stage
+drops every row of an ordering comparison against a decimal. File and
+row-group pruning still apply, so the scan is slightly less selective
+and still correct. <code><a href="../reference/icebergr_spec_support.html">icebergr_spec_support()</a></code> records this as
+a known upstream limitation rather than leaving it to be discovered:</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">features</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/icebergr_spec_support.html">icebergr_spec_support</a></span><span class="op">(</span><span class="op">)</span><span class="op">$</span><span class="va">features</span></span>
 <span><span class="va">features</span><span class="op">[</span></span>

@@ -75,7 +75,8 @@ only the column names and types are used. An Arrow schema is also accepted.</p><
 
 <dt id="arg-location">location<a class="anchor" aria-label="anchor" href="#arg-location"></a></dt>
 <dd><p>Where to store the table. <code>NULL</code> lets the catalog decide,
-which is almost always what you want.</p></dd>
+which is almost always what you want. A local path is expanded and made
+absolute first, since it is recorded in the table's metadata as written.</p></dd>
 
 </dl></div>
     <div class="section level2">

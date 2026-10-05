@@ -158,7 +158,7 @@ names the one exception, string ordering.
 
 ### Three things that do not push down
 
-**`limit` bounds decoding, not planning.** `iceberg-rust` 0.10.0 has no
+**`limit` bounds decoding, not planning.** `iceberg-rust` 0.10 has no
 row limit in its scan API, so every file the predicate admits is still
 planned:
 
@@ -176,7 +176,7 @@ field inside a `struct`; read the parent column and subset it in R.
 
 **A `decimal` ordering comparison, at the row level only.** It is pushed
 down, but with `iceberg-rust`’s row-level selection turned off for that
-scan, because in 0.10.0 that stage drops every row of an ordering
+scan, because in 0.10 that stage drops every row of an ordering
 comparison against a decimal. File and row-group pruning still apply, so
 the scan is slightly less selective and still correct.
 [`icebergr_spec_support()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_spec_support.md)

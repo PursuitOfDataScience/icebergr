@@ -136,7 +136,7 @@ catalog
 #> <icebergr_catalog>
 #>   type:      memory
 #>   name:      icebergr
-#>   warehouse: /tmp/RtmpaWLd91/warehouse29953fa53dc5
+#>   warehouse: /tmp/RtmpCcblIw/warehouse28fd4a0f3fdb
 
 if (FALSE) { # \dontrun{
 # A REST catalog. The token comes from the environment, not from here.

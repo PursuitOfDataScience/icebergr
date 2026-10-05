@@ -78,8 +78,8 @@ icebergr_snapshots(tbl)[, c("snapshot_id", "operation", "added_records")]
 #> # A tibble: 2 × 3
 #>   snapshot_id         operation added_records
 #>   <chr>               <chr>             <dbl>
-#> 1 4120094839642099903 append              200
-#> 2 5700995033477658899 append              200
+#> 1 1256697652459245638 append              200
+#> 2 2864803657934215765 append              200
 ```
 
 And the manifests are what makes a scan plan possible without opening
@@ -187,7 +187,7 @@ head(features[
 #> 4 Table properties (write)  Needs an update_properties transaction; out of scop…
 #> 5 Hadoop/filesystem catalog Not implemented in iceberg-rust; use type = 'memory'
 #> 6 Row limit pushdown        iceberg-rust has no row limit in its scan API; limi…
-#> 7 Row-level deletes (write) iceberg-rust 0.10.0 can write an equality delete fi…
+#> 7 Row-level deletes (write) iceberg-rust 0.10 can write an equality delete file…
 #> 8 MERGE / upsert            Needs row-level deletes plus an overwrite, neither …
 ```
 

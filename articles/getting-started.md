@@ -41,9 +41,9 @@ tbl <- icebergr_example_table(rows = 200)
 show(tbl)
 #> <icebergr_table>
 #>   table:    db.events
-#>   location: <tempdir>/icebergr-warehouse2c0e3cdaafde/db/events
+#>   location: <tempdir>/icebergr-warehouse2b753af0e8ad/db/events
 #>   format:   v2
-#>   snapshot: 6525123310428547275
+#>   snapshot: 6753610680970195509
 #>   columns:  5
 #>     id <int>
 #>     event <string>
@@ -241,8 +241,8 @@ history[, c("snapshot_id", "operation", "added_records", "total_records")]
 #> # A tibble: 2 × 4
 #>   snapshot_id         operation added_records total_records
 #>   <chr>               <chr>             <dbl>         <dbl>
-#> 1 7476869258786989771 append              200           200
-#> 2 6525123310428547275 append              200           400
+#> 1 5055207271244957148 append              200           200
+#> 2 6753610680970195509 append              200           400
 ```
 
 Snapshot ids are **character**, not numeric. Iceberg assigns them as
@@ -405,9 +405,9 @@ features[unsupported, c("feature", "reason")]
 #>  4 Table properties (write)      Needs an update_properties transaction; out of…
 #>  5 Hadoop/filesystem catalog     Not implemented in iceberg-rust; use type = 'm…
 #>  6 Row limit pushdown            iceberg-rust has no row limit in its scan API;…
-#>  7 Row-level deletes (write)     iceberg-rust 0.10.0 can write an equality dele…
+#>  7 Row-level deletes (write)     iceberg-rust 0.10 can write an equality delete…
 #>  8 MERGE / upsert                Needs row-level deletes plus an overwrite, nei…
-#>  9 Overwrite writes              iceberg-rust 0.10.0 has no overwrite or rewrit…
+#>  9 Overwrite writes              iceberg-rust 0.10 has no overwrite or rewrite …
 #> 10 Schema evolution              Out of scope for this version of icebergr      
 #> 11 Partitioned table creation    Out of scope for this version of icebergr      
 #> 12 Append to a partitioned table An append would have to compute a partition va…

@@ -32,7 +32,9 @@ icebergr_create_table(catalog, table, data, location = NULL)
 - location:
 
   Where to store the table. `NULL` lets the catalog decide, which is
-  almost always what you want.
+  almost always what you want. A local path is expanded and made
+  absolute first, since it is recorded in the table's metadata as
+  written.
 
 ## Value
 

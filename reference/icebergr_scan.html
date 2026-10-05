@@ -145,7 +145,7 @@ follows Iceberg's byte order; that agrees with R only in the C locale.</p>
 <p><code><a href="https://rdrr.io/r/base/startsWith.html" class="external-link">startsWith()</a></code> is pushed down only against a <code>string</code> column, since Iceberg
 defines a prefix comparison for no other type.</p>
 <p>A filter on a <code>decimal</code> column is pushed down, but with <code>iceberg-rust</code>'s
-row-level selection turned off for that scan: in 0.10.0 that stage drops every
+row-level selection turned off for that scan: in 0.10 that stage drops every
 row of an ordering comparison against a decimal, so <code>price &gt; 2.25</code> returned
 nothing at all. File and row-group pruning still apply, so such a scan is a
 little less selective and still correct.</p>
@@ -156,11 +156,16 @@ little less selective and still correct.</p>
 
 <p>Iceberg records a schema per snapshot, so <code>filter</code> and <code>select</code> are resolved
 against the schema of the snapshot actually being read: the one named by
-<code>snapshot_id</code> or <code>as_of</code>, and otherwise the current one. A column another
+<code>snapshot_id</code> or <code>as_of</code>, and otherwise the current snapshot. A column another
 engine has since renamed or dropped is therefore still nameable as of a
 snapshot that had it, and one added afterwards is refused for a snapshot that
 did not. <code><a href="icebergr_schema.html">icebergr_schema()</a></code> takes the same <code>snapshot_id</code> and reports what
 those columns are.</p>
+<p>The current snapshot's schema is usually the table's current schema, but not
+straight after another engine changes the schema without writing anything,
+such as an <code>ALTER TABLE ... ADD COLUMN</code>. Until the next commit, a read still
+has the columns the current snapshot was written with, under their old names,
+while <code><a href="icebergr_schema.html">icebergr_schema()</a></code> already reports the new ones.</p>
     </div>
 
     <div class="section level2">

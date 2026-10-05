@@ -178,8 +178,8 @@ spec come from the table metadata:</p>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 2 × 3</span></span></span>
 <span><span class="co">#&gt;   snapshot_id         operation added_records</span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>             <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 4120094839642099903 append              200</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 5700995033477658899 append              200</span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 1256697652459245638 append              200</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 2864803657934215765 append              200</span></span></code></pre></div>
 <p>And the manifests are what makes a scan plan possible without opening
 any data file, since <code><a href="../reference/icebergr_scan_plan.html">icebergr_scan_plan()</a></code> reads bounds out
 of the manifest rather than out of Parquet:</p>
@@ -277,7 +277,7 @@ upstream:</p>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Table properties (write)  Needs an update_properties transaction; out of scop…</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Hadoop/filesystem catalog Not implemented in iceberg-rust; use type = 'memory'</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Row limit pushdown        iceberg-rust has no row limit in its scan API; limi…</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">7</span> Row-level deletes (write) iceberg-rust 0.10.0 can write an equality delete fi…</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">7</span> Row-level deletes (write) iceberg-rust 0.10 can write an equality delete file…</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">8</span> MERGE / upsert            Needs row-level deletes plus an overwrite, neither …</span></span></code></pre></div>
 <p>Reading a table another engine wrote with features this package does
 not implement still works, as long as the scan does not need them. That

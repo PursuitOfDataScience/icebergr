@@ -121,7 +121,7 @@ and come back as themselves:</p>
 <span><span class="co">#&gt; [1] TRUE</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/identical.html" class="external-link">identical</a></span><span class="op">(</span><span class="va">back</span><span class="op">$</span><span class="va">day</span>, <span class="va">plain</span><span class="op">$</span><span class="va">day</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] TRUE</span></span></code></pre></div>
-<p>A <code>POSIXct</code> is normalised to UTC — the instant is
+<p>A <code>POSIXct</code> is normalised to UTC: the instant is
 preserved, the printed time zone is not. That is Iceberg’s
 <code>timestamptz</code> semantics, not a lossy conversion.</p>
 </div>
@@ -155,8 +155,8 @@ encode it in another column.</p>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/str.html" class="external-link">str</a></span><span class="op">(</span><span class="fu"><a href="../reference/icebergr_collect.html">icebergr_collect</a></span><span class="op">(</span><span class="va">fac_tbl</span><span class="op">)</span><span class="op">$</span><span class="va">g</span><span class="op">)</span></span>
 <span><span class="co">#&gt;  chr [1:3] "a" "b" "a"</span></span></code></pre></div>
 <p>Iceberg has no dictionary type, so the levels have nowhere to live.
-Restore them in R with <code><a href="https://rdrr.io/r/base/factor.html" class="external-link">factor()</a></code> and your own level order —
-which is the honest outcome, because a round trip that invented a level
+Restore them in R with <code><a href="https://rdrr.io/r/base/factor.html" class="external-link">factor()</a></code> and your own level order.
+That is the honest outcome, because a round trip that invented a level
 order would be worse.</p>
 </div>
 <div class="section level4">
@@ -167,7 +167,7 @@ order would be worse.</p>
 mantissa, so a value past
 <math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msup><mn>2</mn><mn>53</mn></msup><annotation encoding="application/x-tex">2^{53}</annotation></semantics></math>
 cannot survive as a <code>numeric</code>. With <code>bit64</code>
-installed it comes back exact, at any depth — including inside a
+installed it comes back exact, at any depth, including inside a
 <code>struct</code>:</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">big</span> <span class="op">&lt;-</span> <span class="fu">bit64</span><span class="fu">::</span><span class="fu"><a href="https://bit64.r-lib.org/reference/as.integer64.character.html" class="external-link">as.integer64</a></span><span class="op">(</span><span class="st">"9007199254740993"</span><span class="op">)</span> <span class="co"># 2^53 + 1</span></span>
@@ -184,8 +184,8 @@ installed it comes back exact, at any depth — including inside a
 <span><span class="co">#&gt; [1] TRUE</span></span></code></pre></div>
 <p>Without <code>bit64</code>, Arrow’s <code>int64</code> narrows to a
 <code>double</code> and that value reads back as 9007199254740992. The
-package does not error on this — it is Arrow’s documented fallback — so
-if you handle 64-bit keys, put <code>bit64</code> in your own
+package does not error on this, since it is Arrow’s documented fallback,
+so if you handle 64-bit keys, put <code>bit64</code> in your own
 <code>Imports</code>.</p>
 </div>
 <div class="section level4">
@@ -257,7 +257,7 @@ nested field.</strong> Read the parent column and subset in R:</p>
 <p>A <code>map</code> column can be created, but writing map
 <em>values</em> from R needs the <code>arrow</code> package, because
 <code>nanoarrow</code> cannot build a map array on its own. If you do,
-<code><a href="https://arrow.apache.org/nanoarrow/latest/r/reference/na_type.html" class="external-link">nanoarrow::na_map()</a></code> needs its key type built non-nullable —
+<code><a href="https://arrow.apache.org/nanoarrow/latest/r/reference/na_type.html" class="external-link">nanoarrow::na_map()</a></code> needs its key type built non-nullable:
 <code>na_map(na_string(nullable = FALSE), …)</code>.</p>
 </div>
 <div class="section level3">
@@ -272,7 +272,7 @@ field ids that make schema evolution possible in the format:</p>
 <span><span class="co">#&gt;      <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                            <span style="color: #949494; font-style: italic;">&lt;lgl&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span></span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span>        1 id    int                              FALSE    <span style="color: #BB0000;">NA</span>   </span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span>        2 geo   struct&lt;lat: double, lon: double&gt; TRUE     <span style="color: #BB0000;">NA</span></span></span></code></pre></div>
-<p>Field ids, not names, are what a manifest refers to — which is why
+<p>Field ids, not names, are what a manifest refers to. That is why
 Iceberg can rename a column without rewriting data, and why the Hive
 convention could not <span class="citation">(The Apache Software
 Foundation 2026a; Thusoo et al. 2009)</span>.</p>

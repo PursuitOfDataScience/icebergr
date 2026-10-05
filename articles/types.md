@@ -58,7 +58,7 @@ identical(back$day, plain$day)
 #> [1] TRUE
 ```
 
-A `POSIXct` is normalised to UTC — the instant is preserved, the printed
+A `POSIXct` is normalised to UTC: the instant is preserved, the printed
 time zone is not. That is Iceberg’s `timestamptz` semantics, not a lossy
 conversion.
 
@@ -93,14 +93,14 @@ str(icebergr_collect(fac_tbl)$g)
 
 Iceberg has no dictionary type, so the levels have nowhere to live.
 Restore them in R with [`factor()`](https://rdrr.io/r/base/factor.html)
-and your own level order — which is the honest outcome, because a round
+and your own level order. That is the honest outcome, because a round
 trip that invented a level order would be worse.
 
 #### `long` needs `bit64`
 
 Iceberg’s `long` is 64-bit. An R double holds 53 bits of mantissa, so a
 value past $`2^{53}`$ cannot survive as a `numeric`. With `bit64`
-installed it comes back exact, at any depth — including inside a
+installed it comes back exact, at any depth, including inside a
 `struct`:
 
 ``` r
@@ -123,9 +123,9 @@ identical(as.character(got), "9007199254740993")
 ```
 
 Without `bit64`, Arrow’s `int64` narrows to a `double` and that value
-reads back as 9007199254740992. The package does not error on this — it
-is Arrow’s documented fallback — so if you handle 64-bit keys, put
-`bit64` in your own `Imports`.
+reads back as 9007199254740992. The package does not error on this,
+since it is Arrow’s documented fallback, so if you handle 64-bit keys,
+put `bit64` in your own `Imports`.
 
 #### `timestamp_ns` loses sub-microsecond precision
 
@@ -205,7 +205,7 @@ A `map` column can be created, but writing map *values* from R needs the
 `arrow` package, because `nanoarrow` cannot build a map array on its
 own. If you do,
 [`nanoarrow::na_map()`](https://arrow.apache.org/nanoarrow/latest/r/reference/na_type.html)
-needs its key type built non-nullable —
+needs its key type built non-nullable:
 `na_map(na_string(nullable = FALSE), …)`.
 
 ### Reading the schema rather than guessing it
@@ -224,10 +224,9 @@ icebergr_schema(nest_tbl)
 #> 2        2 geo   struct<lat: double, lon: double> TRUE     NA
 ```
 
-Field ids, not names, are what a manifest refers to — which is why
-Iceberg can rename a column without rewriting data, and why the Hive
-convention could not (The Apache Software Foundation 2026a; Thusoo et
-al. 2009).
+Field ids, not names, are what a manifest refers to. That is why Iceberg
+can rename a column without rewriting data, and why the Hive convention
+could not (The Apache Software Foundation 2026a; Thusoo et al. 2009).
 
 ### Why the bridge is an Arrow bridge
 

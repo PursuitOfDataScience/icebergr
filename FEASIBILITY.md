@@ -1,4 +1,4 @@
-# icebergr for R — pre-implementation feasibility report
+# icebergr for R: pre-implementation feasibility report
 
 **Date:** 2026-08-06 **Author:** Youzhi Yu **Status:** CRAN remains the
 target. Two quantitative obstacles identified (vendored size, MSRV) with
@@ -12,7 +12,7 @@ back negative in ways that changed the plan.
 
 Sections 1–7 are the report as written before implementation. **Section
 8 is an addendum recording what turned out to be wrong once the package
-was built** — kept separate rather than edited in, so the original
+was built**, kept separate rather than edited in, so the original
 reasoning stays auditable.
 
 ------------------------------------------------------------------------
@@ -26,8 +26,8 @@ reasoning stays auditable.
 | Iceberg is the industry standard table format | Confirmed | Snowflake, Databricks, BigQuery, AWS and Dremio have all standardised on it. |
 | Parquet is well served in R; Delta Lake has a community Rust binding | Confirmed | `arrow` and `nanoarrow` are both on CRAN. |
 
-The README hook — *“R is the only major data language without an Apache
-Iceberg client”* — is accurate and worth keeping.
+The README hook, *“R is the only major data language without an Apache
+Iceberg client”*, is accurate and worth keeping.
 
 ## 1a. The name has to change: `iceberg` is a trademark problem
 
@@ -36,7 +36,7 @@ states that *“third parties may not use Apache trademarks in the primary
 or secondary branding of any third party product or service names”*, and
 that a third party *“may not apply trademarks to your derivative works …
 that are confusingly similar to ‘ProjectName’ or ‘Apache ProjectName’.”*
-Nominative use — describing what the software works with — **is**
+Nominative use (describing what the software works with) **is**
 permitted.
 
 A CRAN package named exactly `iceberg` is the mark itself as primary
@@ -47,7 +47,7 @@ the official packages, maintained by their respective projects. We do
 not have that standing.
 
 `icebergr` was chosen. It still incorporates the mark, which is not
-risk-free — note that `pyiceberg` is an *official* ASF project, so the
+risk-free: note that `pyiceberg` is an *official* ASF project, so the
 `<lang> + mark` pattern can read as ASF ownership rather than distance
 from it. Mitigations applied:
 
@@ -73,7 +73,7 @@ workspace manifest; `LICENSE` is the Apache 2.0 text; the repo carries a
 Apache-2.0 is **one-way compatible with GPL-3.0**: Apache-2.0 code may
 be incorporated into a GPL-3.0 work, and the combined work is
 distributed under GPL-3. It is *not* compatible with GPL-2.0, which is
-why `GPL (>= 3)` — the house style — is the correct choice and
+why `GPL (>= 3)`, the house style, is the correct choice and
 `GPL (>= 2)` would not be.
 
 Conditions that come with it, all of which are routine:
@@ -103,28 +103,28 @@ Read directly from the upstream source tree at commit `f28ae7d`.
 | Arrow interchange | `TableScan::to_arrow() -> ArrowRecordBatchStream` | Available |
 | Append-only writes | `transaction/append.rs` | Available |
 | Catalog listing | `list_namespaces`, `list_tables`, `load_table` | Available |
-| Row-group / row-level scan pruning | `with_row_group_filtering_enabled`, `with_row_selection_enabled` | Available — this is the real pushdown win |
+| Row-group / row-level scan pruning | `with_row_group_filtering_enabled`, `with_row_selection_enabled` | Available; this is the real pushdown win |
 | Snapshot history | `table.metadata().snapshots()` | Available |
 
 Also present upstream, beyond our scope: `expire_snapshots`,
 `update_schema`, `update_properties`, `sort_order`, `update_location`,
 `upgrade_format_version`, Puffin, encryption, delete-vector *reads*.
 
-**Not supported upstream — must be documented as unsupported, not left
-to fail obscurely:**
+**Not supported upstream, so they must be documented as unsupported
+rather than left to fail obscurely:**
 
 - **MERGE / UPDATE / row-level DELETE writes.** No path through the
   transaction API. Copy-on-Write and Merge-on-Read are an open upstream
-  epic. (Already on the “do not build” list — but the reason is upstream
+  epic. (Already on the “do not build” list, but the reason is upstream
   absence, not just scope.) Checked again against 0.10.0: an
   `equality_delete_writer` *does* exist, so the file can be written;
   there is simply no action that commits one. Worth stating precisely,
   or a reader who finds the writer concludes we merely failed to expose
   it.
 - **Overwrite writes.** The 0.10.0 transaction API has exactly eight
-  actions — `upgrade_table_version`, `update_table_properties`,
+  actions (`upgrade_table_version`, `update_table_properties`,
   `update_schema`, `fast_append`, `replace_sort_order`,
-  `update_location`, `update_statistics`, `expire_snapshots` — and
+  `update_location`, `update_statistics`, `expire_snapshots`), and
   `fast_append` takes data files only. Nothing overwrites or rewrites.
 - **Compaction.** Needs a rewrite action, which is the same gap. Note
   this is *not* true of maintenance generally: `expire_snapshots` is
@@ -144,7 +144,7 @@ to fail obscurely:**
   in the list carrying a later timestamp, so resolving against the list
   returns the single state the table demonstrably was not in.
 
-### 3a. There is no Hadoop catalog — this breaks the planned test strategy
+### 3a. There is no Hadoop catalog, and that breaks the planned test strategy
 
 The v0.1.0 API in the plan specifies
 `iceberg_catalog(type = c("rest", "glue", "hadoop"))`, and the testing
@@ -167,7 +167,7 @@ drags in `sqlx` and materially increases an already-large dependency
 count (§4).
 
 **Consequence for the public API:** `type=` should be
-`c("rest", "glue", "memory")` — advertising `"hadoop"` would promise
+`c("rest", "glue", "memory")`: advertising `"hadoop"` would promise
 something the backend cannot do.
 
 ## 4. CRAN + Rust: the two quantitative obstacles
@@ -217,18 +217,18 @@ released sources of every vendoring Rust package I could find on CRAN:
 | `prqlr`         | 0.10.1  | 117             | 9.37 MB         | 2025-03-28 |
 | `arcgisgeocode` | 0.4.0   | 108             | **13.64 MB**    | 2025-10-07 |
 
-The observed ceiling is ~110 crates and ~13.6 MB — and 13.6 MB is
-already an approved over-limit exception. Our floor is **343 crates, 3×
-that count**, and the tree is composed of much heavier crates than any
-in the table above: `arrow-*` and `parquet`, `apache-avro`, `tokio`,
-`rustls` with either `ring` or `aws-lc-sys` (which alone carries tens of
-MB of vendored C and assembly), and `zstd-sys` (bundled zstd C source).
+The observed ceiling is ~110 crates and ~13.6 MB, and 13.6 MB is already
+an approved over-limit exception. Our floor is **343 crates, 3× that
+count**, and the tree is composed of much heavier crates than any in the
+table above: `arrow-*` and `parquet`, `apache-avro`, `tokio`, `rustls`
+with either `ring` or `aws-lc-sys` (which alone carries tens of MB of
+vendored C and assembly), and `zstd-sys` (bundled zstd C source).
 
 A defensible estimate for `vendor.tar.xz` is **35–60 MB**, i.e. three to
 five times the largest exception CRAN has ever granted. I could not
-measure this exactly — see §6 — but the crate count is exact and the
+measure this exactly (see §6), but the crate count is exact and the
 direction is not in doubt. (Both halves of that turned out to matter:
-the archive measured 31.3 MB, below the estimate, and is now 10.46 MB —
+the archive measured 31.3 MB, below the estimate, and is now 10.46 MB;
 see §8d-bis. The comparator is verified, not remembered: CRAN’s
 `src/contrib/` listing shows `arcgisgeocode_0.4.0.tar.gz` at 13M,
 uploaded 2025-10-07, with the same Cargo/rustc/xz `SystemRequirements`
@@ -255,12 +255,12 @@ pre-test answered the open question: CRAN’s Windows farm runs **rustc
 Debian farm is new enough and passed.
 
 The declared floor turned out not to be a real one. Only four crates in
-the resolved tree ask for 1.94 — `iceberg`, `iceberg-catalog-rest`,
-`iceberg-catalog-glue` and `fastnum` — with nothing else above 1.91.1,
+the resolved tree ask for 1.94 (`iceberg`, `iceberg-catalog-rest`,
+`iceberg-catalog-glue` and `fastnum`), with nothing else above 1.91.1,
 and none of them uses a language or library feature newer than 1.92: the
 whole default tree compiles on 1.92.0 in 6m03s with no warnings, and the
 test suite passes. What actually blocked the install was cargo’s own
-policy, not the compiler — cargo treats a *dependency’s* `rust-version`
+policy, not the compiler: cargo treats a *dependency’s* `rust-version`
 as a hard error, so it refused to start before rustc ever saw the code.
 
 So `src/Makevars{,.win}` pass `--ignore-rust-version` (stable in cargo
@@ -270,9 +270,18 @@ ladder in §5 stays as the fallback for a future upstream release that
 genuinely needs something newer, but it was not needed here, and no
 functionality was traded away.
 
+**Revisited for 0.2.0, 2026-10-05.** 1.92 was a measurement of one
+machine, and the next one disagreed: CRAN’s r-oldrel-macos-arm64 builder
+carries rustc 1.91.1, so 0.1.0 failed to install there by its own rule.
+Measured again, the tree builds and its tests pass on 1.88.0, which is
+what `DESCRIPTION` now declares. 1.87 cannot build the `let` chains the
+package itself uses, so the floor is tight, and `uuid` is held below
+1.27, the first release to need 1.89. The pin is now `iceberg-rust`
+0.10.1, whose Rust code is identical to 0.10.0’s.
+
 ### 4c. The closest precedent points away from CRAN
 
-`polars` — the nearest comparable, being a heavy Rust + Arrow binding —
+`polars`, the nearest comparable, being a heavy Rust + Arrow binding,
 *was* on CRAN, at version 0.7.0, published 2023-07-17. Its
 `src/Makevars` runs a bare `cargo build` with **no vendored dependencies
 at all**, i.e. it downloaded from crates.io at build time. That is
@@ -282,7 +291,7 @@ precedent for *how this fails*, not for how it succeeds.
 
 ### 4d. Verdict
 
-Neither obstacle is a policy prohibition — CRAN explicitly accommodates
+Neither obstacle is a policy prohibition: CRAN explicitly accommodates
 Rust. Both are quantities, and quantities can be negotiated or reduced.
 
 **As currently pinned, a submission would face two objections.** A
@@ -296,7 +305,7 @@ Restated as work rather than as a verdict:
 | Obstacle | Status | What resolves it |
 |----|----|----|
 | Vendored size | 343 crates; tarball size being measured in CI | Aggressive pruning of the vendor tree, then a size exemption request built on the measured figure rather than an estimate |
-| MSRV 1.94 | **Resolved.** CRAN Windows measured at rustc 1.92.0; the tree builds and tests clean on it | `--ignore-rust-version` in `src/Makevars{,.win}`, with the tested floor of 1.92 declared in `DESCRIPTION` (see §4b). Pinning `iceberg-rust` 0.9.1 was not needed |
+| MSRV 1.94 | **Resolved.** CRAN Windows measured at rustc 1.92.0; the tree builds and tests clean on it | `--ignore-rust-version` in `src/Makevars{,.win}`, with the tested floor, now 1.88, declared in `DESCRIPTION` (see §4b). Pinning `iceberg-rust` 0.9.1 was not needed |
 
 ## 5. Route to CRAN
 
@@ -317,14 +326,14 @@ CRAN is the destination. The sequence:
 3.  **Confirm CRAN’s Rust toolchain version.** Done: the Windows farm
     reports rustc 1.92.0, the Debian farm is newer. Since the tree
     builds and tests clean on 1.92, obstacle 2 is discharged with
-    `--ignore-rust-version` rather than with a downgrade — see §4b.
+    `--ignore-rust-version` rather than with a downgrade; see §4b.
 
-4.  **If a future release really needs more, pin down the MSRV ladder**
-    — measured from upstream tags:
+4.  **If a future release really needs more, pin down the MSRV ladder**,
+    measured from upstream tags:
 
     | `iceberg-rust` | MSRV | Cost |
     |----|----|----|
-    | 0.10.0 (current pin) | 1.94 | — |
+    | 0.10.1 (current pin; 0.10.0’s code) | 1.94 | None |
     | 0.9.1 | 1.92 | Loses `CatalogBuilder::with_runtime`; the runtime is inherited from the calling context, which is where `block_on` already puts us. Cheap. |
     | 0.8.0 | 1.88 | Predates the storage-factory refactor; needs real binding changes |
 
@@ -390,8 +399,8 @@ So, concretely:
   inferred.
 - **No Rust or R code in this repository has been compiled, run, or
   checked**, because neither toolchain can reach its package registry
-  from here. The “Definition of done” — `R CMD check` clean on Windows,
-  macOS and Linux, with round-trip and time-travel tests passing —
+  from here. The “Definition of done” (`R CMD check` clean on Windows,
+  macOS and Linux, with round-trip and time-travel tests passing)
   **cannot be met in this environment** and must be met in CI.
 
 ## 7. Open decision
@@ -417,7 +426,7 @@ Section 3a proposed committing a tiny Iceberg table to `inst/` and
 registering it into a `MemoryCatalog` with `register_table()`. That does
 not work.
 
-An Iceberg table records **absolute** paths — in its metadata JSON, and
+An Iceberg table records **absolute** paths, in its metadata JSON and
 again inside its Avro manifests. A table committed to the package would
 carry the build machine’s paths and stop resolving the moment it was
 installed anywhere else. Rewriting them is not practical: the metadata
@@ -428,8 +437,8 @@ The fixture is therefore **generated on demand** by
 [`icebergr_example_table()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_example_table.md),
 which builds a real two-snapshot table into a warehouse directory under
 [`tempdir()`](https://rdrr.io/r/base/tempfile.html). This keeps every
-requirement that mattered — a real Iceberg table, fully offline, no
-catalog server, no credentials, usable from any install location — and
+requirement that mattered (a real Iceberg table, fully offline, no
+catalog server, no credentials, usable from any install location) and
 drops only the idea that the bytes could be committed.
 `register_table()` is still exported, because it is exactly what a user
 needs to re-attach an on-disk table to a `memory` catalog between
@@ -442,7 +451,7 @@ wrong, and wrong in the dangerous direction: it would have told users
 their reads might be silently incomplete when in fact they are correct.
 
 `iceberg-rust` applies both positional and equality deletes during
-scanning — `crates/iceberg/src/arrow/reader/pipeline.rs` calls
+scanning: `crates/iceberg/src/arrow/reader/pipeline.rs` calls
 `load_deletes()` and builds a row selection from the delete vector, and
 `delete_filter.rs` carries a full equality-delete predicate path.
 Reading a table that another engine performs deletes on returns the
@@ -471,15 +480,15 @@ and every call used in `src/rust/` was checked against it:
 
 That is not the same as compiling it. Nothing in this repository has
 been built or run: the container this was written in cannot reach
-crates.io — so `cargo vendor` and `cargo build` are both impossible —
-and R cannot be installed, because the Ubuntu archive and every CRAN
-mirror are blocked by the egress policy. See §6.
+crates.io, so `cargo vendor` and `cargo build` are both impossible, and
+R cannot be installed, because the Ubuntu archive and every CRAN mirror
+are blocked by the egress policy. See §6.
 
 CI is therefore the first real verification, and
 `.github/workflows/R-CMD-check.yaml` is built for that job:
 `cargo fmt`/`clippy`/`check` for fast Rust feedback, `R CMD check` on
 Linux, macOS and Windows, and a separate vendored offline build that
-reproduces the CRAN path and reports the real `vendor.tar.xz` size —
+reproduces the CRAN path and reports the real `vendor.tar.xz` size,
 replacing the 35–60 MB estimate in §4a with a measurement. Expect the
 first runs to be red.
 
@@ -503,7 +512,7 @@ granted, and the request has to be made explicitly.
 Two findings that were not visible before it could be measured:
 
 - **The vendor tree carries 172 crates that no build on any platform R
-  runs on compiles** — the AWS Glue and S3 backends behind the
+  runs on compiles**: the AWS Glue and S3 backends behind the
   non-default Cargo features, plus the crates that belong to other
   operating systems entirely (`windows-sys` 0.52 and its import
   libraries, `web-sys`, `js-sys`, `jni`, `redox_syscall`, the
@@ -528,7 +537,7 @@ through that showed §8d stopped one step short.
 Cargo needs to *find* every locked package in the directory source. It
 never reads the ones it does not select. So a crate outside the compiled
 set can be reduced to its `Cargo.toml`, its licence files and an empty
-`lib.rs`, and resolution is satisfied — 172 crates in 0.5 MB rather than
+`lib.rs`, and resolution is satisfied: 172 crates in 0.5 MB rather than
 222 MB. Verified by `cargo metadata --offline --locked` and by a full
 release build, which produced a `libicebergr.a` byte-identical in size
 to one built from the unpruned tree.
@@ -556,7 +565,7 @@ from our own manifest. Our dependency on `parquet` already sets
 `default-features = false`, but `iceberg` depends on `parquet` with
 default features on and cargo unions features across the graph rather
 than intersecting them, so the only way to drop Brotli is to override a
-feature inside the bundled `iceberg` manifest — a modification to a
+feature inside the bundled `iceberg` manifest, a modification to a
 third-party crate, in exchange for not being able to read
 Brotli-compressed Parquet.
 
@@ -580,7 +589,7 @@ itself rather than the packaging of it.
 §6 recorded that nothing could be compiled. It can now, and one detail
 is worth writing down because the failure is opaque: `extendr-api`’s
 build script reads `DEP_R_R_VERSION_MAJOR`, which `extendr-ffi` only
-emits if it can find R. Setting `R_HOME` alone is not enough —
+emits if it can find R. Setting `R_HOME` alone is not enough:
 `extendr-ffi` also needs `R_INCLUDE_DIR`, or `R` itself on the `PATH` to
 ask. Without them it warns, emits nothing, and `extendr-api` panics with
 a bare `called Result::unwrap() on an Err value: NotPresent`. Worse,

@@ -2,13 +2,67 @@
 
 ## icebergr 0.2.0
 
-`iceberg-rust` is unmoved at 0.10.0, and no function was gained or lost.
-This release fixes an append that could leave a table unreadable,
-filters that returned the wrong rows without saying so, and a hang in
-forked workers, and it stops handing credentials to things that should
-not have them.
+No function was gained or lost. This release fixes an append that could
+leave a table unreadable, filters that returned the wrong rows without
+saying so, including on any table whose schema another engine has
+changed, and a hang in forked workers. It stops handing credentials to
+things that should not have them, and it installs where 0.1.0 could not:
+on Alpine Linux, and with the older Rust toolchain on CRAN’s oldest
+macOS builder.
 
 ### Bug fixes
+
+- **A filter on a column that older data files lack returned rows R
+  would not.** After another engine adds a column, the files written
+  before it do not have one, and `iceberg-rust` 0.10 answers a predicate
+  on such a file with a fixed value per operator, some of them TRUE:
+  `b < 15` returned every row of every older file, each with `b` `NA`,
+  and so did `b <= 15`, `!(b > 15)`, `s < "y"` and
+  `!startsWith(s, "x")`. Each comparison now also requires a value to be
+  present, which is what R and Iceberg’s own null rules both say. Of 100
+  random filters over such a table, 15 disagreed with R before and none
+  do now.
+
+- **A read made after another engine changed the schema without writing
+  checked names against the wrong schema.** An
+  `ALTER TABLE ... RENAME COLUMN` makes a new schema current while the
+  current snapshot still names the old one, and `iceberg-rust` reads
+  with the snapshot’s. `filter` and `select` were checked against the
+  table’s current schema instead, so the renamed column could be
+  selected by neither name, an added one passed the check and failed in
+  planning, and a read that found no rows reported columns one that
+  found rows did not. Names now resolve against the current snapshot’s
+  schema, and selecting a column only the newer schema has says why it
+  is refused.
+
+- **`case_sensitive = FALSE` broke filters on a table with both `id` and
+  `ID`.** Each name was resolved to the right column here, then bound
+  again by `iceberg-rust`, whose case-insensitive index keeps only one
+  of the two, so a filter on the other failed with “Can’t convert
+  datum”, or, between columns of the same type, read the wrong one. An
+  empty result could also report the wrong one of the pair.
+
+- **A decimal filter value below about 1e-5, or of 1e16 or more, was
+  refused** as “exponent notation” although R had written it out in
+  full, so a `decimal(18, 8)` column could not be compared with
+  `0.00000002` at all.
+
+- **An append to a table registered from a metadata file outside the
+  table’s `metadata` directory** wrote its Parquet and then failed to
+  commit, leaving the files behind. It is now refused before anything is
+  written, as a misnamed file already was. Both checks are now skipped
+  for a REST catalog, whose server chooses metadata locations itself and
+  may name them as it likes.
+
+- **`icebergr_create_table(location =)` recorded the path as typed.**
+  `"~/tables/events"` created a directory literally called `~` in the
+  working directory, a relative path left the table readable only from
+  there, and `""` tried to create `/metadata` at the filesystem root. A
+  local path is now expanded and made absolute, and an empty one is
+  refused.
+
+- An infinite `Date` or `POSIXct` in a filter is refused as infinite,
+  rather than reaching `iceberg-rust` as a date to parse spelled “Inf”.
 
 - **`icebergr_append(properties =)` could make a table unreadable.** A
   property named `operation` was written as a second `"operation"` key
@@ -17,15 +71,18 @@ not have them.
   it too: a `deleted-records` property was subtracted into
   `total-records`. Every key Iceberg writes into a snapshot summary
   itself is now refused, and so is a name given twice.
+
 - **A timestamp filter was a microsecond out.** Fractional seconds were
   truncated rather than rounded, and the double R holds for a
   microsecond timestamp is often just below it, so `ts == x`, with `x`
   read back from the same table, found no row for most values, and `>=`
   or `<` moved the boundary.
+
 - **A `POSIXlt` filter value or `as_of` was read in the wrong zone.**
   Its wall-clock fields were taken as UTC, so a time from
   `strptime(..., tz = "America/New_York")` filtered or travelled four or
   five hours away from the instant it named.
+
 - **A filter now keeps the rows R would, where `NA` and `NaN` are
   concerned.** It was handed to Iceberg with Iceberg’s semantics, which
   differ from R’s in four ways. `x > 1` matched `NaN`, and only in files
@@ -36,10 +93,12 @@ not have them.
   `NA`. Checked against R’s own evaluation of 3,200 random filters over
   columns holding all of these. String ordering still follows Iceberg’s
   byte order, which is R’s only in the C locale.
+
 - **A column on the value side of a filter was read as a local
   variable.** `filter = a > b`, with `b` a column, compared `a` against
   whatever local `b` was in scope, silently. An Iceberg predicate cannot
   compare two columns, so this is now an error that says so.
+
 - **A forked worker hung forever.** After any icebergr call in the
   parent, the first call in a
   [`parallel::mclapply()`](https://rdrr.io/r/parallel/mclapply.html)
@@ -47,30 +106,39 @@ not have them.
   error, and neither Ctrl-C nor the timeout could end it. It now fails
   at once and points at
   [`parallel::makeCluster()`](https://rdrr.io/r/parallel/makeCluster.html).
+
 - **A data frame naming a column twice lost the second one** on append.
   It is now refused.
+
 - [`icebergr_register_table()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_register_table.md)
   accepts an object-storage location such as `s3://...`, which it used
   to refuse as a missing file, and no longer refuses every registration
   on a REST catalog whose `warehouse` is a name rather than a directory.
+
 - A catalog property given as a number or a logical reaches
   `iceberg-rust` in the form it parses: `1e5` as `"100000"` rather than
   `"1e+05"`, and `TRUE` as `"true"`. A property passed twice through
   `...` is refused rather than silently keeping the last.
+
 - An `S3://` warehouse is object storage whatever the case of its
   scheme, as it already was for forwarding credentials; it used to be
   put on the local disk.
+
 - The cleartext check recognises `http://LOCALHOST` and the rest of
   127.0.0.0/8 as loopback, and counts a `header.Authorization`,
   `header.Cookie` or `header.X-Api-Key` property as a credential.
+
 - `batch_size = 0` is refused rather than read as the default.
+
 - A large append no longer runs under a single timeout. Rows reach the
   Parquet writer in slices, each its own call, so the five-minute
   ceiling bounds one slice rather than the whole upload. The files
   written are byte-identical.
+
 - [`icebergr_snapshots()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_snapshots.md)
   orders a v1 table’s snapshots the same way on every call, and its
   `summary` JSON lists keys in sorted rather than hash order.
+
 - An interrupt or a timeout while reading a batch is reported as such,
   rather than as “the Iceberg scan panicked”.
 
@@ -103,8 +171,9 @@ Closing the review findings tracked in
 - An error carrying an upstream message no longer leaks a credential the
   upstream echoed: `user:password@` in a URL, and the value of a secret
   query or form parameter such as `client_secret` or `X-Amz-Signature`,
-  are redacted. The module already promised this and only delivered it
-  for the key list.
+  are redacted, whether it is written `key=value`, `key = value` or as a
+  JSON field, `"client_secret": "..."`. The module already promised this
+  and only delivered it for the key list.
 - [`print()`](https://rdrr.io/r/base/print.html) on a catalog redacts
   `user:password@` in its `uri`.
 - **Every await now has a five-minute ceiling.** A catalog that accepted
@@ -139,6 +208,32 @@ Closing the review findings tracked in
   like a crash, so the panic hook recognises this package’s own
   deliberate aborts and stays quiet for them. A genuine bug, such as an
   index out of bounds or an `unwrap()` on `NULL`, still prints in full.
+
+### Installation
+
+- **Installs on Alpine Linux and other musl systems.** `vendor.tar.xz`
+  was compressed with a 128 MiB dictionary, and BusyBox’s `tar`, which
+  those systems use, refuses anything over 64 MiB, reporting only
+  “corrupted data”. CRAN’s musl check recorded exactly that for 0.1.0.
+  It is now 64 MiB, and `tools/vendor.R` checks the archive it writes.
+- **`rustc` 1.88 or newer, down from 1.92**, measured by building the
+  vendored tree with 1.88.0 and running the test suite on it. CRAN’s
+  r-oldrel-macos-arm64 builder carries 1.91.1, so 0.1.0 could not be
+  installed there. `uuid` is held below 1.27, the first release to need
+  1.89.
+- Every Rust dependency is at its latest compatible version.
+  `iceberg-rust` is 0.10.1, whose Rust code is identical to 0.10.0’s.
+  `rustls` 0.23.45 fixes RUSTSEC-2026-0285, `tokio` 1.53.2 fixes several
+  runtime and timer bugs, and for the optional `s3` and `glue` features
+  `h2` 0.4.19 fixes RUSTSEC-2026-0258. Those two features still carry
+  `quick-xml` 0.39.4, affected by RUSTSEC-2026-0194 and
+  RUSTSEC-2026-0195, because `opendal` 0.57, the version `iceberg-rust`
+  0.10 requires, depends on it.
+- [`icebergr_spec_support()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_spec_support.md)
+  now reads the `iceberg-rust` and `arrow` versions it reports out of
+  `Cargo.lock` when the package is built, rather than from strings typed
+  into the source that a dependency bump could leave stale, and
+  `arrow_version` carries the patch number.
 
 ### Documentation
 

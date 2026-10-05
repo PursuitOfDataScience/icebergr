@@ -224,9 +224,9 @@ OAuth2’s <code>audience</code> and <code>resource</code>, and sends each
 <span><span class="op">)</span></span></code></pre></div>
 <p>A property it does not know is ignored without a word, so check the
 spelling. There is no SigV4 request signing in <code>iceberg-rust</code>
-0.10.0, so a REST endpoint that requires it, such as AWS Glue’s, is out
-of reach with <code>type = "rest"</code>; use
-<code>type = "glue"</code>, which goes through the AWS SDK, instead.</p>
+0.10, so a REST endpoint that requires it, such as AWS Glue’s, is out of
+reach with <code>type = "rest"</code>; use <code>type = "glue"</code>,
+which goes through the AWS SDK, instead.</p>
 </div>
 </div>
 <div class="section level3">
@@ -450,9 +450,9 @@ written, so nothing is left behind in the warehouse. Write to such a
 table with an engine that supports partitioned writes.</p>
 <p>Writing to a partitioned table is one of several operations Iceberg’s
 spec defines <span class="citation">(The Apache Software Foundation
-2026)</span> that <code>iceberg-rust</code> 0.10.0 does not yet
-implement; <code><a href="../articles/writing.html">vignette("writing")</a></code> lists the rest and says
-which side each gap is on.</p>
+2026)</span> that <code>iceberg-rust</code> 0.10 does not yet implement;
+<code><a href="../articles/writing.html">vignette("writing")</a></code> lists the rest and says which side each
+gap is on.</p>
 </div>
 <div class="section level2">
 <h2 class="unnumbered" id="references">References<a class="anchor" aria-label="anchor" href="#references"></a>

@@ -92,8 +92,8 @@ it is <code>TRUE</code> or <code>FALSE</code> here and never <code>NA</code>.</p
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="va">support</span> <span class="op">&lt;-</span> <span class="fu">icebergr_spec_support</span><span class="op">(</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">support</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> &lt;icebergr_spec_support&gt;</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   iceberg-rust:   0.10.0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   arrow (Rust):   58.4</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   iceberg-rust:   0.10.1</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   arrow (Rust):   58.4.0</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   spec versions:  v1, v2</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   catalogs:       rest, memory</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   cargo features: &lt;none&gt;</span>
@@ -137,12 +137,12 @@ it is <code>TRUE</code> or <code>FALSE</code> here and never <code>NA</code>.</p
 <span class="r-out co"><span class="r-pr">#&gt;</span>         'memory'</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Row limit pushdown - iceberg-rust has no row limit in its scan API; limit</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         is applied after the scan</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>     - Row-level deletes (write) - iceberg-rust 0.10.0 can write an equality</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     - Row-level deletes (write) - iceberg-rust 0.10 can write an equality</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         delete file but its transaction API has no action that commits one, so</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         there is no path to a snapshot</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - MERGE / upsert - Needs row-level deletes plus an overwrite, neither of</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>         which iceberg-rust 0.10.0 can commit</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>     - Overwrite writes - iceberg-rust 0.10.0 has no overwrite or rewrite</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         which iceberg-rust 0.10 can commit</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     - Overwrite writes - iceberg-rust 0.10 has no overwrite or rewrite</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         transaction action; fast_append is the only way to add files</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Schema evolution - Out of scope for this version of icebergr</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Partitioned table creation - Out of scope for this version of icebergr</span>
@@ -151,7 +151,7 @@ it is <code>TRUE</code> or <code>FALSE</code> here and never <code>NA</code>.</p
 <span class="r-out co"><span class="r-pr">#&gt;</span>         before anything is written</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Partition evolution - Out of scope for this version of icebergr</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Compaction / maintenance - Compaction needs a rewrite action iceberg-rust</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>         0.10.0 does not have. Snapshot expiry it does have, and that one is out</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         0.10 does not have. Snapshot expiry it does have, and that one is out</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>         of scope for this version of icebergr</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - dbplyr lazy verbs - Out of scope for this version of icebergr</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     - Table encryption - Not exposed by this version of icebergr</span>

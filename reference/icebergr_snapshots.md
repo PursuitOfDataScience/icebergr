@@ -88,8 +88,8 @@ history[, c("snapshot_id", "operation", "added_records", "total_records")]
 #> # A tibble: 2 × 4
 #>   snapshot_id         operation added_records total_records
 #>   <chr>               <chr>             <dbl>         <dbl>
-#> 1 8155100514381221404 append               10            10
-#> 2 3452292768132811455 append               10            20
+#> 1 2362012501799974336 append               10            10
+#> 2 7460706192392590244 append               10            20
 
 # Read the table as it was at its first snapshot.
 icebergr_collect(icebergr_scan(tbl, snapshot_id = history$snapshot_id[[1]]))

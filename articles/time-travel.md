@@ -22,8 +22,8 @@ history[, c(
 #> # A tibble: 2 × 5
 #>   snapshot_id         parent_snapshot_id  operation added_records total_records
 #>   <chr>               <chr>               <chr>             <dbl>         <dbl>
-#> 1 7540677552209616937 NA                  append              200           200
-#> 2 7345079026521052234 7540677552209616937 append              200           400
+#> 1 1690567033896694976 NA                  append              200           200
+#> 2 1542316228266878747 1690567033896694976 append              200           400
 ```
 
 The example table was built with two appends, so there are two snapshots
@@ -126,6 +126,15 @@ actually being read, not the current one. That is what makes a
 historical read reproducible: the names that worked then still work, and
 you do not have to know what happened to the schema in between.
 
+A read of the current state is a read of the current snapshot, and
+follows its schema in the same way. That is the table’s current schema
+too, except straight after another engine changes the schema without
+writing anything, as an `ALTER TABLE ... ADD COLUMN` does: until the
+next commit, a read still has the columns the current snapshot was
+written with, while
+[`icebergr_schema()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_schema.md)
+already shows the new ones.
+
 ### Isolation, and why a handle looks stale
 
 A table handle is bound to a snapshot. Another session’s commit does not
@@ -154,9 +163,9 @@ has to add up.
 
 Snapshot expiry, which deletes old snapshots and the files only they
 reference, is a maintenance operation this version does not expose, and
-neither is rollback itself. `iceberg-rust` 0.10.0 has a transaction
-action for expiry and none for rollback, so the first is a gap in this
-package and the second is one upstream:
+neither is rollback itself. `iceberg-rust` 0.10 has a transaction action
+for expiry and none for rollback, so the first is a gap in this package
+and the second is one upstream:
 
 ``` r
 

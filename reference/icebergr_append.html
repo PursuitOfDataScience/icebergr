@@ -104,9 +104,12 @@ files already left in the warehouse. Partitioned tables can still be read; see
 <code><a href="icebergr_partitions.html">icebergr_partitions()</a></code> and <code><a href="icebergr_spec_support.html">icebergr_spec_support()</a></code>.</p>
 <p>A table registered with <code><a href="icebergr_register_table.html">icebergr_register_table()</a></code> must also have been
 registered from a metadata file named the way Iceberg names them,
-<code>&lt;version&gt;-&lt;uuid&gt;.metadata.json</code>, because the next one is derived from that
-name. Every engine writes conforming names; a renamed or hand-made file reads
-fine and is refused here, again before anything is written.</p>
+<code>&lt;version&gt;-&lt;uuid&gt;.metadata.json</code>, inside the table's own <code>metadata</code>
+directory, because a <code>memory</code> or <code>glue</code> catalog writes the next one beside it
+and derives its name from that one. Every engine writes files like that; a
+renamed, moved or hand-made one reads fine and is refused here, again before
+anything is written. A REST catalog's server chooses the next location
+itself, so its tables are not held to this.</p>
 <p>This is an append. Row-level deletes, overwrites and MERGE are not supported;
 see <code><a href="icebergr_spec_support.html">icebergr_spec_support()</a></code>.</p>
     </div>

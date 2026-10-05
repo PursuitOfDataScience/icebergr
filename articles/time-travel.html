@@ -89,8 +89,8 @@ cooperation from whoever wrote it.</p>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 2 × 5</span></span></span>
 <span><span class="co">#&gt;   snapshot_id         parent_snapshot_id  operation added_records total_records</span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>               <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>             <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>         <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 7540677552209616937 <span style="color: #BB0000;">NA</span>                  append              200           200</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 7345079026521052234 7540677552209616937 append              200           400</span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 1690567033896694976 <span style="color: #BB0000;">NA</span>                  append              200           200</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 1542316228266878747 1690567033896694976 append              200           400</span></span></code></pre></div>
 <p>The example table was built with two appends, so there are two
 snapshots and the second’s parent is the first.
 <code>total_records</code> is cumulative; <code>added_records</code> is
@@ -177,6 +177,13 @@ schema of the snapshot actually being read, not the current one. That is
 what makes a historical read reproducible: the names that worked then
 still work, and you do not have to know what happened to the schema in
 between.</p>
+<p>A read of the current state is a read of the current snapshot, and
+follows its schema in the same way. That is the table’s current schema
+too, except straight after another engine changes the schema without
+writing anything, as an <code>ALTER TABLE ... ADD COLUMN</code> does:
+until the next commit, a read still has the columns the current snapshot
+was written with, while <code><a href="../reference/icebergr_schema.html">icebergr_schema()</a></code> already shows the
+new ones.</p>
 </div>
 <div class="section level3">
 <h3 id="isolation-and-why-a-handle-looks-stale">Isolation, and why a handle looks stale<a class="anchor" aria-label="anchor" href="#isolation-and-why-a-handle-looks-stale"></a>
@@ -202,7 +209,7 @@ queries and has to add up.</p>
 </h3>
 <p>Snapshot expiry, which deletes old snapshots and the files only they
 reference, is a maintenance operation this version does not expose, and
-neither is rollback itself. <code>iceberg-rust</code> 0.10.0 has a
+neither is rollback itself. <code>iceberg-rust</code> 0.10 has a
 transaction action for expiry and none for rollback, so the first is a
 gap in this package and the second is one upstream:</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">

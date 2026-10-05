@@ -70,10 +70,13 @@ and
 A table registered with
 [`icebergr_register_table()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_register_table.md)
 must also have been registered from a metadata file named the way
-Iceberg names them, `<version>-<uuid>.metadata.json`, because the next
-one is derived from that name. Every engine writes conforming names; a
-renamed or hand-made file reads fine and is refused here, again before
-anything is written.
+Iceberg names them, `<version>-<uuid>.metadata.json`, inside the table's
+own `metadata` directory, because a `memory` or `glue` catalog writes
+the next one beside it and derives its name from that one. Every engine
+writes files like that; a renamed, moved or hand-made one reads fine and
+is refused here, again before anything is written. A REST catalog's
+server chooses the next location itself, so its tables are not held to
+this.
 
 This is an append. Row-level deletes, overwrites and MERGE are not
 supported; see

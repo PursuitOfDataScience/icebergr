@@ -162,15 +162,18 @@ icebergr_register_table(
 ```
 
 The file has to be named the way every Iceberg engine names them,
-`<version>-<uuid>.metadata.json`, because the next version number is
-derived from that name. A renamed file registers and reads perfectly
-well; it is the *append* that cannot work.
+`<version>-<uuid>.metadata.json`, and sit in the table’s own `metadata`
+directory, because a `memory` or `glue` catalog writes the next file
+beside it and derives the next version number from its name. A renamed
+or moved file registers and reads perfectly well; it is the *append*
+that cannot work. A REST catalog’s server chooses its own locations, so
+this does not apply to one.
 
 That append is refused at the start, before any Parquet is written, and
-the error names the file. Left to Iceberg the name is only inspected
-when the commit is attempted, by which point the data files are already
-in the warehouse, and this package exposes no maintenance operation to
-clear them.
+the error names the file and its directory. Left to Iceberg the name is
+only inspected when the commit is attempted, by which point the data
+files are already in the warehouse, and this package exposes no
+maintenance operation to clear them.
 
 It also has to sit inside the catalog’s warehouse, which is what the
 default, `confine = TRUE`, requires. A metadata file names absolute
@@ -197,9 +200,9 @@ features[
 #>   feature                       reason                                          
 #>   <chr>                         <chr>                                           
 #> 1 Table properties (write)      Needs an update_properties transaction; out of …
-#> 2 Row-level deletes (write)     iceberg-rust 0.10.0 can write an equality delet…
+#> 2 Row-level deletes (write)     iceberg-rust 0.10 can write an equality delete …
 #> 3 MERGE / upsert                Needs row-level deletes plus an overwrite, neit…
-#> 4 Overwrite writes              iceberg-rust 0.10.0 has no overwrite or rewrite…
+#> 4 Overwrite writes              iceberg-rust 0.10 has no overwrite or rewrite t…
 #> 5 Partitioned table creation    Out of scope for this version of icebergr       
 #> 6 Append to a partitioned table An append would have to compute a partition val…
 #> 7 Partition evolution           Out of scope for this version of icebergr
@@ -213,12 +216,12 @@ with nothing written. Reading a partitioned table works, and
 [`icebergr_partitions()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_partitions.md)
 reports its spec.
 
-**Row-level deletes and `MERGE`.** `iceberg-rust` 0.10.0 can write an
+**Row-level deletes and `MERGE`.** `iceberg-rust` 0.10 can write an
 equality delete file but has no transaction action that commits one.
 Reading merge-on-read tables another engine wrote works: both positional
 and equality deletes are applied.
 
-**Overwrites.** `fast_append` is the only way 0.10.0 can add files to a
+**Overwrites.** `fast_append` is the only way 0.10 can add files to a
 table.
 
 That split, refusing loudly here while reading whatever anyone else
