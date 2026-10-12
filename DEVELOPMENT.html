@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="index.html">icebergr</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -157,6 +157,7 @@
 <div class="sourceCode" id="cb11"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a><span class="ex">R</span> CMD build .</span>
 <span id="cb11-2"><a href="#cb11-2" tabindex="-1"></a><span class="ex">R</span> CMD check <span class="at">--as-cran</span> icebergr_<span class="pp">*</span>.tar.gz</span></code></pre></div>
 <p><code>tools/vendor.R</code> also prints the vendored size, which is the number the CRAN size exemption request rests on. See <code>FEASIBILITY.md</code> §8d for what it is made of and what does and does not reduce it.</p>
+<p><strong>The day CRAN publishes x.y.z, bump <code>DESCRIPTION</code> to x.y.z.9000</strong> and open NEWS.md with <code># icebergr (development version)</code>. <code>--as-cran</code> checks incoming feasibility against CRAN itself, so from publication on a tree still calling itself x.y.z gets “Insufficient package version” on every commit, and the <code>vendored offline build</code> jobs, which fail on a WARNING, go red on all three platforms. It happened at 0.1.0 and again at 0.2.0. The release tag stays on the commit CRAN was sent.</p>
 <p><strong>On an <code>iceberg-rust</code> or <code>arrow</code> bump, the versions <code><a href="reference/icebergr_spec_support.html">icebergr_spec_support()</a></code> reports take care of themselves:</strong> <code>src/rust/build.rs</code> reads both out of <code>Cargo.lock</code> at build time. The prose does not. The <code>reason</code> strings in <code>feature_matrix()</code>, the vignettes and the comments name the series a behaviour belongs to (<code>iceberg-rust</code> 0.10), so a patch release needs nothing, but a new minor one means re-checking every claim they make; <code>grep -rn 'iceberg-rust.\? 0\.10'</code> finds them. <code>test-spec-support.R</code> pins the exact version, which is what makes a bump a deliberate act. The rustc MSRV has a single source of truth too: <code>tools/msrv.R</code> reads it from <code>SystemRequirements</code> in <code>DESCRIPTION</code>.</p>
 <p><strong>Updating the Rust dependencies.</strong> Run</p>
 <div class="sourceCode" id="cb12"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" tabindex="-1"></a><span class="va">CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS</span><span class="op">=</span>allow <span class="ex">cargo</span> update <span class="at">--manifest-path</span> src/rust/Cargo.toml</span></code></pre></div>

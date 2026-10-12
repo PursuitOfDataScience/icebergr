@@ -22,8 +22,8 @@ history[, c(
 #> # A tibble: 2 × 5
 #>   snapshot_id         parent_snapshot_id  operation added_records total_records
 #>   <chr>               <chr>               <chr>             <dbl>         <dbl>
-#> 1 1690567033896694976 NA                  append              200           200
-#> 2 1542316228266878747 1690567033896694976 append              200           400
+#> 1 2562899416844131160 NA                  append              200           200
+#> 2 5211882102469749911 2562899416844131160 append              200           400
 ```
 
 The example table was built with two appends, so there are two snapshots

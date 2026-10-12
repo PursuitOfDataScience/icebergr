@@ -221,6 +221,14 @@ R CMD check --as-cran icebergr_*.tar.gz
 CRAN size exemption request rests on. See `FEASIBILITY.md` §8d for what
 it is made of and what does and does not reduce it.
 
+**The day CRAN publishes x.y.z, bump `DESCRIPTION` to x.y.z.9000** and
+open NEWS.md with `# icebergr (development version)`. `--as-cran` checks
+incoming feasibility against CRAN itself, so from publication on a tree
+still calling itself x.y.z gets “Insufficient package version” on every
+commit, and the `vendored offline build` jobs, which fail on a WARNING,
+go red on all three platforms. It happened at 0.1.0 and again at 0.2.0.
+The release tag stays on the commit CRAN was sent.
+
 **On an `iceberg-rust` or `arrow` bump, the versions
 [`icebergr_spec_support()`](https://pursuitofdatascience.github.io/icebergr/reference/icebergr_spec_support.md)
 reports take care of themselves:** `src/rust/build.rs` reads both out of
