@@ -369,14 +369,38 @@ jobs:
           fi
         shell: bash
 
+      # main keeps the released version until the next release is prepared,
+      # and incoming feasibility compares that version with CRAN's, so from the
+      # day a release is published it can only answer "Insufficient package
+      # version". That one comparison is skipped while DESCRIPTION names exactly
+      # the version CRAN has, and says so in the log. A version below CRAN's
+      # still fails, and every other incoming check still runs. CRAN itself is
+      # asked, not the package manager this runner installs from: that still
+      # listed 0.1.0 nine hours after CRAN published 0.2.0.
       - name: Check with vendored, offline build
         run: |
           options(crayon.enabled = TRUE)
+          version <- package_version(read.dcf("DESCRIPTION", fields = "Version")[[1]])
+          released <- tryCatch({
+            db <- utils::available.packages(
+              utils::contrib.url("https://cloud.r-project.org", "source"),
+              filters = list()
+            )
+            have <- db[db[, "Package"] == "icebergr", "Version"]
+            length(have) > 0 && version == max(package_version(have))
+          }, error = function(e) FALSE)
+          env <- character()
+          if (released) {
+            message("icebergr ", version, " is the version on CRAN: ",
+                    "skipping only the incoming version comparison")
+            env <- c("_R_CHECK_CRAN_INCOMING_SKIP_VERSIONS_" = "true")
+          }
           rcmdcheck::rcmdcheck(
             path = "${{ steps.build.outputs.tarball }}",
             args = c("--no-manual", "--as-cran"),
             error_on = "warning",
-            check_dir = "check"
+            check_dir = "check",
+            env = env
           )
         shell: Rscript {0}
 
