@@ -78,8 +78,8 @@ icebergr_snapshots(tbl)[, c("snapshot_id", "operation", "added_records")]
 #> # A tibble: 2 × 3
 #>   snapshot_id         operation added_records
 #>   <chr>               <chr>             <dbl>
-#> 1 9093055523417197085 append              200
-#> 2 5999865825163108979 append              200
+#> 1 8726260209992279769 append              200
+#> 2 6479732303537631517 append              200
 ```
 
 And the manifests are what makes a scan plan possible without opening

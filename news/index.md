@@ -1,7 +1,5 @@
 # Changelog
 
-## icebergr (development version)
-
 ## icebergr 0.2.0
 
 No function was gained or lost. This release fixes an append that could
